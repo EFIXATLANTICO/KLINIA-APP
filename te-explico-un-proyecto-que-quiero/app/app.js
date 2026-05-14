@@ -204,17 +204,14 @@ function filterClinicValue(key, value, clinicKey) {
   return value;
 }
 
-function loadClinicStateFor(key, fallback) {
+function loadClinicStateFor(clinicKey, key, fallback) {
   if (typeof window === "undefined" || typeof localStorage === "undefined") {
     return fallback;
   }
 
   try {
-    const saved =
-      localStorage.getItem(`klinia:${key}`) ||
-      localStorage.getItem(`clinicaflow:${key}`);
-
-    return saved ? JSON.parse(saved) : fallback;
+    const scoped = localStorage.getItem(`klinia:${clinicStateKeyFor(clinicKey, key)}`);
+    return scoped ? filterClinicValue(key, JSON.parse(scoped), clinicKey) : fallback;
   } catch (error) {
     return fallback;
   }
@@ -432,10 +429,7 @@ function normalizeServices(savedServices) {
 }
 
 function normalizeAppointments(savedAppointments) {
-if (!Array.isArray(savedAppointments)) {
-  savedAppointments = [];
-}
-  return savedAppointments.map((appointment) => ({
+  return (Array.isArray(savedAppointments) ? savedAppointments : []).map((appointment) => ({
     date: todayIso(),
     ...appointment
   }));
