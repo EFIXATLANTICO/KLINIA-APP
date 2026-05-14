@@ -220,20 +220,19 @@ function loadClinicStateFor(key, fallback) {
   }
 }
 
-  try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
-  } catch (error) {
-    return fallback;
-  }
-}
-
 function loadClinicState(key, fallback) {
   return loadClinicStateFor(activeClinicKey, key, fallback);
 }
 
 function saveClinicState(key, value) {
-  localStorage.setItem(`klinia:${clinicStateKey(key)}`, JSON.stringify(scopeClinicValue(key, value, activeClinicKey)));
+  if (typeof window === "undefined" || typeof localStorage === "undefined") {
+    return;
+  }
+
+  localStorage.setItem(
+    `klinia:${clinicStateKey(key)}`,
+    JSON.stringify(scopeClinicValue(key, value, activeClinicKey))
+  );
 }
 
 function isDemoClinic() {
