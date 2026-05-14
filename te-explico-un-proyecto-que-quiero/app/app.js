@@ -432,6 +432,9 @@ function normalizeServices(savedServices) {
 }
 
 function normalizeAppointments(savedAppointments) {
+if (!Array.isArray(savedAppointments)) {
+  savedAppointments = [];
+}
   return savedAppointments.map((appointment) => ({
     date: todayIso(),
     ...appointment
