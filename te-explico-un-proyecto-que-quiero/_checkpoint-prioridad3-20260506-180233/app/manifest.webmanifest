@@ -1,0 +1,35 @@
+{
+  "name": "Klinia Clinic OS",
+  "short_name": "Klinia",
+  "description": "Agenda, pacientes, equipo, facturacion y recordatorios para clinicas privadas.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f5f1",
+  "theme_color": "#10231f",
+  "categories": ["medical", "productivity", "business"],
+  "icons": [
+    {
+      "src": "./assets/klinia-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "url": "./#agenda",
+      "description": "Abrir agenda de la clinica"
+    },
+    {
+      "name": "Recordatorios",
+      "short_name": "Recordatorios",
+      "url": "./#automatizaciones",
+      "description": "Ver cola de recordatorios"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+.git
+.venv
+.deps*
+__pycache__
+*.pyc
+*.db
+*.sqlite
+*.sqlite3
+platform/backend/.env
+node_modules
