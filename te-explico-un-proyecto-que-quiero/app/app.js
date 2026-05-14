@@ -114,11 +114,26 @@ const clinicScopedCollectionKeys = new Set([
 ]);
 
 function loadState(key, fallback) {
-  const saved = localStorage.getItem(`klinia:${key}`) || localStorage.getItem(`clinicaflow:${key}`);
-  return saved ? JSON.parse(saved) : fallback;
+  if (typeof localStorage === "undefined") {
+    return fallback;
+  }
+
+  try {
+    const saved =
+      localStorage.getItem(`klinia:${key}`) ||
+      localStorage.getItem(`clinicaflow:${key}`);
+
+    return saved ? JSON.parse(saved) : fallback;
+  } catch (error) {
+    return fallback;
+  }
 }
 
 function saveState(key, value) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
   localStorage.setItem(`klinia:${key}`, JSON.stringify(value));
 }
 
