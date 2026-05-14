@@ -348,6 +348,10 @@ function ownerPasswordForAccount(account) {
   return account?.ownerPassword || account?.password || "";
 }
 
+function clinicAccessPasswordForAccount(account) {
+  return account?.password || ownerPasswordForAccount(account);
+}
+
 function loginPrincipalByIdentifier(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) {
@@ -4871,7 +4875,7 @@ async function resolveAccessRecoveryRequest(requestId) {
   const nextKey = generateAccessKey();
   if (request.profile === "owner") {
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
-      account.key === activeClinicKey ? { ...account, password: nextKey } : account
+      account.key === activeClinicKey ? { ...account, password: nextKey, ownerPassword: nextKey } : account
     )));
     saveClinicAccounts();
   } else if (request.profile === "staff") {
@@ -5687,7 +5691,7 @@ function setupLogin() {
       return;
     }
     const password = form.elements.password.value;
-    if (password !== account.password) {
+    if (password !== clinicAccessPasswordForAccount(account)) {
       form.elements.password.setCustomValidity("Contrasena incorrecta para esta clinica.");
       form.reportValidity();
       form.elements.password.setCustomValidity("");

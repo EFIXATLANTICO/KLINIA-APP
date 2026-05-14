@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-register-logo1";
+const KLINIA_CACHE = "klinia-mobile-polish1";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260514-register-logo1",
-  "./app.js?v=20260514-register-logo1",
+  "./styles.css?v=20260514-mobile-polish1",
+  "./app.js?v=20260514-mobile-polish1",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
