@@ -1144,12 +1144,6 @@ function monthEndIso(value) {
   return toIsoDate(date);
 }
 
-function addMonthsIso(value, amount) {
-  const date = dateOnly(monthStartIso(value));
-  date.setMonth(date.getMonth() + amount);
-  return toIsoDate(date);
-}
-
 function capitalizeFirst(value) {
   const text = String(value || "");
   return text ? `${text.charAt(0).toLocaleUpperCase("es-ES")}${text.slice(1)}` : "";
