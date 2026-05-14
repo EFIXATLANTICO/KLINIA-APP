@@ -204,10 +204,17 @@ function filterClinicValue(key, value, clinicKey) {
   return value;
 }
 
-function loadClinicStateFor(key, fallback = {}) {
-  if (typeof localStorage === "undefined") {
+function loadClinicStateFor(key, fallback) {
+  if (typeof window === "undefined") {
     return fallback;
   }
+
+  const saved =
+    localStorage.getItem(`klinia:${key}`) ||
+    localStorage.getItem(`clinicaflow:${key}`);
+
+  return saved ? JSON.parse(saved) : fallback;
+}
 
   try {
     const saved = localStorage.getItem(key);
