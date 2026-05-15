@@ -14,12 +14,13 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import Base, engine, ensure_runtime_schema, get_db
-from .deps import current_user, require_roles
-from .models import Appointment, Clinic, Patient, Practitioner, Room, Service, User, UserRole
+from .deps import current_subscribed_user, current_user, require_roles, require_subscribed_roles
+from .models import Appointment, AuditLog, Clinic, Patient, Practitioner, Room, Service, User, UserRole
 from .schemas import (
     AppointmentCreate,
     AppointmentOut,
     AppointmentUpdate,
+    AuditLogOut,
     BillingProfileUpdate,
     BillingSessionOut,
     BillingStatusOut,
@@ -89,6 +90,26 @@ def clinic_user_or_404(db: Session, user_id: str, clinic_id: str) -> User:
 def apply_update(item, payload) -> None:
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
+
+
+def audit_action(
+    db: Session,
+    user: User,
+    action: str,
+    resource_type: str,
+    resource_id: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    db.add(
+        AuditLog(
+            clinic_id=user.clinic_id,
+            user_id=user.id,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            metadata_json=json.dumps(metadata or {}, ensure_ascii=True),
+        )
+    )
 
 
 def professional_price_ids() -> list[str]:
@@ -319,9 +340,15 @@ def frontend_asset(asset_name: str) -> FileResponse:
 
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) -> TokenOut:
-    existing = db.scalar(select(Clinic).where(Clinic.email == payload.email.lower()))
+    existing = db.scalar(
+        select(Clinic).where(
+            (Clinic.email == payload.email.lower())
+            | (Clinic.name == payload.clinic_name)
+            | ((Clinic.tax_id == payload.tax_id) if payload.tax_id else (Clinic.email == payload.email.lower()))
+        )
+    )
     if existing:
-        raise HTTPException(status_code=409, detail="Clinic email already exists")
+        raise HTTPException(status_code=409, detail="Clinic name, tax id or email already exists")
 
     plan = plan_by_id(payload.plan)
     trial_ends_at = datetime.now(UTC) + timedelta(days=30)
@@ -348,6 +375,8 @@ def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) ->
         role=UserRole.owner,
     )
     db.add(user)
+    db.flush()
+    audit_action(db, user, "register-clinic", "clinic", clinic.id, {"plan": plan["id"]})
     db.commit()
     db.refresh(user)
     token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)
@@ -405,6 +434,8 @@ def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole
         active=payload.active,
     )
     db.add(next_user)
+    db.flush()
+    audit_action(db, user, "create-user", "user", next_user.id, {"role": next_user.role.value})
     db.commit()
     db.refresh(next_user)
     return next_user
@@ -432,6 +463,7 @@ def update_user(user_id: str, payload: UserUpdate, user: User = Depends(require_
         if target.id == user.id and data["active"] is False:
             raise HTTPException(status_code=400, detail="Owner cannot deactivate their own account")
         target.active = data["active"]
+    audit_action(db, user, "update-user", "user", target.id, {"fields": sorted(data.keys())})
     db.commit()
     db.refresh(target)
     return target
@@ -443,7 +475,20 @@ def deactivate_user(user_id: str, user: User = Depends(require_roles(UserRole.ow
     if target.id == user.id:
         raise HTTPException(status_code=400, detail="Owner cannot deactivate their own account")
     target.active = False
+    audit_action(db, user, "deactivate-user", "user", target.id)
     db.commit()
+
+
+@app.get("/audit-log", response_model=list[AuditLogOut])
+def list_audit_log(user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> list[AuditLog]:
+    return list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.clinic_id == user.clinic_id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(200)
+        )
+    )
 
 
 @app.get("/billing/plans", response_model=list[PlanOut])
@@ -500,127 +545,143 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dic
 
 
 @app.get("/patients", response_model=list[PatientOut])
-def list_patients(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Patient]:
+def list_patients(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Patient]:
     return list(db.scalars(select(Patient).where(Patient.clinic_id == user.clinic_id).order_by(Patient.name)))
 
 
 @app.post("/patients", response_model=PatientOut, status_code=status.HTTP_201_CREATED)
-def create_patient(payload: PatientCreate, user: User = Depends(require_roles(UserRole.owner, UserRole.staff)), db: Session = Depends(get_db)) -> Patient:
+def create_patient(payload: PatientCreate, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)), db: Session = Depends(get_db)) -> Patient:
     patient = Patient(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(patient)
+    db.flush()
+    audit_action(db, user, "create-patient", "patient", patient.id)
     db.commit()
     db.refresh(patient)
     return patient
 
 
 @app.patch("/patients/{patient_id}", response_model=PatientOut)
-def update_patient(patient_id: str, payload: PatientUpdate, user: User = Depends(require_roles(UserRole.owner, UserRole.staff)), db: Session = Depends(get_db)) -> Patient:
+def update_patient(patient_id: str, payload: PatientUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)), db: Session = Depends(get_db)) -> Patient:
     patient = clinic_item_or_404(db, Patient, patient_id, user.clinic_id)
     apply_update(patient, payload)
+    audit_action(db, user, "update-patient", "patient", patient.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()
     db.refresh(patient)
     return patient
 
 
 @app.delete("/patients/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_patient(patient_id: str, user: User = Depends(require_roles(UserRole.owner, UserRole.staff)), db: Session = Depends(get_db)) -> None:
+def delete_patient(patient_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)), db: Session = Depends(get_db)) -> None:
     patient = clinic_item_or_404(db, Patient, patient_id, user.clinic_id)
+    audit_action(db, user, "delete-patient", "patient", patient.id)
     db.delete(patient)
     db.commit()
 
 
 @app.get("/practitioners", response_model=list[PractitionerOut])
-def list_practitioners(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Practitioner]:
+def list_practitioners(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Practitioner]:
     return list(db.scalars(select(Practitioner).where(Practitioner.clinic_id == user.clinic_id).order_by(Practitioner.name)))
 
 
 @app.post("/practitioners", response_model=PractitionerOut, status_code=status.HTTP_201_CREATED)
-def create_practitioner(payload: PractitionerCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Practitioner:
+def create_practitioner(payload: PractitionerCreate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Practitioner:
     practitioner = Practitioner(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(practitioner)
+    db.flush()
+    audit_action(db, user, "create-practitioner", "practitioner", practitioner.id)
     db.commit()
     db.refresh(practitioner)
     return practitioner
 
 
 @app.patch("/practitioners/{practitioner_id}", response_model=PractitionerOut)
-def update_practitioner(practitioner_id: str, payload: PractitionerUpdate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Practitioner:
+def update_practitioner(practitioner_id: str, payload: PractitionerUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Practitioner:
     practitioner = clinic_item_or_404(db, Practitioner, practitioner_id, user.clinic_id)
     apply_update(practitioner, payload)
+    audit_action(db, user, "update-practitioner", "practitioner", practitioner.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()
     db.refresh(practitioner)
     return practitioner
 
 
 @app.delete("/practitioners/{practitioner_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_practitioner(practitioner_id: str, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
+def delete_practitioner(practitioner_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
     practitioner = clinic_item_or_404(db, Practitioner, practitioner_id, user.clinic_id)
+    audit_action(db, user, "delete-practitioner", "practitioner", practitioner.id)
     db.delete(practitioner)
     db.commit()
 
 
 @app.get("/rooms", response_model=list[RoomOut])
-def list_rooms(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Room]:
+def list_rooms(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Room]:
     return list(db.scalars(select(Room).where(Room.clinic_id == user.clinic_id).order_by(Room.name)))
 
 
 @app.post("/rooms", response_model=RoomOut, status_code=status.HTTP_201_CREATED)
-def create_room(payload: RoomCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Room:
+def create_room(payload: RoomCreate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Room:
     room = Room(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(room)
+    db.flush()
+    audit_action(db, user, "create-room", "room", room.id)
     db.commit()
     db.refresh(room)
     return room
 
 
 @app.patch("/rooms/{room_id}", response_model=RoomOut)
-def update_room(room_id: str, payload: RoomUpdate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Room:
+def update_room(room_id: str, payload: RoomUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Room:
     room = clinic_item_or_404(db, Room, room_id, user.clinic_id)
     apply_update(room, payload)
+    audit_action(db, user, "update-room", "room", room.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()
     db.refresh(room)
     return room
 
 
 @app.delete("/rooms/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_room(room_id: str, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
+def delete_room(room_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
     room = clinic_item_or_404(db, Room, room_id, user.clinic_id)
+    audit_action(db, user, "delete-room", "room", room.id)
     db.delete(room)
     db.commit()
 
 
 @app.get("/services", response_model=list[ServiceOut])
-def list_services(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Service]:
+def list_services(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Service]:
     return list(db.scalars(select(Service).where(Service.clinic_id == user.clinic_id).order_by(Service.name)))
 
 
 @app.post("/services", response_model=ServiceOut, status_code=status.HTTP_201_CREATED)
-def create_service(payload: ServiceCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Service:
+def create_service(payload: ServiceCreate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Service:
     service = Service(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(service)
+    db.flush()
+    audit_action(db, user, "create-service", "service", service.id)
     db.commit()
     db.refresh(service)
     return service
 
 
 @app.patch("/services/{service_id}", response_model=ServiceOut)
-def update_service(service_id: str, payload: ServiceUpdate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Service:
+def update_service(service_id: str, payload: ServiceUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Service:
     service = clinic_item_or_404(db, Service, service_id, user.clinic_id)
     apply_update(service, payload)
+    audit_action(db, user, "update-service", "service", service.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()
     db.refresh(service)
     return service
 
 
 @app.delete("/services/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_service(service_id: str, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
+def delete_service(service_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
     service = clinic_item_or_404(db, Service, service_id, user.clinic_id)
+    audit_action(db, user, "delete-service", "service", service.id)
     db.delete(service)
     db.commit()
 
 
 @app.get("/appointments", response_model=list[AppointmentOut])
-def list_appointments(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Appointment]:
+def list_appointments(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Appointment]:
     query = select(Appointment).where(Appointment.clinic_id == user.clinic_id).order_by(Appointment.date, Appointment.start)
     if user.role == UserRole.practitioner and user.practitioner:
         query = query.where(Appointment.practitioner_id == user.practitioner.id)
@@ -628,7 +689,7 @@ def list_appointments(user: User = Depends(current_user), db: Session = Depends(
 
 
 @app.post("/appointments", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
-def create_appointment(payload: AppointmentCreate, user: User = Depends(require_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> Appointment:
+def create_appointment(payload: AppointmentCreate, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> Appointment:
     for model, item_id in (
         (Patient, payload.patient_id),
         (Practitioner, payload.practitioner_id),
@@ -644,13 +705,15 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
 
     appointment = Appointment(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(appointment)
+    db.flush()
+    audit_action(db, user, "create-appointment", "appointment", appointment.id)
     db.commit()
     db.refresh(appointment)
     return appointment
 
 
 @app.patch("/appointments/{appointment_id}", response_model=AppointmentOut)
-def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: User = Depends(require_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> Appointment:
+def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> Appointment:
     appointment = clinic_item_or_404(db, Appointment, appointment_id, user.clinic_id)
     if user.role == UserRole.practitioner and user.practitioner and appointment.practitioner_id != user.practitioner.id:
         raise HTTPException(status_code=403, detail="Practitioners can only edit their own appointments")
@@ -669,15 +732,17 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
         raise HTTPException(status_code=403, detail="Practitioners can only assign their own appointments")
 
     apply_update(appointment, payload)
+    audit_action(db, user, "update-appointment", "appointment", appointment.id, {"fields": sorted(data.keys())})
     db.commit()
     db.refresh(appointment)
     return appointment
 
 
 @app.delete("/appointments/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_appointment(appointment_id: str, user: User = Depends(require_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> None:
+def delete_appointment(appointment_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> None:
     appointment = clinic_item_or_404(db, Appointment, appointment_id, user.clinic_id)
     if user.role == UserRole.practitioner and user.practitioner and appointment.practitioner_id != user.practitioner.id:
         raise HTTPException(status_code=403, detail="Practitioners can only delete their own appointments")
+    audit_action(db, user, "delete-appointment", "appointment", appointment.id)
     db.delete(appointment)
     db.commit()

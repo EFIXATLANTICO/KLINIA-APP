@@ -833,6 +833,16 @@
                   Telefono
                   <input name="phone" type="tel" value="600 000 000" readonly />
                 </label>
+                <fieldset class="register-days clinic-working-days">
+                  <legend>Dias de atencion</legend>
+                  <label><input type="checkbox" name="workingDays" value="mon" checked /> Lun</label>
+                  <label><input type="checkbox" name="workingDays" value="tue" checked /> Mar</label>
+                  <label><input type="checkbox" name="workingDays" value="wed" checked /> Mie</label>
+                  <label><input type="checkbox" name="workingDays" value="thu" checked /> Jue</label>
+                  <label><input type="checkbox" name="workingDays" value="fri" checked /> Vie</label>
+                  <label><input type="checkbox" name="workingDays" value="sat" /> Sab</label>
+                  <label><input type="checkbox" name="workingDays" value="sun" /> Dom</label>
+                </fieldset>
                 <button class="danger-button" type="button" id="delete-clinic">Resetear datos de esta clinica</button>
                 <p class="save-status" id="clinic-save-status"></p>
               </form>
@@ -1109,7 +1119,7 @@
             Estado
             <select name="status">
               <option value="confirmed">Confirmada</option>
-              <option value="pending">Pendiente</option>
+              <option value="cancelled">Cancelada</option>
             </select>
           </label>
         </div>
@@ -1275,11 +1285,8 @@
         <label>
           Estado
           <select name="status">
-            <option value="pending">Pendiente</option>
             <option value="confirmed">Confirmada</option>
-            <option value="completed">Atendida</option>
             <option value="cancelled">Cancelada</option>
-            <option value="no_show">No asistio</option>
           </select>
         </label>
         <label class="cancelled-by-field hidden">
@@ -1297,6 +1304,7 @@
         <p class="form-error" id="appointment-detail-error" role="alert"></p>
         <div class="modal-actions">
           <button class="secondary-button" type="button" id="appointment-invoice-button">Generar factura</button>
+          <button class="secondary-button" type="button" id="appointment-attendance-button">Justificante de asistencia</button>
           <button class="secondary-button dialog-close" type="button" data-dialog-id="appointment-detail-dialog">Cerrar</button>
           <button class="primary-button" value="default" type="submit">Guardar cambios</button>
         </div>
@@ -2061,6 +2069,34 @@
         <div class="modal-actions">
           <button class="secondary-button" value="cancel" type="submit" id="confirm-dialog-cancel">Cancelar</button>
           <button class="danger-button" value="confirm" type="submit" id="confirm-dialog-accept">Confirmar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-preview-dialog">
+      <form method="dialog" class="modal-form import-preview-form" id="import-preview-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Importacion segura</p>
+            <h2>Revisar copia antes de importar</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="import-preview-dialog" title="Cerrar">x</button>
+        </div>
+        <p class="feedback-message" id="import-preview-summary"></p>
+        <div class="import-preview-grid">
+          <article>
+            <strong>Datos detectados</strong>
+            <ul id="import-preview-detected"></ul>
+          </article>
+          <article>
+            <strong>Conflictos y avisos</strong>
+            <ul id="import-preview-conflicts"></ul>
+          </article>
+        </div>
+        <p class="form-help">La importacion valida el archivo completo antes de escribir. Si falla una clave critica, se revierte todo y se mantiene el estado anterior.</p>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="import-preview-dialog">Cancelar</button>
+          <button class="danger-button" value="confirm" type="submit" id="confirm-import-backup">Importar copia</button>
         </div>
       </form>
     </dialog>

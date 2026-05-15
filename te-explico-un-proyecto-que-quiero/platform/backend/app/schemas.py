@@ -18,7 +18,7 @@ class ClinicRegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=4)
     phone: str | None = None
-    owner_name: str = "Direccion"
+    owner_name: str = Field(min_length=2, max_length=160)
     plan: str = "trial"
     billing_name: str | None = None
     billing_email: EmailStr | None = None
@@ -82,6 +82,19 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=4)
     role: UserRole | None = None
     active: bool | None = None
+
+
+class AuditLogOut(BaseModel):
+    id: str
+    clinic_id: str
+    user_id: str | None = None
+    action: str
+    resource_type: str
+    resource_id: str | None = None
+    metadata_json: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class PlanOut(BaseModel):
