@@ -438,6 +438,9 @@ function subscriptionAllowsUse(account = currentClinicAccount()) {
   if (["trialing", "trial"].includes(status)) {
     return !account.trialEndsAt || account.trialEndsAt >= todayIso();
   }
+  if (["pending_stripe", "incomplete"].includes(status) && account.trialEndsAt && account.trialEndsAt >= todayIso()) {
+    return true;
+  }
   return false;
 }
 
@@ -7718,12 +7721,17 @@ function setupConfiguration() {
   $("#clinic-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const workingDays = $$("input[name='workingDays']:checked", form).map((input) => input.value);
+    if (!workingDays.length) {
+      $("#clinic-save-status").textContent = "Selecciona al menos un dia de atencion.";
+      return;
+    }
     clinic = {
       ...clinic,
       name: form.elements.name.value.trim() || defaultClinic.name,
       email: form.elements.email?.value.trim() || "",
       phone: form.elements.phone.value.trim(),
-      workingDays: $$("input[name='workingDays']:checked", form).map((input) => input.value)
+      workingDays
     };
     saveClinicState("clinic", clinic);
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (

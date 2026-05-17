@@ -39,13 +39,16 @@ def subscription_allows_use(user: User) -> bool:
     subscription_status = clinic.subscription_status or "trialing"
     if subscription_status == "active":
         return True
-    if subscription_status in {"trial", "trialing"}:
-        if not clinic.trial_ends_at:
-            return True
+    if clinic.trial_ends_at:
         trial_ends_at = clinic.trial_ends_at
         if trial_ends_at.tzinfo is None:
             trial_ends_at = trial_ends_at.replace(tzinfo=UTC)
-        return trial_ends_at >= datetime.now(UTC)
+        if trial_ends_at >= datetime.now(UTC):
+            return True
+    if subscription_status in {"trial", "trialing"}:
+        if not clinic.trial_ends_at:
+            return True
+        return False
     return False
 
 

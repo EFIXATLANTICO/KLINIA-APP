@@ -192,6 +192,13 @@ def create_checkout_session(clinic: Clinic, plan_id: str) -> BillingSessionOut:
         "subscription_data[metadata][clinic_id]": clinic.id,
         "subscription_data[metadata][plan]": plan_id,
     }
+    if clinic.trial_ends_at:
+        trial_ends_at = clinic.trial_ends_at
+        if trial_ends_at.tzinfo is None:
+            trial_ends_at = trial_ends_at.replace(tzinfo=UTC)
+        trial_days = max(0, (trial_ends_at - datetime.now(UTC)).days)
+        if trial_days > 0:
+            data["subscription_data[trial_period_days]"] = str(trial_days)
     session = stripe_post("checkout/sessions", data)
     return BillingSessionOut(url=session["url"], demo_mode=False)
 
@@ -249,6 +256,14 @@ def timestamp_to_datetime(value) -> datetime | None:
     if not value:
         return None
     return datetime.fromtimestamp(int(value), UTC)
+
+
+def datetime_is_future(value: datetime | None) -> bool:
+    if not value:
+        return False
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value >= datetime.now(UTC)
 
 
 def stripe_plan_for_price(price_id: str | None) -> str | None:
@@ -361,9 +376,9 @@ def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) ->
         tax_id=payload.tax_id,
         billing_address=payload.billing_address,
         subscription_plan=plan["id"],
-        subscription_status="trialing" if plan["id"] == "trial" else "incomplete",
+        subscription_status="trialing",
         stripe_price_id=plan.get("price_id"),
-        trial_ends_at=trial_ends_at if plan["id"] == "trial" else None,
+        trial_ends_at=trial_ends_at,
     )
     db.add(clinic)
     db.flush()
@@ -384,7 +399,6 @@ def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) ->
     if plan["id"] != "trial":
         session = create_checkout_session(clinic, plan["id"])
         checkout_url = session.url
-        clinic.subscription_status = "incomplete" if not session.demo_mode else "pending_stripe"
         db.commit()
     return TokenOut(access_token=token, clinic_id=clinic.id, subscription_status=clinic.subscription_status, checkout_url=checkout_url)
 
@@ -510,6 +524,7 @@ def billing_status(user: User = Depends(current_user)) -> BillingStatusOut:
 @app.patch("/billing/profile", response_model=BillingStatusOut)
 def update_billing_profile(payload: BillingProfileUpdate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> BillingStatusOut:
     apply_update(user.clinic, payload)
+    audit_action(db, user, "update-billing-profile", "clinic", user.clinic_id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()
     db.refresh(user.clinic)
     return billing_status_for_clinic(user.clinic)
@@ -519,10 +534,11 @@ def update_billing_profile(payload: BillingProfileUpdate, user: User = Depends(r
 def checkout_session(payload: CheckoutSessionCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> BillingSessionOut:
     plan = plan_by_id(payload.plan)
     user.clinic.subscription_plan = plan["id"]
-    user.clinic.subscription_status = "trialing" if plan["id"] == "trial" else "incomplete"
+    user.clinic.subscription_status = "trialing" if datetime_is_future(user.clinic.trial_ends_at) else ("trialing" if plan["id"] == "trial" else "incomplete")
     user.clinic.stripe_price_id = plan.get("price_id") or user.clinic.stripe_price_id
-    if plan["id"] == "trial" and not user.clinic.trial_ends_at:
-        user.clinic.trial_ends_at = datetime.now(UTC) + timedelta(days=14)
+    if not user.clinic.trial_ends_at:
+        user.clinic.trial_ends_at = datetime.now(UTC) + timedelta(days=30)
+    audit_action(db, user, "checkout-session", "clinic", user.clinic_id, {"plan": plan["id"]})
     db.commit()
     return create_checkout_session(user.clinic, plan["id"])
 
