@@ -1098,7 +1098,7 @@ function overlappingMinutes(firstStart, firstEnd, secondStart, secondEnd) {
 }
 
 function parseDecimal(value, fallback = 0) {
-  const normalized = String(value - "").trim().replace(",", ".");
+  const normalized = String(value ?? "").trim().replace(",", ".");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
