@@ -62,7 +62,7 @@ Todos los endpoints internos filtran por `clinic_id` del usuario autenticado.
 
 ## SaaS, Stripe y multiempresa
 
-El registro de clinica acepta `plan`, datos fiscales y responsable. Si el plan no es `trial`, el backend crea una sesion Checkout cuando `STRIPE_SECRET_KEY` y el `STRIPE_PRICE_*` correspondiente existen. Si faltan claves, devuelve una URL demo y deja la clinica con estado `pending_stripe`.
+El registro de clinica acepta `plan`, datos fiscales y responsable. Si el plan no es `trial`, el backend crea una sesion Checkout cuando `STRIPE_SECRET_KEY` y el precio `STRIPE_PRICE_KLINIAPLAN_MONTHLY` o `STRIPE_PRICE_KLINIAPLAN_ANNUAL` existen. `STRIPE_PRICE_KLINIAPLAN` queda como fallback mensual para despliegues anteriores. Si faltan claves, devuelve una URL demo y deja la clinica con estado `pending_stripe`.
 
 El portal de pagos usa el Customer Portal de Stripe cuando la clinica tiene `stripe_customer_id`. Los webhooks actualizan `subscription_status`, `stripe_customer_id`, `stripe_subscription_id`, precio y periodo actual.
 

@@ -97,6 +97,8 @@ Cuando se activen integraciones reales:
 ```text
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
+STRIPE_PRICE_KLINIAPLAN_MONTHLY=
+STRIPE_PRICE_KLINIAPLAN_ANNUAL=
 STRIPE_PRICE_KLINIAPLAN=
 WHATSAPP_PROVIDER=
 WHATSAPP_ACCESS_TOKEN=
@@ -122,16 +124,19 @@ POST /billing/portal-session
 POST /stripe/webhook
 ```
 
-En Stripe hay que crear el producto/precio mensual del plan Profesional y copiar el `price_...` a:
+En Stripe hay que crear el producto Klinia Profesional con precio mensual y, si se vendera anual, precio anual. Copia los `price_...` a:
 
 ```text
-STRIPE_PRICE_KLINIAPLAN
+STRIPE_PRICE_KLINIAPLAN_MONTHLY
+STRIPE_PRICE_KLINIAPLAN_ANNUAL
 ```
+
+`STRIPE_PRICE_KLINIAPLAN` se mantiene como compatibilidad con despliegues anteriores y se usa como precio mensual si `STRIPE_PRICE_KLINIAPLAN_MONTHLY` no esta definido.
 
 Webhook recomendado en Stripe:
 
 ```text
-https://api.klinia.es/stripe/webhook
+https://www.kliniasolutions.com/stripe/webhook
 ```
 
 Eventos mínimos:
@@ -167,7 +172,7 @@ app
 11. Anadir dominio:
 
 ```text
-app.klinia.es
+www.kliniasolutions.com
 ```
 
 ## 7. Subir backend a Render
@@ -183,8 +188,8 @@ Opcion Render con `render.yaml`:
 7. En variables, revisar:
 
 ```text
-CORS_ORIGINS=https://app.klinia.es
-FRONTEND_URL=https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://app.klinia.es
+FRONTEND_URL=https://www.kliniasolutions.com
 ```
 
 8. Deploy.
@@ -217,8 +222,8 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 DATABASE_URL=<la de Railway PostgreSQL>
 APP_ENV=production
 JWT_SECRET=<valor largo seguro>
-CORS_ORIGINS=https://app.klinia.es
-FRONTEND_URL=https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://app.klinia.es
+FRONTEND_URL=https://www.kliniasolutions.com
 ```
 
 ## 9. Base de datos PostgreSQL
@@ -244,15 +249,15 @@ La migracion `20260506_1805_saas_billing.py` anade datos fiscales, plan, estado 
 DNS recomendado:
 
 ```text
-app.klinia.es -> Vercel
-api.klinia.es -> Render/Railway
+www.kliniasolutions.com -> Vercel
+api.kliniasolutions.com -> Render/Railway
 ```
 
 Despues actualizar en backend:
 
 ```text
-CORS_ORIGINS=https://app.klinia.es
-FRONTEND_URL=https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://app.klinia.es
+FRONTEND_URL=https://www.kliniasolutions.com
 ```
 
 ## 11. Entregar URL al cliente
@@ -260,7 +265,7 @@ FRONTEND_URL=https://app.klinia.es
 URL para cliente:
 
 ```text
-https://app.klinia.es
+https://www.kliniasolutions.com
 ```
 
 El cliente debe poder:

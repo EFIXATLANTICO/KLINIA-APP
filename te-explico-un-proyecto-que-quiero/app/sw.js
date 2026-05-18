@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-tickets-4-10-20260515";
+const KLINIA_CACHE = "klinia-stripe-pagos-20260519";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260515-tickets-4-10",
-  "./app.js?v=20260515-tickets-4-10",
+  "./styles.css?v=20260519-stripe-pagos",
+  "./app.js?v=20260519-stripe-pagos",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

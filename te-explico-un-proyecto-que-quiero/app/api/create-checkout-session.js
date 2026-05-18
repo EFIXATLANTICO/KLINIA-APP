@@ -10,19 +10,31 @@ export default async function handler(req, res) {
     }
 
     try {
+        const plan = req.body?.plan === "annual" || req.body?.plan === "kliniaplan_annual" ? "annual" : "monthly";
+        const price = plan === "annual"
+            ? process.env.STRIPE_PRICE_KLINIAPLAN_ANNUAL
+            : (process.env.STRIPE_PRICE_KLINIAPLAN_MONTHLY || process.env.STRIPE_PRICE_KLINIAPLAN || process.env.STRIPE_PRICE_ID);
+
+        if (!price) {
+            return res.status(500).json({
+                error: "Stripe price id not configured"
+            });
+        }
+
+        const origin = process.env.FRONTEND_URL || "https://www.kliniasolutions.com";
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ["card"],
             mode: "subscription",
 
             line_items: [
                 {
-                    price: process.env.STRIPE_PRICE_ID,
+                    price,
                     quantity: 1
                 }
             ],
 
-            success_url: "https://www.kliniasolutions.com?payment=success",
-            cancel_url: "https://www.kliniasolutions.com?payment=cancel"
+            success_url: `${origin}?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${origin}?billing=cancelled&plan=${plan}`
         });
 
         return res.status(200).json({

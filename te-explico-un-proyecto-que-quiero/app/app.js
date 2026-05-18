@@ -1109,7 +1109,7 @@ function applyBackendBillingStatus(status) {
           stripeConfigured: Boolean(status.stripe_configured),
           stripeCustomerId: status.stripe_customer_id || "",
           stripeSubscriptionId: status.stripe_subscription_id || "",
-          currentPeriodEnd: status.current_period_end || "",
+          currentPeriodEnd: (status.current_period_end || "").slice(0, 10),
           trialEndsAt: (status.trial_ends_at || account.trialEndsAt || "").slice(0, 10),
           billingProfile: {
             ...(account.billingProfile || {}),
@@ -3528,6 +3528,7 @@ function renderPatientDetail() {
         </div>
         <div class="compact-actions">
           <button class="secondary-button compact-inline-button" type="button" data-review-patient-consent="${item.id}">${item.revoked ? "Revisar" : "Editar"}</button>
+          <button class="secondary-button compact-inline-button" type="button" data-email-patient-consent="${item.id}">Enviar email</button>
           <button class="secondary-button compact-inline-button" type="button" data-revoke-patient-consent="${item.id}" ${item.revoked ? "disabled" : ""}>Revocar</button>
           <button class="danger-button compact-inline-button" type="button" data-delete-patient-consent="${item.id}">Eliminar</button>
         </div>
@@ -3542,6 +3543,9 @@ function renderPatientDetail() {
   });
   $$("[data-delete-patient-consent]").forEach((button) => {
     button.addEventListener("click", () => deletePatientConsent(button.dataset.deletePatientConsent));
+  });
+  $$("[data-email-patient-consent]").forEach((button) => {
+    button.addEventListener("click", () => emailPatientConsent(button.dataset.emailPatientConsent));
   });
 
   const packSelect = $("#patient-pack-template");
@@ -4667,8 +4671,13 @@ function renderSaasSettings() {
     ? Math.max(0, Math.ceil((trialEndDate.getTime() - dateOnly(todayIso()).getTime()) / 86400000))
     : 0;
   const isTrial = ["trialing", "trial"].includes(status) || account.paymentPlan === "trial";
-  const nextChargeDate = account.trialEndsAt ? formatShortDate(account.trialEndsAt) : "Pendiente";
+  const nextChargeDate = account.currentPeriodEnd
+    ? formatShortDate(account.currentPeriodEnd)
+    : account.trialEndsAt
+      ? formatShortDate(account.trialEndsAt)
+      : "Pendiente";
   const displayPlanName = account.paymentPlan === "trial" ? "Demo gratuita" : "Plan Profesional";
+  const displayedPaidPlan = account.paymentPlan === "kliniaplan_annual" ? saasPlanById("kliniaplan_annual") : professionalPlan;
 
   $("#subscription-trial-badge").textContent = isTrial
     ? `Quedan ${remainingDays} dias de prueba`
@@ -4680,7 +4689,7 @@ function renderSaasSettings() {
     : "Tu clinica usa el plan profesional conectado al estado comercial guardado.";
   $("#subscription-days-left").textContent = isTrial ? `${remainingDays} dias` : "-";
   $("#subscription-renewal-date").textContent = isTrial ? `Renovacion ${nextChargeDate}` : `Proximo cobro ${nextChargeDate}`;
-  $("#subscription-after-price").textContent = `${professionalPlan.price} EUR / ${professionalPlan.interval}`;
+  $("#subscription-after-price").textContent = `${displayedPaidPlan.price} EUR / ${displayedPaidPlan.interval}`;
   $("#start-subscription").textContent = account.stripeCustomerId
     ? "Ver mi plan"
     : account.paymentPlan === "trial"
@@ -8491,6 +8500,35 @@ async function deletePatientConsent(consentId) {
   saveClinicState("patient-consents", patientConsents);
   renderPatientDetail();
   showToast("Consentimiento eliminado.");
+}
+
+async function emailPatientConsent(consentId) {
+  const consent = patientConsentById(consentId);
+  const patient = byId(patients, consent?.patientId);
+  if (!consent || !patient) {
+    return;
+  }
+  if (!patient.email) {
+    await showNotice("Email no disponible", "Este paciente no tiene email en su ficha. Añadelo antes de enviar el consentimiento.", { variant: "warning" });
+    return;
+  }
+  const subject = `Consentimiento informado - ${consent.templateName || "Klinia"}`;
+  const body = [
+    `Hola ${patient.name || ""},`,
+    "",
+    `Te enviamos el consentimiento informado firmado en ${clinic.name || "la clinica"}.`,
+    "",
+    "Resumen del documento:",
+    consent.body || "",
+    "",
+    `Fecha: ${consent.signatureDateLabel || formatConsentDate(consent.signatureDate) || ""}`,
+    `Ciudad: ${consent.city || ""}`,
+    "",
+    "Un saludo."
+  ].join("\n");
+  const mailto = `mailto:${encodeURIComponent(patient.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
+  showToast("Se ha preparado el email del consentimiento.");
 }
 
 function patientConsentCanvasContext() {
