@@ -33,7 +33,8 @@ const defaultClinic = {
 
 const saasPlans = [
   { id: "trial", name: "Demo", price: 0, interval: "1 mes gratis", summary: "Demo - 1 mes gratis" },
-  { id: "kliniaplan", name: "Kliniaplan", price: 50, interval: "mes", summary: "Kliniaplan - 50 EUR/mes" }
+  { id: "kliniaplan", name: "Kliniaplan mensual", price: 50, interval: "mes", summary: "Kliniaplan - 50 EUR/mes" },
+  { id: "kliniaplan_annual", name: "Kliniaplan anual", price: 500, interval: "año", summary: "Kliniaplan - 500 EUR/año" }
 ];
 
 function todayIso(offsetDays = 0) {
@@ -163,6 +164,9 @@ const defaultClinicAccount = {
   paymentPlan: "trial",
   subscriptionStatus: "trialing",
   billingStatus: "trial",
+  backendToken: "",
+  backendClinicId: "",
+  stripeConfigured: false,
   trialEndsAt: addDaysIso(todayIso(), 30),
   billingHistory: [],
   billingProfile: {
@@ -257,7 +261,10 @@ function normalizeSaasPlanId(planId) {
   if (normalized === "trial" || normalized === "demo") {
     return "trial";
   }
-  if (["starter", "pro", "business", "kliniaplan"].includes(normalized)) {
+  if (["annual", "anual", "kliniaplan_annual", "professional_annual", "profesional_anual"].includes(normalized)) {
+    return "kliniaplan_annual";
+  }
+  if (["monthly", "mensual", "starter", "pro", "business", "kliniaplan", "kliniaplan_monthly"].includes(normalized)) {
     return "kliniaplan";
   }
   return saasPlans.some((plan) => plan.id === normalized) ? normalized : "trial";
@@ -274,6 +281,10 @@ function normalizeClinicAccounts(accounts) {
         checkoutUrl: "",
         stripeCustomerId: "",
         stripeSubscriptionId: "",
+        stripeConfigured: false,
+        backendToken: "",
+        backendClinicId: "",
+        currentPeriodEnd: "",
         ...account,
         key,
         password: account.password || "",
@@ -311,6 +322,9 @@ function normalizeClinicAccounts(accounts) {
       paymentPlan: "trial",
       billingStatus: "trial",
       subscriptionStatus: "trialing",
+      backendToken: "",
+      backendClinicId: "",
+      stripeConfigured: false,
       trialEndsAt: addDaysIso(todayIso(), 30),
       billingHistory: [],
       billingProfile: {
@@ -481,7 +495,9 @@ function normalizeAppointments(savedAppointments) {
   return (Array.isArray(savedAppointments) ? savedAppointments : []).map((appointment) => ({
     date: todayIso(),
     ...appointment,
-    status: normalizeAppointmentStatus(appointment.status)
+    status: normalizeAppointmentStatus(appointment.status),
+    paymentStatus: appointment.paymentStatus || appointment.paymentMethod || (appointment.invoiceGenerated ? "card" : "unpaid"),
+    paymentMethod: appointment.paymentMethod || appointment.paymentStatus || (appointment.invoiceGenerated ? "card" : "")
   }));
 }
 
@@ -1004,6 +1020,160 @@ async function apiRequest(path, options = {}) {
   return response.json();
 }
 
+function backendApiBaseUrl() {
+  const configured = String(window.KLINIA_API_BASE_URL || localStorage.getItem("klinia:api-base-url") || "").trim();
+  if (configured) {
+    return configured.replace(/\/$/, "");
+  }
+  if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return "http://localhost:8080";
+  }
+  return window.location.origin;
+}
+
+function backendRequiredForProduction() {
+  return Boolean(window.KLINIA_API_BASE_URL || localStorage.getItem("klinia:api-base-url"))
+    || !["localhost", "127.0.0.1", ""].includes(window.location.hostname);
+}
+
+function backendTokenForAccount(account = currentClinicAccount()) {
+  return account?.backendToken || "";
+}
+
+function saveBackendSessionForAccount(accountKey, session = {}) {
+  if (!accountKey || !session?.access_token) {
+    return;
+  }
+  clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
+    account.key === accountKey
+      ? {
+          ...account,
+          backendToken: session.access_token,
+          backendClinicId: session.clinic_id || account.backendClinicId || "",
+          subscriptionStatus: session.subscription_status || account.subscriptionStatus,
+          checkoutUrl: session.checkout_url || account.checkoutUrl || ""
+        }
+      : account
+  )));
+  saveClinicAccounts();
+}
+
+async function backendRequest(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {})
+  };
+  const account = options.account || currentClinicAccount();
+  const token = options.token || (options.auth === false ? "" : backendTokenForAccount(account));
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`${backendApiBaseUrl()}${path}`, {
+    ...options,
+    headers
+  });
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { detail: text };
+    }
+  }
+  if (!response.ok) {
+    const message = payload?.detail || `Error ${response.status}`;
+    const error = new Error(Array.isArray(message) ? message.map((item) => item.msg || item.message || String(item)).join(", ") : String(message));
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+function applyBackendBillingStatus(status) {
+  if (!status?.clinic_id) {
+    return;
+  }
+  clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
+    account.key === activeClinicKey
+      ? {
+          ...account,
+          backendClinicId: status.clinic_id || account.backendClinicId || "",
+          paymentPlan: normalizeSaasPlanId(status.plan || account.paymentPlan),
+          subscriptionStatus: status.status || account.subscriptionStatus,
+          billingStatus: status.status || account.billingStatus,
+          stripeConfigured: Boolean(status.stripe_configured),
+          stripeCustomerId: status.stripe_customer_id || "",
+          stripeSubscriptionId: status.stripe_subscription_id || "",
+          currentPeriodEnd: status.current_period_end || "",
+          trialEndsAt: (status.trial_ends_at || account.trialEndsAt || "").slice(0, 10),
+          billingProfile: {
+            ...(account.billingProfile || {}),
+            billingName: status.billing_name || account.billingProfile?.billingName || "",
+            billingEmail: status.billing_email || account.billingProfile?.billingEmail || "",
+            taxId: status.tax_id || account.billingProfile?.taxId || "",
+            billingAddress: status.billing_address || account.billingProfile?.billingAddress || ""
+          }
+        }
+      : account
+  )));
+  saveClinicAccounts();
+}
+
+async function syncCurrentSubscriptionFromBackend(options = {}) {
+  const account = currentClinicAccount();
+  if (!backendTokenForAccount(account)) {
+    return null;
+  }
+  try {
+    const status = await backendRequest("/billing/status", { account });
+    applyBackendBillingStatus(status);
+    if (!options.silent) {
+      showToast("Estado de suscripcion sincronizado.");
+    }
+    return status;
+  } catch (error) {
+    if (!options.silent) {
+      showToast(`No se pudo sincronizar Stripe: ${error.message}`, "warning");
+    }
+    return null;
+  }
+}
+
+async function ensureBackendLoginForAccount(account, password) {
+  if (!account || account.key === demoClinicKey || backendTokenForAccount(account) || !password) {
+    return;
+  }
+  try {
+    const session = await backendRequest("/auth/login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({
+        email: ownerEmailForAccount(account) || account.email,
+        password,
+        clinic_id: account.backendClinicId || undefined,
+        clinic_email: account.email || undefined
+      })
+    });
+    saveBackendSessionForAccount(account.key, session);
+  } catch {
+    // El acceso local se mantiene aunque el backend aun no este enlazado en este navegador.
+  }
+}
+
+async function createBackendUserIfAvailable(payload) {
+  const account = currentClinicAccount();
+  if (!backendTokenForAccount(account)) {
+    return null;
+  }
+  return backendRequest("/users", {
+    method: "POST",
+    account,
+    body: JSON.stringify(payload)
+  });
+}
+
 function apiPatientToUi(patient) {
   return {
     id: patient.id,
@@ -1300,9 +1470,45 @@ function servicePrice(appointment) {
   return Number(service.price || 0);
 }
 
+function patientPackUnitValue(pack) {
+  const sessions = Math.max(1, Number(pack?.sessions || 1));
+  const price = Number(pack?.price || 0);
+  return Math.round((price / sessions) * 100) / 100;
+}
+
+function appointmentRevenueAmount(appointment) {
+  const packId = appointment?.patientPackId || appointment?.plannedPatientPackId || "";
+  if (packId) {
+    const pack = byId(patientPacks, packId);
+    const unitValue = patientPackUnitValue(pack);
+    if (unitValue > 0) {
+      return unitValue;
+    }
+    const service = byId(services, appointment.serviceId);
+    return Number(service?.price || 0);
+  }
+  return servicePrice(appointment);
+}
+
+function appointmentPaymentStatus(appointment) {
+  const status = appointment?.paymentStatus || appointment?.paymentMethod || "";
+  if (["cash", "card", "unpaid"].includes(status)) {
+    return status;
+  }
+  return appointment?.invoiceGenerated ? "card" : "unpaid";
+}
+
+function paymentStatusLabel(value) {
+  return {
+    cash: "Efectivo",
+    card: "Tarjeta",
+    unpaid: "No cobrada"
+  }[value] || "No cobrada";
+}
+
 function serviceCommissionAmount(appointment, practitioner) {
   const service = byId(services, appointment.serviceId);
-  const revenue = servicePrice(appointment);
+  const revenue = appointmentRevenueAmount(appointment);
   if (service?.type === "group" && Number(service.commissionPerPatient || 0) > 0) {
     return Math.round(revenue * (Number(service.commissionPerPatient) / 100));
   }
@@ -1338,6 +1544,48 @@ function patientPackCounters(pack) {
     used: Math.max(0, Number(pack?.used || 0)),
     remaining: patientPackRemaining(pack || {})
   };
+}
+
+function isPatientPackExpired(pack) {
+  return Boolean(pack?.expiresAt && pack.expiresAt < todayIso());
+}
+
+function patientPackExpiryLabel(pack) {
+  if (!pack?.expiresAt) {
+    return "Sin caducidad";
+  }
+  return `${isPatientPackExpired(pack) ? "Caducado" : "Caduca"} ${formatShortDate(pack.expiresAt)}`;
+}
+
+function sessionPackExpiryDate(pack) {
+  const months = Number(pack?.expiryMonths || 0);
+  return months > 0 ? addMonthsIso(todayIso(), months) : "";
+}
+
+function patientPackActualUsedCount(pack) {
+  if (!pack?.id) {
+    return 0;
+  }
+  return appointments.filter((appointment) => (
+    appointment.patientPackId === pack.id
+      && normalizeAppointmentStatus(appointment.status) === "confirmed"
+  )).length;
+}
+
+function syncPatientPackUsageFromAppointments(options = {}) {
+  let changed = false;
+  patientPacks = patientPacks.map((pack) => {
+    const actualUsed = Math.min(Math.max(0, Number(pack.sessions || 0)), patientPackActualUsedCount(pack));
+    if (Number(pack.used || 0) === actualUsed) {
+      return pack;
+    }
+    changed = true;
+    return { ...pack, used: actualUsed, updatedAt: new Date().toISOString(), usageSource: "appointments" };
+  });
+  if (changed && options.persist) {
+    saveClinicState("patient-packs", patientPacks);
+  }
+  return changed;
 }
 
 function patientPackLockKey(packId) {
@@ -1406,6 +1654,9 @@ function validatePatientPackConsumption(pack, context = {}) {
   if (counters.used >= counters.sessions) {
     return `El bono ${pack.name || ""} esta agotado: ${counters.used}/${counters.sessions} sesiones consumidas. No se puede descontar otra sesion.`;
   }
+  if (isPatientPackExpired(pack)) {
+    return `El bono ${pack.name || ""} esta caducado desde ${formatShortDate(pack.expiresAt)}.`;
+  }
   return "";
 }
 
@@ -1455,6 +1706,7 @@ function patientPacksForAppointment(appointment) {
   return patientPacks.filter((pack) => (
     pack.patientId === appointment.patientId
       && patientPackRemaining(pack) > 0
+      && !isPatientPackExpired(pack)
       && (!pack.serviceId || pack.serviceId === appointment.serviceId)
   ));
 }
@@ -4381,7 +4633,7 @@ function renderSaasSettings() {
     : 0;
   const isTrial = ["trialing", "trial"].includes(status) || account.paymentPlan === "trial";
   const nextChargeDate = account.trialEndsAt ? formatShortDate(account.trialEndsAt) : "Pendiente";
-  const displayPlanName = account.paymentPlan === "kliniaplan" ? "Plan Profesional" : "Demo gratuita";
+  const displayPlanName = account.paymentPlan === "trial" ? "Demo gratuita" : "Plan Profesional";
 
   $("#subscription-trial-badge").textContent = isTrial
     ? `Quedan ${remainingDays} dias de prueba`
@@ -4478,7 +4730,7 @@ function renderSaasSettings() {
 
 
 function setupSaasSettings() {
-  $("#saas-billing-form")?.addEventListener("submit", (event) => {
+  $("#saas-billing-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const billingProfile = {
@@ -4499,13 +4751,59 @@ function setupSaasSettings() {
     };
     saveClinicAccounts();
     saveClinicState("clinic", clinic);
-    $("#saas-save-status").textContent = "Datos fiscales guardados.";
+    const account = currentClinicAccount();
+    if (backendTokenForAccount(account)) {
+      try {
+        const status = await backendRequest("/billing/profile", {
+          method: "PATCH",
+          account,
+          body: JSON.stringify({
+            billing_name: billingProfile.billingName || null,
+            billing_email: billingProfile.billingEmail || null,
+            tax_id: billingProfile.taxId || null,
+            billing_address: billingProfile.billingAddress || null
+          })
+        });
+        applyBackendBillingStatus(status);
+        $("#saas-save-status").textContent = "Datos fiscales guardados y sincronizados con el backend.";
+      } catch (error) {
+        $("#saas-save-status").textContent = `Datos guardados localmente. No se pudo sincronizar backend: ${error.message}`;
+      }
+    } else {
+      $("#saas-save-status").textContent = "Datos fiscales guardados localmente. Vincula esta clinica al backend para activar Stripe real.";
+    }
     renderSaasSettings();
   });
 
-  $("#start-subscription")?.addEventListener("click", () => {
+  $("#start-subscription")?.addEventListener("click", async () => {
     const account = currentClinicAccount();
     const selectedPlan = account.paymentPlan === "trial" ? "kliniaplan" : account.paymentPlan;
+    const button = $("#start-subscription");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Abriendo Stripe...";
+    }
+    try {
+      if (!backendTokenForAccount(account)) {
+        throw new Error("Esta clinica no tiene sesion backend. Inicia sesion con el usuario de Direccion o vuelve a crear/vincular la clinica.");
+      }
+      const session = await backendRequest("/billing/checkout-session", {
+        method: "POST",
+        account,
+        body: JSON.stringify({ plan: selectedPlan })
+      });
+      if (session?.url && session.demo_mode === false) {
+        window.location.href = session.url;
+        return;
+      }
+      $("#saas-save-status").textContent = "Stripe aun no esta configurado con claves y PRICE_ID reales. Se conserva el estado pendiente.";
+    } catch (error) {
+      $("#saas-save-status").textContent = `No se pudo abrir Checkout: ${error.message}`;
+    } finally {
+      if (button?.isConnected) {
+        button.disabled = false;
+      }
+    }
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
       item.key === activeClinicKey
         ? {
@@ -4513,20 +4811,33 @@ function setupSaasSettings() {
             paymentPlan: selectedPlan,
             subscriptionStatus: "pending_stripe",
             billingStatus: "pending_stripe",
-            checkoutUrl: `https://checkout.stripe.com/demo/${item.key}?plan=${selectedPlan}`
+            checkoutUrl: item.checkoutUrl || ""
           }
         : item
     )));
     saveClinicAccounts();
-    $("#saas-save-status").textContent = "Checkout preparado. Con STRIPE_SECRET_KEY se abrira Stripe real desde el backend.";
     renderSaasSettings();
   });
 
-  $("#open-billing-portal")?.addEventListener("click", () => {
+  $("#open-billing-portal")?.addEventListener("click", async () => {
     const account = currentClinicAccount();
-    $("#saas-save-status").textContent = account.stripeCustomerId
-      ? "Portal de pagos preparado para este cliente."
-      : "Portal disponible cuando exista cliente Stripe.";
+    try {
+      if (!backendTokenForAccount(account)) {
+        throw new Error("Esta clinica no tiene sesion backend activa.");
+      }
+      const session = await backendRequest("/billing/portal-session", {
+        method: "POST",
+        account,
+        body: JSON.stringify({})
+      });
+      if (session?.url && session.demo_mode === false) {
+        window.location.href = session.url;
+        return;
+      }
+      $("#saas-save-status").textContent = "El portal estara disponible cuando exista cliente Stripe real.";
+    } catch (error) {
+      $("#saas-save-status").textContent = `No se pudo abrir el portal: ${error.message}`;
+    }
   });
 
   $("#subscription-change-plan")?.addEventListener("click", () => {
@@ -5458,6 +5769,16 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   if (blocked) {
     showToast(subscriptionBlockMessage(account), "warning");
   }
+  syncCurrentSubscriptionFromBackend({ silent: true }).then((status) => {
+    if (!status) return;
+    applyRolePermissions();
+    renderSaasSettings();
+    if (subscriptionUseBlocked() && isOwner()) {
+      activeSection = "suscripcion";
+      saveState("active-section", activeSection);
+      setActiveSection("suscripcion", false);
+    }
+  });
   hydrateFromApi();
 }
 
@@ -5868,7 +6189,7 @@ function setupLogin() {
   $("#login-clinic-select").addEventListener("change", renderLoginProfiles);
   $("#login-clinic-select").addEventListener("input", renderLoginProfiles);
 
-  $("#login-form").addEventListener("submit", (event) => {
+  $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const principal = loginPrincipalByIdentifier(form.elements.center.value);
@@ -5894,15 +6215,54 @@ function setupLogin() {
       } else {
         forgetSavedLoginCredentials();
       }
+      await ensureBackendLoginForAccount(principal.account, password);
       enterPlatform(principal.profile, principal.account.key);
       return;
     }
 
     const account = clinicAccountByClinicIdentifier(form.elements.center.value) || clinicAccountByLogin(form.elements.center.value);
     if (!account) {
-      form.elements.center.setCustomValidity("No encuentro esa clinica. Escribe el nombre o el email registrado.");
-      form.reportValidity();
-      form.elements.center.setCustomValidity("");
+      try {
+        const session = await backendRequest("/auth/login", {
+          method: "POST",
+          auth: false,
+          body: JSON.stringify({
+            email: form.elements.center.value.trim(),
+            password: form.elements.password.value
+          })
+        });
+        const me = await backendRequest("/me", { token: session.access_token, auth: false });
+        const backendKey = slugifyClinicName(me?.clinic?.name || session.clinic_id || form.elements.center.value);
+        const nextAccount = {
+          key: backendKey,
+          name: me?.clinic?.name || "Clinica Klinia",
+          email: me?.clinic?.email || form.elements.center.value.trim(),
+          phone: me?.clinic?.phone || "",
+          password: "",
+          ownerEmail: me?.user?.email || form.elements.center.value.trim(),
+          ownerPassword: "",
+          paymentPlan: normalizeSaasPlanId(me?.clinic?.subscription_plan || "trial"),
+          subscriptionStatus: session.subscription_status || me?.clinic?.subscription_status || "trialing",
+          billingStatus: session.subscription_status || me?.clinic?.subscription_status || "trialing",
+          trialEndsAt: (me?.clinic?.trial_ends_at || "").slice(0, 10) || addDaysIso(todayIso(), 30),
+          backendToken: session.access_token,
+          backendClinicId: session.clinic_id || me?.clinic?.id || "",
+          billingProfile: {
+            billingName: me?.clinic?.billing_name || me?.clinic?.name || "",
+            billingEmail: me?.clinic?.billing_email || me?.clinic?.email || "",
+            taxId: me?.clinic?.tax_id || "",
+            billingAddress: me?.clinic?.billing_address || ""
+          }
+        };
+        ensureClinicAccount(nextAccount);
+        renderLoginClinics();
+        enterPlatform(me?.user?.role || "owner", backendKey);
+        return;
+      } catch {
+        form.elements.center.setCustomValidity("No encuentro esa clinica. Escribe el nombre o el email registrado.");
+        form.reportValidity();
+        form.elements.center.setCustomValidity("");
+      }
       return;
     }
     if (account.key === demoClinicKey) {
@@ -5926,6 +6286,7 @@ function setupLogin() {
     } else {
       forgetSavedLoginCredentials();
     }
+    await ensureBackendLoginForAccount(account, password);
     showProfileLoginStep(account.key);
   });
 
@@ -6055,6 +6416,38 @@ function setupLogin() {
       billingHistory: [],
       billingProfile
     };
+    let backendSession = null;
+    try {
+      backendSession = await backendRequest("/auth/register-clinic", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify({
+          clinic_name: name,
+          email: form.elements.email?.value.trim() || clinicEmail,
+          password: form.elements.password.value,
+          phone: clinicPhone,
+          owner_name: account.ownerName,
+          plan: paymentPlan,
+          billing_name: billingProfile.billingName,
+          billing_email: billingProfile.billingEmail || clinicEmail,
+          tax_id: taxId || undefined,
+          billing_address: billingProfile.billingAddress
+        })
+      });
+      account.backendToken = backendSession.access_token || "";
+      account.backendClinicId = backendSession.clinic_id || "";
+      account.subscriptionStatus = backendSession.subscription_status || account.subscriptionStatus;
+      account.billingStatus = backendSession.subscription_status || account.billingStatus;
+      account.checkoutUrl = backendSession.checkout_url || account.checkoutUrl;
+    } catch (error) {
+      if (error.status === 409 || backendRequiredForProduction()) {
+        $("#register-error").textContent = error.status === 409
+          ? "Ya existe una clinica, email o NIF/CIF en el backend. Revisa los datos o entra desde Login."
+          : `No se ha podido crear la clinica en el backend: ${error.message}`;
+        $("#register-error").classList.add("visible");
+        return;
+      }
+    }
     clinicAccounts = normalizeClinicAccounts([...clinicAccounts, account]);
     saveClinicAccounts();
     const createdAccount = clinicAccountByKey(key);

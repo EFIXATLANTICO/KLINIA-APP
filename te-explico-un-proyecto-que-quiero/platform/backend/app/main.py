@@ -116,6 +116,8 @@ def professional_price_ids() -> list[str]:
     return [
         price_id
         for price_id in (
+            settings.stripe_price_kliniaplan_monthly,
+            settings.stripe_price_kliniaplan_annual,
             settings.stripe_price_kliniaplan,
             settings.stripe_price_starter,
             settings.stripe_price_pro,
@@ -129,16 +131,22 @@ def normalize_plan_id(plan_id: str) -> str:
     value = (plan_id or "trial").lower()
     if value in {"trial", "demo"}:
         return "trial"
+    if value in {"kliniaplan_annual", "professional_annual", "profesional_anual", "annual", "anual"}:
+        return "kliniaplan_annual"
+    if value in {"kliniaplan_monthly", "professional_monthly", "profesional_mensual", "monthly", "mensual"}:
+        return "kliniaplan"
     if value in {"kliniaplan", "professional", "profesional", "starter", "pro", "business"}:
         return "kliniaplan"
     return value
 
 
 def saas_plans() -> list[dict]:
-    professional_price_id = next(iter(professional_price_ids()), None)
+    monthly_price_id = settings.stripe_price_kliniaplan_monthly or settings.stripe_price_kliniaplan or next(iter(professional_price_ids()), None)
+    annual_price_id = settings.stripe_price_kliniaplan_annual
     return [
-        {"id": "trial", "name": "Demo gratuita", "price_eur": 0, "price_id": None, "recommended": False},
-        {"id": "kliniaplan", "name": "Profesional", "price_eur": 50, "price_id": professional_price_id, "recommended": True},
+        {"id": "trial", "name": "Demo gratuita", "price_eur": 0, "price_id": None, "interval": "month", "recommended": False},
+        {"id": "kliniaplan", "name": "Profesional mensual", "price_eur": 50, "price_id": monthly_price_id, "interval": "month", "recommended": True},
+        {"id": "kliniaplan_annual", "name": "Profesional anual", "price_eur": 500, "price_id": annual_price_id, "interval": "year", "recommended": False},
     ]
 
 
@@ -269,6 +277,8 @@ def datetime_is_future(value: datetime | None) -> bool:
 def stripe_plan_for_price(price_id: str | None) -> str | None:
     if not price_id:
         return None
+    if settings.stripe_price_kliniaplan_annual and price_id == settings.stripe_price_kliniaplan_annual:
+        return "kliniaplan_annual"
     if price_id in professional_price_ids():
         return "kliniaplan"
     return None

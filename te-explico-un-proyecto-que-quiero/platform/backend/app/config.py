@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     frontend_dir: str | None = None
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    stripe_price_kliniaplan_monthly: str | None = None
+    stripe_price_kliniaplan_annual: str | None = None
     stripe_price_kliniaplan: str | None = None
     stripe_price_starter: str | None = None
     stripe_price_pro: str | None = None
