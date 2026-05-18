@@ -6,5 +6,8 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js"
+  },
+  "dependencies": {
+    "stripe": "^18.0.0"
   }
 }
