@@ -574,6 +574,14 @@
               <strong id="billing-pending">0 EUR</strong>
             </article>
             <article>
+              <span>Efectivo</span>
+              <strong id="billing-cash">0 EUR</strong>
+            </article>
+            <article>
+              <span>Tarjeta</span>
+              <strong id="billing-card">0 EUR</strong>
+            </article>
+            <article>
               <span>Cancelado/no facturable</span>
               <strong id="billing-lost">0 EUR</strong>
             </article>
@@ -586,6 +594,7 @@
                   <th>Paciente</th>
                   <th>Profesional</th>
                   <th>Estado</th>
+                  <th>Cobro</th>
                   <th>Importe</th>
                   <th></th>
                 </tr>
@@ -1173,10 +1182,6 @@
             <input name="lastName" type="text" placeholder="Apellidos" />
           </label>
           <label>
-            Nombre completo
-            <input name="name" type="text" placeholder="Nombre y apellidos" />
-          </label>
-          <label>
             DNI/NIE
             <input name="dni" type="text" placeholder="00000000A" />
           </label>
@@ -1215,8 +1220,16 @@
             <input name="email" type="email" placeholder="paciente@correo.com" />
           </label>
           <label>
-            Direccion
-            <input name="address" type="text" placeholder="Direccion completa" />
+            Municipio
+            <input name="municipality" type="text" placeholder="Municipio" />
+          </label>
+          <label>
+            Ciudad
+            <input name="city" type="text" placeholder="Ciudad" />
+          </label>
+          <label>
+            Codigo postal
+            <input name="postalCode" type="text" placeholder="28001" />
           </label>
         </div>
         <label>
@@ -1298,6 +1311,14 @@
           <select name="patientPack"></select>
         </label>
         <label>
+          Cobro
+          <select name="paymentStatus">
+            <option value="unpaid">No cobrada</option>
+            <option value="cash">Cobrada en efectivo</option>
+            <option value="card">Cobrada con tarjeta</option>
+          </select>
+        </label>
+        <label>
           Nota interna de la cita
           <textarea name="internalNotes" rows="3" placeholder="Motivo de cambio, observacion de recepcion..."></textarea>
         </label>
@@ -1332,6 +1353,17 @@
           <label>
             Precio EUR
             <input name="price" type="number" min="0" step="1" required value="400" />
+          </label>
+          <label>
+            Caducidad
+            <select name="expiryMonths">
+              <option value="0">Sin caducidad</option>
+              <option value="3">3 meses</option>
+              <option value="6">6 meses</option>
+              <option value="12" selected>12 meses</option>
+              <option value="18">18 meses</option>
+              <option value="24">24 meses</option>
+            </select>
           </label>
         </div>
         <label>
@@ -1388,7 +1420,7 @@
           </label>
           <label>
             Sesiones utilizadas
-            <input name="used" type="number" min="0" step="1" required />
+            <input name="used" type="number" min="0" step="1" required readonly />
           </label>
           <label>
             Precio EUR
@@ -1398,7 +1430,12 @@
             Servicio asociado
             <select name="serviceId"></select>
           </label>
+          <label>
+            Fecha de caducidad
+            <input name="expiresAt" type="date" />
+          </label>
         </div>
+        <p class="form-help">Las sesiones utilizadas se recalculan desde citas confirmadas con este bono para evitar descuentos manuales duplicados.</p>
         <label class="check-row">
           <input name="invoice" type="checkbox" />
           Facturable
@@ -1929,8 +1966,8 @@
               <label>
                 Horario de atencion
                 <div class="inline-inputs">
-                  <select name="openingStart" required><option>09:00</option><option>08:00</option><option>10:00</option></select>
-                  <select name="openingEnd" required><option>20:00</option><option>18:00</option><option>21:00</option></select>
+                  <input name="openingStart" type="time" required value="09:00" />
+                  <input name="openingEnd" type="time" required value="20:00" />
                 </div>
               </label>
               <label>
