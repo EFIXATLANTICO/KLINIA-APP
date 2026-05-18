@@ -4827,11 +4827,12 @@ function setupSaasSettings() {
         account,
         body: JSON.stringify({ plan: selectedPlan })
       });
-      if (session?.url && session.demo_mode === false) {
-        window.location.href = session.url;
-        return;
-      }
-      $("#saas-save-status").textContent = "Stripe aun no esta configurado con claves y PRICE_ID reales. Se conserva el estado pendiente.";
+if (session?.url) {
+    window.location.href = session.url;
+    return;
+}
+
+throw new Error("Stripe no devolvio URL de checkout");
     } catch (error) {
       $("#saas-save-status").textContent = `No se pudo abrir Checkout: ${error.message}`;
     } finally {
