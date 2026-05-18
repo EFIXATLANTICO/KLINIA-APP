@@ -7772,7 +7772,7 @@ function setupGroupDialog() {
 
   form.elements.capacity?.addEventListener("change", () => renderGroupFormPatientSelection(form));
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const selectedDays = [...form.querySelectorAll('input[name="days"]:checked')].map((input) => input.value);
     const selectedPatients = [...form.elements.patients.selectedOptions].map((option) => option.value);
