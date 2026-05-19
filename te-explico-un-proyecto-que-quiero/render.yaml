@@ -30,9 +30,9 @@ services:
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_PRICE_KLINIAPLAN_MONTHLY
-        sync: false
+        value: price_1TX6HB0ETxpjrlLIzNY5Qg61
       - key: STRIPE_PRICE_KLINIAPLAN_ANNUAL
-        sync: false
+        value: price_1TYhkz0ETxpjrlLI3FWIfVkr
       - key: STRIPE_PRICE_KLINIAPLAN
         sync: false
       - key: STRIPE_PRICE_STARTER

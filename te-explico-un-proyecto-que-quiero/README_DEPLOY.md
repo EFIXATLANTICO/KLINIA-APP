@@ -113,6 +113,8 @@ SMTP_PASSWORD=
 SMTP_FROM=Klinia <no-reply@klinia.es>
 ```
 
+No guardar `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` ni credenciales SMTP en el repositorio. En Render deben configurarse como variables secretas del servicio, manteniendo `sync: false` en `render.yaml`.
+
 ## 5.1 Stripe y suscripciones SaaS
 
 El backend ya expone la base para comercializar Klinia como SaaS:
@@ -133,7 +135,7 @@ STRIPE_PRICE_KLINIAPLAN_MONTHLY
 STRIPE_PRICE_KLINIAPLAN_ANNUAL
 ```
 
-`STRIPE_PRICE_KLINIAPLAN` se mantiene como compatibilidad con despliegues anteriores y se usa como precio mensual si `STRIPE_PRICE_KLINIAPLAN_MONTHLY` no esta definido.
+`render.yaml` ya deja conectados los price IDs reales de Kliniaplan mensual y anual. `STRIPE_PRICE_KLINIAPLAN` se mantiene como compatibilidad con despliegues anteriores y se usa como precio mensual si `STRIPE_PRICE_KLINIAPLAN_MONTHLY` no esta definido.
 
 Webhook recomendado en Stripe:
 
