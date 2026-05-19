@@ -20,7 +20,13 @@ def current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_
     user_id = payload.get("sub")
     clinic_id = payload.get("clinic_id")
     user = db.get(User, user_id)
-    if not user or not user.active or user.clinic_id != clinic_id:
+    if not user or not user.active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if user.role == UserRole.superadmin:
+        if payload.get("role") != UserRole.superadmin.value:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        return user
+    if not clinic_id or user.clinic_id != clinic_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return user
 
@@ -34,8 +40,18 @@ def require_roles(*roles: UserRole):
     return dependency
 
 
+def require_superadmin(user: User = Depends(current_user)) -> User:
+    if user.role != UserRole.superadmin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superadmin access required")
+    return user
+
+
 def subscription_allows_use(user: User) -> bool:
+    if user.role == UserRole.superadmin:
+        return True
     clinic = user.clinic
+    if not clinic:
+        return False
     subscription_status = clinic.subscription_status or "trialing"
     if subscription_status == "active":
         return True

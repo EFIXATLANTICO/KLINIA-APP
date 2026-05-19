@@ -33,6 +33,11 @@ class LoginIn(BaseModel):
     clinic_email: EmailStr | None = None
 
 
+class AccessRecoveryRequestIn(BaseModel):
+    email: EmailStr
+    clinic_email: EmailStr | None = None
+
+
 class ClinicOut(BaseModel):
     id: str
     name: str
@@ -54,7 +59,7 @@ class ClinicOut(BaseModel):
 
 class UserOut(BaseModel):
     id: str
-    clinic_id: str
+    clinic_id: str | None = None
     name: str
     email: EmailStr
     role: UserRole
@@ -65,7 +70,7 @@ class UserOut(BaseModel):
 
 class MeOut(BaseModel):
     user: UserOut
-    clinic: ClinicOut
+    clinic: ClinicOut | None = None
 
 
 class UserCreate(BaseModel):
@@ -86,15 +91,61 @@ class UserUpdate(BaseModel):
 
 class AuditLogOut(BaseModel):
     id: str
-    clinic_id: str
+    clinic_id: str | None = None
     user_id: str | None = None
     action: str
     resource_type: str
     resource_id: str | None = None
+    result: str = "success"
+    origin: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
     metadata_json: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SuperAdminOverviewOut(BaseModel):
+    total_clinics: int
+    active_clinics: int
+    trialing_clinics: int
+    past_due_clinics: int
+    total_users: int
+    failed_logins_24h: int
+    activity_24h: int
+
+
+class SuperAdminClinicOut(BaseModel):
+    id: str
+    name: str
+    email: EmailStr
+    phone: str | None = None
+    subscription_plan: str = "trial"
+    subscription_status: str = "trialing"
+    trial_ends_at: datetime | None = None
+    current_period_end: datetime | None = None
+    created_at: datetime
+    users_count: int = 0
+    last_activity_at: datetime | None = None
+
+
+class SuperAdminUserOut(BaseModel):
+    id: str
+    clinic_id: str | None = None
+    clinic_name: str | None = None
+    name: str
+    email: EmailStr
+    role: UserRole
+    active: bool
+    created_at: datetime
+    last_access_at: datetime | None = None
+
+
+class SuperAdminAuditLogOut(AuditLogOut):
+    clinic_name: str | None = None
+    user_name: str | None = None
+    user_email: EmailStr | None = None
 
 
 class PlanOut(BaseModel):

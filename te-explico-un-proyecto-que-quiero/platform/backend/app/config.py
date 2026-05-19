@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     stripe_price_starter: str | None = None
     stripe_price_pro: str | None = None
     stripe_price_business: str | None = None
+    superadmin_email: str | None = None
+    superadmin_password: str | None = None
+    superadmin_name: str = "Klinia Superadmin"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

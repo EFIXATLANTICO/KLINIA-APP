@@ -6,17 +6,18 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import Base, engine, ensure_runtime_schema, get_db
-from .deps import current_subscribed_user, current_user, require_roles, require_subscribed_roles
-from .models import Appointment, AuditLog, Clinic, Patient, Practitioner, Room, Service, User, UserRole
+from .deps import current_subscribed_user, current_user, require_roles, require_subscribed_roles, require_superadmin
+from .models import Appointment, AppointmentStatus, AuditLog, Clinic, Patient, Practitioner, Room, Service, User, UserRole
 from .schemas import (
+    AccessRecoveryRequestIn,
     AppointmentCreate,
     AppointmentOut,
     AppointmentUpdate,
@@ -40,6 +41,10 @@ from .schemas import (
     ServiceCreate,
     ServiceOut,
     ServiceUpdate,
+    SuperAdminAuditLogOut,
+    SuperAdminClinicOut,
+    SuperAdminOverviewOut,
+    SuperAdminUserOut,
     UserCreate,
     UserOut,
     UserUpdate,
@@ -66,6 +71,7 @@ app.add_middleware(
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
+    ensure_initial_superadmin()
 
 
 @app.get("/health")
@@ -92,24 +98,82 @@ def apply_update(item, payload) -> None:
         setattr(item, field, value)
 
 
+SENSITIVE_METADATA_KEYS = {"password", "password_hash", "token", "access_token", "secret", "stripe_secret_key", "stripe_webhook_secret"}
+
+
+def safe_metadata(metadata: dict | None) -> dict:
+    if not metadata:
+        return {}
+    safe: dict = {}
+    for key, value in metadata.items():
+        key_text = str(key)
+        if key_text.lower() in SENSITIVE_METADATA_KEYS:
+            continue
+        safe[key_text] = value
+    return safe
+
+
+def request_ip(request: Request | None) -> str | None:
+    if not request:
+        return None
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 def audit_action(
     db: Session,
-    user: User,
+    user: User | None,
     action: str,
     resource_type: str,
     resource_id: str | None = None,
     metadata: dict | None = None,
+    *,
+    clinic_id: str | None = None,
+    result: str = "success",
+    origin: str | None = None,
+    request: Request | None = None,
 ) -> None:
     db.add(
         AuditLog(
-            clinic_id=user.clinic_id,
-            user_id=user.id,
+            clinic_id=clinic_id if clinic_id is not None else (user.clinic_id if user else None),
+            user_id=user.id if user else None,
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,
-            metadata_json=json.dumps(metadata or {}, ensure_ascii=True),
+            result=result,
+            origin=origin or ("api" if request else None),
+            ip_address=request_ip(request),
+            user_agent=request.headers.get("user-agent") if request else None,
+            metadata_json=json.dumps(safe_metadata(metadata), ensure_ascii=True),
         )
     )
+
+
+def ensure_initial_superadmin() -> None:
+    if not settings.superadmin_email or not settings.superadmin_password:
+        return
+    email = settings.superadmin_email.lower().strip()
+    with Session(engine) as db:
+        user = db.scalar(select(User).where(User.email == email, User.role == UserRole.superadmin))
+        if user:
+            user.name = settings.superadmin_name or user.name
+            user.active = True
+            db.commit()
+            return
+        user = User(
+            clinic_id=None,
+            name=settings.superadmin_name,
+            email=email,
+            password_hash=hash_password(settings.superadmin_password),
+            role=UserRole.superadmin,
+            active=True,
+        )
+        db.add(user)
+        db.flush()
+        audit_action(db, user, "create-superadmin", "user", user.id, {"source": "startup-env"}, clinic_id=None, origin="system")
+        db.commit()
 
 
 def professional_price_ids() -> list[str]:
@@ -337,6 +401,16 @@ def handle_stripe_event(db: Session, event: dict) -> None:
         clinic.subscription_status = "past_due"
     elif event_type == "invoice.paid" and clinic.subscription_status in {"past_due", "incomplete"}:
         clinic.subscription_status = "active"
+    audit_action(
+        db,
+        None,
+        "stripe-event",
+        "subscription",
+        clinic.stripe_subscription_id or stripe_object.get("subscription") or stripe_object.get("id"),
+        {"event_type": event_type, "stripe_object_id": stripe_object.get("id")},
+        clinic_id=clinic.id,
+        origin="stripe",
+    )
     db.commit()
 
 
@@ -364,12 +438,13 @@ def frontend_asset(asset_name: str) -> FileResponse:
 
 
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) -> TokenOut:
+def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
+    email = str(payload.email).lower()
     existing = db.scalar(
         select(Clinic).where(
-            (Clinic.email == payload.email.lower())
+            (Clinic.email == email)
             | (Clinic.name == payload.clinic_name)
-            | ((Clinic.tax_id == payload.tax_id) if payload.tax_id else (Clinic.email == payload.email.lower()))
+            | ((Clinic.tax_id == payload.tax_id) if payload.tax_id else (Clinic.email == email))
         )
     )
     if existing:
@@ -379,7 +454,7 @@ def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) ->
     trial_ends_at = datetime.now(UTC) + timedelta(days=30)
     clinic = Clinic(
         name=payload.clinic_name,
-        email=payload.email.lower(),
+        email=email,
         phone=payload.phone,
         billing_name=payload.billing_name or payload.clinic_name,
         billing_email=str(payload.billing_email or payload.email).lower(),
@@ -395,13 +470,13 @@ def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) ->
     user = User(
         clinic_id=clinic.id,
         name=payload.owner_name,
-        email=payload.email.lower(),
+        email=email,
         password_hash=hash_password(payload.password),
         role=UserRole.owner,
     )
     db.add(user)
     db.flush()
-    audit_action(db, user, "register-clinic", "clinic", clinic.id, {"plan": plan["id"]})
+    audit_action(db, user, "register-clinic", "clinic", clinic.id, {"plan": plan["id"]}, request=request)
     db.commit()
     db.refresh(user)
     token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)
@@ -414,28 +489,88 @@ def register_clinic(payload: ClinicRegisterIn, db: Session = Depends(get_db)) ->
 
 
 @app.post("/auth/login", response_model=TokenOut)
-def login(payload: LoginIn, db: Session = Depends(get_db)) -> TokenOut:
-    query = select(User).where(User.email == payload.email.lower(), User.active.is_(True))
+def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
+    email = str(payload.email).lower()
+    query = select(User).where(User.email == email, User.active.is_(True))
+    resolved_clinic_id = payload.clinic_id
     if payload.clinic_id:
         query = query.where(User.clinic_id == payload.clinic_id)
     elif payload.clinic_email:
         clinic = db.scalar(select(Clinic).where(Clinic.email == str(payload.clinic_email).lower()))
         if clinic:
+            resolved_clinic_id = clinic.id
             query = query.where(User.clinic_id == clinic.id)
+        else:
+            query = query.where(User.clinic_id == "__missing_clinic__")
 
     users = list(db.scalars(query))
     if len(users) > 1:
+        audit_action(
+            db,
+            None,
+            "login-failed",
+            "auth",
+            metadata={"email": email, "reason": "clinic_identifier_required"},
+            clinic_id=resolved_clinic_id,
+            result="failure",
+            request=request,
+        )
+        db.commit()
         raise HTTPException(status_code=409, detail="Clinic identifier required for this email")
     user = users[0] if users else None
     if not user or not verify_password(payload.password, user.password_hash):
+        audit_action(
+            db,
+            user,
+            "login-failed",
+            "auth",
+            metadata={"email": email, "reason": "invalid_credentials"},
+            clinic_id=resolved_clinic_id if resolved_clinic_id else (user.clinic_id if user else None),
+            result="failure",
+            request=request,
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    audit_action(db, user, "login-success", "auth", user.id, {"role": user.role.value}, request=request)
+    db.commit()
     token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)
-    return TokenOut(access_token=token, clinic_id=user.clinic_id, subscription_status=user.clinic.subscription_status)
+    subscription_status = "active" if user.role == UserRole.superadmin else (user.clinic.subscription_status if user.clinic else None)
+    return TokenOut(access_token=token, clinic_id=user.clinic_id, subscription_status=subscription_status)
 
 
 @app.get("/me", response_model=MeOut)
 def me(user: User = Depends(current_user)) -> MeOut:
     return MeOut(user=user, clinic=user.clinic)
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    audit_action(db, user, "logout", "auth", user.id, {"role": user.role.value}, request=request)
+    db.commit()
+
+
+@app.post("/auth/recovery-request", status_code=status.HTTP_202_ACCEPTED)
+def recovery_request(payload: AccessRecoveryRequestIn, request: Request, db: Session = Depends(get_db)) -> dict:
+    clinic = None
+    if payload.clinic_email:
+        clinic = db.scalar(select(Clinic).where(Clinic.email == str(payload.clinic_email).lower()))
+    query = select(User).where(User.email == str(payload.email).lower())
+    if clinic:
+        query = query.where(User.clinic_id == clinic.id)
+    user = db.scalar(query)
+    audit_action(
+        db,
+        user,
+        "access-recovery-request",
+        "auth",
+        user.id if user else None,
+        {"email": str(payload.email).lower(), "clinic_email": str(payload.clinic_email).lower() if payload.clinic_email else None},
+        clinic_id=clinic.id if clinic else (user.clinic_id if user else None),
+        result="requested",
+        request=request,
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/users", response_model=list[UserOut])
@@ -445,7 +580,9 @@ def list_users(user: User = Depends(require_roles(UserRole.owner)), db: Session 
 
 @app.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> User:
-    email = payload.email.lower()
+    if payload.role == UserRole.superadmin:
+        raise HTTPException(status_code=403, detail="Superadmin users cannot be created from a clinic")
+    email = str(payload.email).lower()
     existing = db.scalar(select(User).where(User.clinic_id == user.clinic_id, User.email == email))
     if existing:
         raise HTTPException(status_code=409, detail="User email already exists in this clinic")
@@ -480,6 +617,8 @@ def update_user(user_id: str, payload: UserUpdate, user: User = Depends(require_
     if "name" in data:
         target.name = data["name"]
     if "role" in data and data["role"] is not None:
+        if data["role"] == UserRole.superadmin:
+            raise HTTPException(status_code=403, detail="Superadmin role cannot be assigned from a clinic")
         if target.id == user.id and data["role"] != UserRole.owner:
             raise HTTPException(status_code=400, detail="Owner cannot demote their own account")
         target.role = data["role"]
@@ -513,6 +652,184 @@ def list_audit_log(user: User = Depends(require_roles(UserRole.owner)), db: Sess
             .limit(200)
         )
     )
+
+
+def superadmin_audit_out(db: Session, item: AuditLog) -> SuperAdminAuditLogOut:
+    clinic = db.get(Clinic, item.clinic_id) if item.clinic_id else None
+    actor = db.get(User, item.user_id) if item.user_id else None
+    return SuperAdminAuditLogOut(
+        id=item.id,
+        clinic_id=item.clinic_id,
+        user_id=item.user_id,
+        action=item.action,
+        resource_type=item.resource_type,
+        resource_id=item.resource_id,
+        result=item.result or "success",
+        origin=item.origin,
+        ip_address=item.ip_address,
+        user_agent=item.user_agent,
+        metadata_json=item.metadata_json,
+        created_at=item.created_at,
+        clinic_name=clinic.name if clinic else None,
+        user_name=actor.name if actor else None,
+        user_email=actor.email if actor else None,
+    )
+
+
+@app.get("/superadmin/overview", response_model=SuperAdminOverviewOut)
+def superadmin_overview(
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminOverviewOut:
+    since = datetime.now(UTC) - timedelta(hours=24)
+    return SuperAdminOverviewOut(
+        total_clinics=db.scalar(select(func.count()).select_from(Clinic)) or 0,
+        active_clinics=db.scalar(select(func.count()).select_from(Clinic).where(Clinic.subscription_status == "active")) or 0,
+        trialing_clinics=db.scalar(select(func.count()).select_from(Clinic).where(Clinic.subscription_status.in_(["trial", "trialing"]))) or 0,
+        past_due_clinics=db.scalar(select(func.count()).select_from(Clinic).where(Clinic.subscription_status.in_(["past_due", "incomplete", "canceled"]))) or 0,
+        total_users=db.scalar(select(func.count()).select_from(User).where(User.role != UserRole.superadmin)) or 0,
+        failed_logins_24h=db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "login-failed", AuditLog.created_at >= since)) or 0,
+        activity_24h=db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.created_at >= since)) or 0,
+    )
+
+
+@app.get("/superadmin/clinics", response_model=list[SuperAdminClinicOut])
+def superadmin_clinics(
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> list[SuperAdminClinicOut]:
+    clinics = list(db.scalars(select(Clinic).order_by(Clinic.created_at.desc())))
+    audit_action(db, admin, "superadmin-list-clinics", "clinic", metadata={"count": len(clinics)}, clinic_id=None)
+    db.commit()
+    output: list[SuperAdminClinicOut] = []
+    for clinic in clinics:
+        users_count = db.scalar(select(func.count()).select_from(User).where(User.clinic_id == clinic.id)) or 0
+        last_activity_at = db.scalar(select(func.max(AuditLog.created_at)).where(AuditLog.clinic_id == clinic.id))
+        output.append(
+            SuperAdminClinicOut(
+                id=clinic.id,
+                name=clinic.name,
+                email=clinic.email,
+                phone=clinic.phone,
+                subscription_plan=clinic.subscription_plan,
+                subscription_status=clinic.subscription_status,
+                trial_ends_at=clinic.trial_ends_at,
+                current_period_end=clinic.current_period_end,
+                created_at=clinic.created_at,
+                users_count=users_count,
+                last_activity_at=last_activity_at,
+            )
+        )
+    return output
+
+
+@app.get("/superadmin/users", response_model=list[SuperAdminUserOut])
+def superadmin_users(
+    clinic_id: str | None = None,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> list[SuperAdminUserOut]:
+    query = select(User).where(User.role != UserRole.superadmin).order_by(User.created_at.desc())
+    if clinic_id:
+        query = query.where(User.clinic_id == clinic_id)
+    users = list(db.scalars(query))
+    audit_action(db, admin, "superadmin-list-users", "user", metadata={"clinic_id": clinic_id, "count": len(users)}, clinic_id=None)
+    db.commit()
+    output: list[SuperAdminUserOut] = []
+    for item in users:
+        clinic = db.get(Clinic, item.clinic_id) if item.clinic_id else None
+        last_access_at = db.scalar(select(func.max(AuditLog.created_at)).where(AuditLog.user_id == item.id, AuditLog.action == "login-success"))
+        output.append(
+            SuperAdminUserOut(
+                id=item.id,
+                clinic_id=item.clinic_id,
+                clinic_name=clinic.name if clinic else None,
+                name=item.name,
+                email=item.email,
+                role=item.role,
+                active=item.active,
+                created_at=item.created_at,
+                last_access_at=last_access_at,
+            )
+        )
+    return output
+
+
+@app.get("/superadmin/clinics/{clinic_id}/users", response_model=list[SuperAdminUserOut])
+def superadmin_clinic_users(
+    clinic_id: str,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> list[SuperAdminUserOut]:
+    if not db.get(Clinic, clinic_id):
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    return superadmin_users(clinic_id=clinic_id, admin=admin, db=db)
+
+
+@app.get("/superadmin/audit-log", response_model=list[SuperAdminAuditLogOut])
+def superadmin_audit_log(
+    clinic_id: str | None = None,
+    user_id: str | None = None,
+    action: str | None = None,
+    result: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> list[SuperAdminAuditLogOut]:
+    query = select(AuditLog)
+    filters: dict[str, str | None] = {}
+    if clinic_id:
+        query = query.where(AuditLog.clinic_id == clinic_id)
+        filters["clinic_id"] = clinic_id
+    if user_id:
+        query = query.where(AuditLog.user_id == user_id)
+        filters["user_id"] = user_id
+    if action:
+        query = query.where(AuditLog.action == action)
+        filters["action"] = action
+    if result:
+        query = query.where(AuditLog.result == result)
+        filters["result"] = result
+    if date_from:
+        query = query.where(AuditLog.created_at >= date_from)
+        filters["date_from"] = date_from.isoformat()
+    if date_to:
+        query = query.where(AuditLog.created_at <= date_to)
+        filters["date_to"] = date_to.isoformat()
+    items = list(db.scalars(query.order_by(AuditLog.created_at.desc()).limit(limit)))
+    audit_action(db, admin, "superadmin-view-audit", "audit-log", metadata={**filters, "limit": limit, "count": len(items)}, clinic_id=None)
+    db.commit()
+    return [superadmin_audit_out(db, item) for item in items]
+
+
+@app.get("/superadmin/login-attempts", response_model=list[SuperAdminAuditLogOut])
+def superadmin_login_attempts(
+    clinic_id: str | None = None,
+    user_id: str | None = None,
+    result: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    limit: int = Query(default=200, ge=1, le=500),
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> list[SuperAdminAuditLogOut]:
+    query = select(AuditLog).where(AuditLog.action.in_(["login-success", "login-failed"]))
+    if clinic_id:
+        query = query.where(AuditLog.clinic_id == clinic_id)
+    if user_id:
+        query = query.where(AuditLog.user_id == user_id)
+    if result:
+        query = query.where(AuditLog.result == result)
+    if date_from:
+        query = query.where(AuditLog.created_at >= date_from)
+    if date_to:
+        query = query.where(AuditLog.created_at <= date_to)
+    items = list(db.scalars(query.order_by(AuditLog.created_at.desc()).limit(limit)))
+    audit_action(db, admin, "superadmin-view-login-attempts", "audit-log", metadata={"count": len(items)}, clinic_id=None)
+    db.commit()
+    return [superadmin_audit_out(db, item) for item in items]
 
 
 @app.get("/billing/plans", response_model=list[PlanOut])
@@ -757,8 +1074,10 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
     if user.role == UserRole.practitioner and user.practitioner and data.get("practitioner_id", appointment.practitioner_id) != user.practitioner.id:
         raise HTTPException(status_code=403, detail="Practitioners can only assign their own appointments")
 
+    previous_status = appointment.status
     apply_update(appointment, payload)
-    audit_action(db, user, "update-appointment", "appointment", appointment.id, {"fields": sorted(data.keys())})
+    action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
+    audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
     db.commit()
     db.refresh(appointment)
     return appointment

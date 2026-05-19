@@ -9,6 +9,7 @@ from .db import Base
 
 
 class UserRole(str, enum.Enum):
+    superadmin = "superadmin"
     owner = "owner"
     staff = "staff"
     practitioner = "practitioner"
@@ -61,14 +62,14 @@ class User(TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("clinic_id", "email", name="uq_users_clinic_email"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    clinic_id: Mapped[str | None] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    clinic: Mapped[Clinic] = relationship(back_populates="users")
+    clinic: Mapped[Clinic | None] = relationship(back_populates="users")
     practitioner: Mapped["Practitioner | None"] = relationship(back_populates="user")
 
 
@@ -151,10 +152,14 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    clinic_id: Mapped[str | None] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=True)
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     resource_type: Mapped[str] = mapped_column(String(80), nullable=False)
     resource_id: Mapped[str | None] = mapped_column(String(120))
+    result: Mapped[str] = mapped_column(String(30), default="success", server_default="success", nullable=False)
+    origin: Mapped[str | None] = mapped_column(String(80))
+    ip_address: Mapped[str | None] = mapped_column(String(80))
+    user_agent: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
