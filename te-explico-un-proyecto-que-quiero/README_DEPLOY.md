@@ -75,7 +75,9 @@ Arquitectura inicial:
 - Frontend PWA: Vercel.
 - Backend FastAPI: Render o Railway.
 - Base de datos: PostgreSQL gestionado en Render, Railway, Supabase o Neon.
-- Dominio: `app.klinia.es` para frontend y `api.klinia.es` para backend.
+- Dominio: `www.kliniasolutions.com` para frontend y `api.kliniasolutions.com` o la URL publica del backend para API/webhooks.
+
+El frontend detecta `www.kliniasolutions.com` y `kliniasolutions.com` y usa `https://api.kliniasolutions.com` como API por defecto. Si el backend se publica con otro dominio, define `window.KLINIA_API_BASE_URL` antes de cargar `app.js` o guarda `klinia:api-base-url` en localStorage durante pruebas.
 
 ## 5. Variables de entorno backend
 
@@ -88,8 +90,8 @@ DATABASE_URL=postgresql+psycopg://...
 JWT_SECRET=valor-largo-seguro
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=480
-CORS_ORIGINS=https://app.klinia.es
-FRONTEND_URL=https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
+FRONTEND_URL=https://www.kliniasolutions.com
 ```
 
 Cuando se activen integraciones reales:
@@ -136,7 +138,7 @@ STRIPE_PRICE_KLINIAPLAN_ANNUAL
 Webhook recomendado en Stripe:
 
 ```text
-https://www.kliniasolutions.com/stripe/webhook
+https://api.kliniasolutions.com/stripe/webhook
 ```
 
 Eventos mínimos:
@@ -188,7 +190,7 @@ Opcion Render con `render.yaml`:
 7. En variables, revisar:
 
 ```text
-CORS_ORIGINS=https://www.kliniasolutions.com,https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
 FRONTEND_URL=https://www.kliniasolutions.com
 ```
 
@@ -222,7 +224,7 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 DATABASE_URL=<la de Railway PostgreSQL>
 APP_ENV=production
 JWT_SECRET=<valor largo seguro>
-CORS_ORIGINS=https://www.kliniasolutions.com,https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
 FRONTEND_URL=https://www.kliniasolutions.com
 ```
 
@@ -256,7 +258,7 @@ api.kliniasolutions.com -> Render/Railway
 Despues actualizar en backend:
 
 ```text
-CORS_ORIGINS=https://www.kliniasolutions.com,https://app.klinia.es
+CORS_ORIGINS=https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
 FRONTEND_URL=https://www.kliniasolutions.com
 ```
 

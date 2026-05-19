@@ -1031,6 +1031,9 @@ function backendApiBaseUrl() {
   if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
     return "http://localhost:8080";
   }
+  if (["www.kliniasolutions.com", "kliniasolutions.com"].includes(window.location.hostname)) {
+    return "https://api.kliniasolutions.com";
+  }
   return window.location.origin;
 }
 

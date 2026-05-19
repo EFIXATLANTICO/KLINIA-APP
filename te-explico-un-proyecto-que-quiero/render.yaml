@@ -22,7 +22,7 @@ services:
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "480"
       - key: CORS_ORIGINS
-        value: https://www.kliniasolutions.com,https://app.klinia.es
+        value: https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
       - key: FRONTEND_URL
         value: https://www.kliniasolutions.com
       - key: STRIPE_SECRET_KEY
