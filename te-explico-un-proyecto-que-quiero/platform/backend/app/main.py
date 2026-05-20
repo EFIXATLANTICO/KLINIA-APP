@@ -1,6 +1,8 @@
 import hashlib
 import hmac
 import json
+import logging
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
@@ -57,8 +59,11 @@ from .security import create_access_token, hash_password, verify_password
 
 settings = get_settings()
 frontend_dir = Path(settings.frontend_dir) if settings.frontend_dir else Path(__file__).resolve().parents[3] / "app"
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name)
+app.state.backend_setup_status = "pending"
+app.state.backend_setup_error = None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -68,16 +73,45 @@ app.add_middleware(
 )
 
 
+def run_backend_setup() -> None:
+    errors: list[str] = []
+    app.state.backend_setup_status = "running"
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logger.exception("Klinia database metadata setup failed")
+        errors.append(f"metadata: {exc}")
+    try:
+        ensure_runtime_schema()
+    except Exception as exc:
+        logger.exception("Klinia runtime schema setup failed")
+        errors.append(f"runtime_schema: {exc}")
+    try:
+        ensure_initial_superadmin()
+    except Exception as exc:
+        logger.exception("Klinia superadmin bootstrap failed")
+        errors.append(f"superadmin: {exc}")
+    app.state.backend_setup_error = " | ".join(errors) if errors else None
+    app.state.backend_setup_status = "degraded" if errors else "ready"
+
+
 @app.on_event("startup")
 def startup() -> None:
-    Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema()
-    ensure_initial_superadmin()
+    if settings.app_env == "production":
+        threading.Thread(target=run_backend_setup, name="klinia-backend-setup", daemon=True).start()
+        return
+    run_backend_setup()
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "app": settings.app_name, "env": settings.app_env, "stripe_configured": settings.stripe_enabled}
+    return {
+        "ok": True,
+        "app": settings.app_name,
+        "env": settings.app_env,
+        "stripe_configured": settings.stripe_enabled,
+        "backend_setup_status": app.state.backend_setup_status,
+    }
 
 
 def clinic_item_or_404(db: Session, model, item_id: str, clinic_id: str):

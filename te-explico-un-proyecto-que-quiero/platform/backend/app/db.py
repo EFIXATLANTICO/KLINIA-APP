@@ -49,6 +49,8 @@ def ensure_runtime_schema() -> None:
     }
     with engine.begin() as connection:
         if engine.dialect.name == "postgresql":
+            connection.execute(text("SET LOCAL lock_timeout = '5s'"))
+            connection.execute(text("SET LOCAL statement_timeout = '10s'"))
             connection.execute(text("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'superadmin'"))
             connection.execute(text("ALTER TABLE users ALTER COLUMN clinic_id DROP NOT NULL"))
             if "audit_logs" in table_names:
