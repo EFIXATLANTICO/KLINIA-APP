@@ -64,6 +64,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title=settings.app_name)
 app.state.backend_setup_status = "pending"
 app.state.backend_setup_error = None
+app.state.backend_setup_started_at = None
+app.state.backend_setup_finished_at = None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -73,26 +75,49 @@ app.add_middleware(
 )
 
 
+def setup_log(message: str, *args) -> None:
+    logger.warning("Klinia backend setup: " + message, *args)
+
+
+def run_setup_step(name: str, callback, errors: list[str]) -> None:
+    app.state.backend_setup_status = f"running:{name}"
+    started = datetime.now(UTC)
+    setup_log("%s started", name)
+    try:
+        callback()
+    except Exception as exc:
+        logger.exception("Klinia backend setup step failed: %s", name)
+        errors.append(f"{name}: {exc}")
+    else:
+        elapsed = (datetime.now(UTC) - started).total_seconds()
+        setup_log("%s completed in %.2fs", name, elapsed)
+
+
 def run_backend_setup() -> None:
     errors: list[str] = []
     app.state.backend_setup_status = "running"
+    app.state.backend_setup_error = None
+    app.state.backend_setup_started_at = datetime.now(UTC).isoformat()
+    app.state.backend_setup_finished_at = None
+    setup_log("started env=%s", settings.app_env)
     try:
-        Base.metadata.create_all(bind=engine)
+        if settings.app_env == "production" and engine.dialect.name == "postgresql":
+            setup_log("metadata skipped in production to avoid blocking port readiness")
+        else:
+            run_setup_step("metadata", lambda: Base.metadata.create_all(bind=engine), errors)
+        run_setup_step("runtime_schema", ensure_runtime_schema, errors)
+        run_setup_step("superadmin", ensure_initial_superadmin, errors)
     except Exception as exc:
-        logger.exception("Klinia database metadata setup failed")
-        errors.append(f"metadata: {exc}")
-    try:
-        ensure_runtime_schema()
-    except Exception as exc:
-        logger.exception("Klinia runtime schema setup failed")
-        errors.append(f"runtime_schema: {exc}")
-    try:
-        ensure_initial_superadmin()
-    except Exception as exc:
-        logger.exception("Klinia superadmin bootstrap failed")
-        errors.append(f"superadmin: {exc}")
-    app.state.backend_setup_error = " | ".join(errors) if errors else None
-    app.state.backend_setup_status = "degraded" if errors else "ready"
+        logger.exception("Klinia backend setup crashed unexpectedly")
+        errors.append(f"unexpected: {exc}")
+    finally:
+        app.state.backend_setup_error = " | ".join(errors) if errors else None
+        app.state.backend_setup_status = "degraded" if errors else "ready"
+        app.state.backend_setup_finished_at = datetime.now(UTC).isoformat()
+        if errors:
+            setup_log("finished with errors: %s", app.state.backend_setup_error)
+        else:
+            setup_log("finished successfully")
 
 
 @app.on_event("startup")
@@ -111,6 +136,7 @@ def health() -> dict:
         "env": settings.app_env,
         "stripe_configured": settings.stripe_enabled,
         "backend_setup_status": app.state.backend_setup_status,
+        "backend_setup_finished_at": app.state.backend_setup_finished_at,
     }
 
 
@@ -188,14 +214,20 @@ def audit_action(
 
 def ensure_initial_superadmin() -> None:
     if not settings.superadmin_email or not settings.superadmin_password:
+        setup_log("superadmin skipped because SUPERADMIN_EMAIL or SUPERADMIN_PASSWORD is missing")
         return
     email = settings.superadmin_email.lower().strip()
+    if len(settings.superadmin_password.encode("utf-8")) > 72:
+        raise ValueError("SUPERADMIN_PASSWORD exceeds bcrypt 72 byte limit")
+    setup_log("superadmin bootstrap for %s", email)
     with Session(engine) as db:
         user = db.scalar(select(User).where(User.email == email, User.role == UserRole.superadmin))
         if user:
             user.name = settings.superadmin_name or user.name
+            user.password_hash = hash_password(settings.superadmin_password)
             user.active = True
             db.commit()
+            setup_log("superadmin updated and password synchronized for %s", email)
             return
         user = User(
             clinic_id=None,
@@ -209,6 +241,7 @@ def ensure_initial_superadmin() -> None:
         db.flush()
         audit_action(db, user, "create-superadmin", "user", user.id, {"source": "startup-env"}, clinic_id=None, origin="system")
         db.commit()
+        setup_log("superadmin created for %s", email)
 
 
 def professional_price_ids() -> list[str]:

@@ -7,8 +7,11 @@ from .config import get_settings
 
 
 settings = get_settings()
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
+if settings.database_url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+else:
+    connect_args = {"connect_timeout": 10}
+engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, pool_timeout=10, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
@@ -26,31 +29,32 @@ def get_db() -> Generator[Session, None, None]:
 
 def ensure_runtime_schema() -> None:
     """Small compatibility layer for local DBs created before migrations exist."""
-    inspector = inspect(engine)
-    table_names = inspector.get_table_names()
-    if "clinics" not in table_names:
-        return
-
-    existing = {column["name"] for column in inspector.get_columns("clinics")}
-    clinic_columns = {
-        "billing_name": "VARCHAR(180)",
-        "billing_email": "VARCHAR(255)",
-        "tax_id": "VARCHAR(80)",
-        "billing_address": "TEXT",
-        "invoice_prefix": "VARCHAR(20) DEFAULT 'KL'",
-        "invoice_logo_url": "TEXT",
-        "subscription_plan": "VARCHAR(40) DEFAULT 'trial'",
-        "subscription_status": "VARCHAR(40) DEFAULT 'trialing'",
-        "stripe_customer_id": "VARCHAR(120)",
-        "stripe_subscription_id": "VARCHAR(120)",
-        "stripe_price_id": "VARCHAR(120)",
-        "trial_ends_at": "TIMESTAMP",
-        "current_period_end": "TIMESTAMP",
-    }
     with engine.begin() as connection:
         if engine.dialect.name == "postgresql":
             connection.execute(text("SET LOCAL lock_timeout = '5s'"))
             connection.execute(text("SET LOCAL statement_timeout = '10s'"))
+        inspector = inspect(connection)
+        table_names = inspector.get_table_names()
+        if "clinics" not in table_names:
+            return
+
+        existing = {column["name"] for column in inspector.get_columns("clinics")}
+        clinic_columns = {
+            "billing_name": "VARCHAR(180)",
+            "billing_email": "VARCHAR(255)",
+            "tax_id": "VARCHAR(80)",
+            "billing_address": "TEXT",
+            "invoice_prefix": "VARCHAR(20) DEFAULT 'KL'",
+            "invoice_logo_url": "TEXT",
+            "subscription_plan": "VARCHAR(40) DEFAULT 'trial'",
+            "subscription_status": "VARCHAR(40) DEFAULT 'trialing'",
+            "stripe_customer_id": "VARCHAR(120)",
+            "stripe_subscription_id": "VARCHAR(120)",
+            "stripe_price_id": "VARCHAR(120)",
+            "trial_ends_at": "TIMESTAMP",
+            "current_period_end": "TIMESTAMP",
+        }
+        if engine.dialect.name == "postgresql":
             connection.execute(text("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'superadmin'"))
             connection.execute(text("ALTER TABLE users ALTER COLUMN clinic_id DROP NOT NULL"))
             if "audit_logs" in table_names:
