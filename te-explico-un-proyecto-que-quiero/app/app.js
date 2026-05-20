@@ -721,6 +721,7 @@ const sectionTitles = {
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const apiEnabled = false;
+let superadminSession = null;
 
 function escapeHtml(value) {
   return String(value || "")
@@ -1145,6 +1146,122 @@ async function syncCurrentSubscriptionFromBackend(options = {}) {
     }
     return null;
   }
+}
+
+function formatSuperadminDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+}
+
+function superadminToken() {
+  return superadminSession?.access_token || "";
+}
+
+function superadminStatusClass(value) {
+  return String(value || "success").toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+}
+
+function renderSuperadminEmpty(tbody, colspan, message) {
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="superadmin-empty">${escapeHtml(message)}</td></tr>`;
+  }
+}
+
+async function loadSuperadminPanel() {
+  const token = superadminToken();
+  if (!token) return;
+  const form = $("#superadmin-filter-form");
+  const params = new URLSearchParams();
+  const clinicId = form?.elements.clinicId?.value || "";
+  const action = form?.elements.action?.value.trim() || "";
+  const dateFrom = form?.elements.dateFrom?.value || "";
+  const dateTo = form?.elements.dateTo?.value || "";
+  if (clinicId) params.set("clinic_id", clinicId);
+  if (action) params.set("action", action);
+  if (dateFrom) params.set("date_from", `${dateFrom}T00:00:00`);
+  if (dateTo) params.set("date_to", `${dateTo}T23:59:59`);
+
+  try {
+    const [overview, clinics, users, audit] = await Promise.all([
+      backendRequest("/superadmin/overview", { token, auth: false }),
+      backendRequest("/superadmin/clinics", { token, auth: false }),
+      backendRequest(`/superadmin/users${clinicId ? `?clinic_id=${encodeURIComponent(clinicId)}` : ""}`, { token, auth: false }),
+      backendRequest(`/superadmin/audit-log${params.toString() ? `?${params.toString()}` : ""}`, { token, auth: false })
+    ]);
+
+    $("#superadmin-total-clinics").textContent = overview.total_clinics ?? "-";
+    $("#superadmin-active-clinics").textContent = overview.active_clinics ?? "-";
+    $("#superadmin-trial-clinics").textContent = overview.trialing_clinics ?? "-";
+    $("#superadmin-failed-logins").textContent = overview.failed_logins_24h ?? "-";
+
+    const clinicFilter = $("#superadmin-clinic-filter");
+    if (clinicFilter && !clinicFilter.dataset.loaded) {
+      clinicFilter.innerHTML = `<option value="">Todas las clinicas</option>${clinics.map((clinic) => `<option value="${escapeHtml(clinic.id)}">${escapeHtml(clinic.name)}</option>`).join("")}`;
+      clinicFilter.dataset.loaded = "true";
+      clinicFilter.value = clinicId;
+    }
+
+    $("#superadmin-clinics-count").textContent = `${clinics.length} clinicas`;
+    const clinicsTable = $("#superadmin-clinics-table");
+    if (!clinics.length) {
+      renderSuperadminEmpty(clinicsTable, 4, "Todavia no hay clinicas registradas.");
+    } else {
+      clinicsTable.innerHTML = clinics.map((clinic) => `
+        <tr>
+          <td><strong>${escapeHtml(clinic.name)}</strong><span>${escapeHtml(clinic.email)}</span></td>
+          <td><span class="superadmin-status ${superadminStatusClass(clinic.subscription_status)}">${escapeHtml(clinic.subscription_status || "-")}</span><span>${escapeHtml(clinic.subscription_plan || "-")}</span></td>
+          <td>${Number(clinic.users_count || 0)}</td>
+          <td>${escapeHtml(formatSuperadminDate(clinic.last_activity_at))}</td>
+        </tr>
+      `).join("");
+    }
+
+    $("#superadmin-users-count").textContent = `${users.length} usuarios`;
+    const usersTable = $("#superadmin-users-table");
+    if (!users.length) {
+      renderSuperadminEmpty(usersTable, 4, "No hay usuarios para el filtro seleccionado.");
+    } else {
+      usersTable.innerHTML = users.map((item) => `
+        <tr>
+          <td><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></td>
+          <td>${escapeHtml(item.clinic_name || "-")}</td>
+          <td>${escapeHtml(item.role || "-")}</td>
+          <td>${escapeHtml(formatSuperadminDate(item.last_access_at))}</td>
+        </tr>
+      `).join("");
+    }
+
+    const auditTable = $("#superadmin-audit-table");
+    if (!audit.length) {
+      renderSuperadminEmpty(auditTable, 5, "No hay actividad para el filtro seleccionado.");
+    } else {
+      auditTable.innerHTML = audit.map((item) => `
+        <tr>
+          <td>${escapeHtml(formatSuperadminDate(item.created_at))}</td>
+          <td>${escapeHtml(item.clinic_name || item.clinic_id || "Plataforma")}</td>
+          <td><strong>${escapeHtml(item.user_name || "-")}</strong><span>${escapeHtml(item.user_email || "")}</span></td>
+          <td><strong>${escapeHtml(item.action)}</strong><span>${escapeHtml(item.resource_type || "")}</span></td>
+          <td><span class="superadmin-status ${superadminStatusClass(item.result)}">${escapeHtml(item.result || "success")}</span></td>
+        </tr>
+      `).join("");
+    }
+  } catch (error) {
+    showToast(`No se pudo cargar el panel superadmin: ${error.message}`, "error");
+  }
+}
+
+function enterSuperadmin(session, me) {
+  superadminSession = {
+    ...session,
+    user: me?.user || null
+  };
+  isAuthenticated = false;
+  saveState("authenticated", false);
+  document.body.classList.add("login-mode");
+  showPublicView("superadmin", { updateHash: false, resetLogin: false });
+  loadSuperadminPanel();
 }
 
 async function ensureBackendLoginForAccount(account, password) {
@@ -6152,12 +6269,14 @@ function publicHashForView(view) {
     landing: "planes",
     login: "login",
     help: "ayuda",
-    demo: "demo"
+    demo: "demo",
+    superadmin: "admin"
   }[view] || "planes";
 }
 
 function showPublicView(view = "landing", options = {}) {
-  const nextView = ["landing", "login", "help", "demo"].includes(view) ? view : "landing";
+  const nextView = ["landing", "login", "help", "demo", "superadmin"].includes(view) ? view : "landing";
+  document.body.classList.toggle("superadmin-mode", nextView === "superadmin");
   $$(".public-view").forEach((screen) => {
     screen.classList.toggle("active", screen.dataset.publicScreen === nextView);
   });
@@ -6324,6 +6443,10 @@ function setupLogin() {
           })
         });
         const me = await backendRequest("/me", { token: session.access_token, auth: false });
+        if (me?.user?.role === "superadmin") {
+          enterSuperadmin(session, me);
+          return;
+        }
         const backendKey = slugifyClinicName(me?.clinic?.name || session.clinic_id || form.elements.center.value);
         const nextAccount = {
           key: backendKey,
@@ -6603,6 +6726,20 @@ function setupLogin() {
     applyLoginState();
     showPublicView("landing", { updateHash: true });
     showClinicLoginStep({ skipPublicView: true });
+  });
+
+  $("#superadmin-filter-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    loadSuperadminPanel();
+  });
+  $("#superadmin-refresh-button")?.addEventListener("click", () => loadSuperadminPanel());
+  $("#superadmin-logout-button")?.addEventListener("click", async () => {
+    const token = superadminToken();
+    if (token) {
+      await backendRequest("/auth/logout", { method: "POST", token, auth: false }).catch(() => null);
+    }
+    superadminSession = null;
+    showPublicView("login", { updateHash: true, resetLogin: true });
   });
 }
 

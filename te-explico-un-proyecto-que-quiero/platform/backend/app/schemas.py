@@ -38,6 +38,11 @@ class AccessRecoveryRequestIn(BaseModel):
     clinic_email: EmailStr | None = None
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=160)
+
+
 class ClinicOut(BaseModel):
     id: str
     name: str

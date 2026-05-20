@@ -15,7 +15,7 @@
       body.login-mode .app-shell { display: none !important; }
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
-    <link rel="stylesheet" href="./styles.css?v=20260519-stripe-pagos" />
+    <link rel="stylesheet" href="./styles.css?v=20260520-superadmin" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -304,6 +304,87 @@
             </div>
             <strong>Informacion 100% segura</strong>
           </section>
+        </section>
+
+        <section class="public-view superadmin-view" data-public-screen="superadmin" aria-label="Administracion de Klinia">
+          <div class="superadmin-head">
+            <div>
+              <p class="eyebrow">Administracion de plataforma</p>
+              <h1>Panel superadmin</h1>
+              <p>Supervision operativa, accesos y auditoria persistente desde backend.</p>
+            </div>
+            <button class="secondary-button" type="button" id="superadmin-logout-button">Cerrar sesion</button>
+          </div>
+
+          <section class="superadmin-kpis" aria-label="Resumen general">
+            <article><span>Clinicas</span><strong id="superadmin-total-clinics">-</strong></article>
+            <article><span>Activas</span><strong id="superadmin-active-clinics">-</strong></article>
+            <article><span>En prueba</span><strong id="superadmin-trial-clinics">-</strong></article>
+            <article><span>Fallos 24h</span><strong id="superadmin-failed-logins">-</strong></article>
+          </section>
+
+          <form class="superadmin-filters" id="superadmin-filter-form">
+            <label>
+              Clinica
+              <select name="clinicId" id="superadmin-clinic-filter">
+                <option value="">Todas las clinicas</option>
+              </select>
+            </label>
+            <label>
+              Accion
+              <input name="action" type="text" placeholder="login-failed, create-patient..." />
+            </label>
+            <label>
+              Desde
+              <input name="dateFrom" type="date" />
+            </label>
+            <label>
+              Hasta
+              <input name="dateTo" type="date" />
+            </label>
+            <button class="primary-button" type="submit">Filtrar actividad</button>
+          </form>
+
+          <div class="superadmin-grid">
+            <section class="superadmin-card">
+              <div class="superadmin-card-head">
+                <h2>Clinicas registradas</h2>
+                <span id="superadmin-clinics-count">-</span>
+              </div>
+              <div class="superadmin-table-wrap">
+                <table>
+                  <thead><tr><th>Clinica</th><th>Suscripcion</th><th>Usuarios</th><th>Ultima actividad</th></tr></thead>
+                  <tbody id="superadmin-clinics-table"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="superadmin-card">
+              <div class="superadmin-card-head">
+                <h2>Usuarios</h2>
+                <span id="superadmin-users-count">-</span>
+              </div>
+              <div class="superadmin-table-wrap">
+                <table>
+                  <thead><tr><th>Usuario</th><th>Clinica</th><th>Rol</th><th>Ultimo acceso</th></tr></thead>
+                  <tbody id="superadmin-users-table"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="superadmin-card superadmin-card-wide">
+              <div class="superadmin-card-head">
+                <h2>Actividad reciente</h2>
+                <button class="secondary-button" type="button" id="superadmin-refresh-button">Actualizar</button>
+              </div>
+              <div class="superadmin-table-wrap">
+                <table>
+                  <thead><tr><th>Fecha</th><th>Clinica</th><th>Usuario</th><th>Accion</th><th>Resultado</th></tr></thead>
+                  <tbody id="superadmin-audit-table"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         </section>
       </div>
     </section>
@@ -2154,7 +2235,7 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260519-stripe-pagos"></script>
+    <script src="./app.js?v=20260520-superadmin"></script>
   </body>
 </html>
 

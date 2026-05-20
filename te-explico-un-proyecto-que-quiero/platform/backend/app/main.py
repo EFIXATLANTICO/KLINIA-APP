@@ -29,6 +29,7 @@ from .schemas import (
     ClinicRegisterIn,
     LoginIn,
     MeOut,
+    PasswordChangeIn,
     PatientCreate,
     PatientOut,
     PatientUpdate,
@@ -491,6 +492,14 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
 @app.post("/auth/login", response_model=TokenOut)
 def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
     email = str(payload.email).lower()
+    if not payload.clinic_id and not payload.clinic_email:
+        superadmin = db.scalar(select(User).where(User.email == email, User.role == UserRole.superadmin, User.active.is_(True)))
+        if superadmin and verify_password(payload.password, superadmin.password_hash):
+            audit_action(db, superadmin, "login-success", "auth", superadmin.id, {"role": superadmin.role.value}, request=request)
+            db.commit()
+            token = create_access_token(subject=superadmin.id, clinic_id=None, role=superadmin.role.value)
+            return TokenOut(access_token=token, clinic_id=None, subscription_status="active")
+
     query = select(User).where(User.email == email, User.active.is_(True))
     resolved_clinic_id = payload.clinic_id
     if payload.clinic_id:
@@ -546,6 +555,17 @@ def me(user: User = Depends(current_user)) -> MeOut:
 @app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
     audit_action(db, user, "logout", "auth", user.id, {"role": user.role.value}, request=request)
+    db.commit()
+
+
+@app.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(payload: PasswordChangeIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
+    if not verify_password(payload.current_password, user.password_hash):
+        audit_action(db, user, "change-password", "user", user.id, {"reason": "invalid_current_password"}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid current password")
+    user.password_hash = hash_password(payload.new_password)
+    audit_action(db, user, "change-password", "user", user.id, {"role": user.role.value}, request=request)
     db.commit()
 
 
