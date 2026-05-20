@@ -205,6 +205,7 @@ class PatientBase(BaseModel):
     email: EmailStr | None = None
     status: str = "Activo"
     alert: str | None = None
+    metadata_json: str | None = None
 
 
 class PatientCreate(PatientBase):
@@ -217,6 +218,7 @@ class PatientUpdate(BaseModel):
     email: EmailStr | None = None
     status: str | None = None
     alert: str | None = None
+    metadata_json: str | None = None
 
 
 class PatientOut(PatientBase):
@@ -236,6 +238,7 @@ class PractitionerBase(BaseModel):
     availability_start_2: str | None = None
     availability_end_2: str | None = None
     active: bool = True
+    metadata_json: str | None = None
 
 
 class PractitionerCreate(PractitionerBase):
@@ -253,6 +256,7 @@ class PractitionerUpdate(BaseModel):
     availability_start_2: str | None = None
     availability_end_2: str | None = None
     active: bool | None = None
+    metadata_json: str | None = None
 
 
 class PractitionerOut(PractitionerBase):
@@ -329,6 +333,7 @@ class AppointmentBase(BaseModel):
     end: str
     status: AppointmentStatus = AppointmentStatus.confirmed
     internal_notes: str | None = None
+    metadata_json: str | None = None
 
 
 class AppointmentCreate(AppointmentBase):
@@ -345,6 +350,7 @@ class AppointmentUpdate(BaseModel):
     end: str | None = None
     status: AppointmentStatus | None = None
     internal_notes: str | None = None
+    metadata_json: str | None = None
 
 
 class AppointmentOut(AppointmentBase):

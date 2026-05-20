@@ -89,6 +89,7 @@ class Practitioner(TimestampMixin, Base):
     availability_start_2: Mapped[str | None] = mapped_column(String(5))
     availability_end_2: Mapped[str | None] = mapped_column(String(5))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
 
     user: Mapped[User | None] = relationship(back_populates="practitioner")
 
@@ -103,6 +104,7 @@ class Patient(TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(60), default="Activo")
     alert: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
 
 
 class Room(TimestampMixin, Base):
@@ -146,6 +148,7 @@ class Appointment(TimestampMixin, Base):
     end: Mapped[str] = mapped_column(String(5))
     status: Mapped[AppointmentStatus] = mapped_column(Enum(AppointmentStatus), default=AppointmentStatus.confirmed)
     internal_notes: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
 
 
 class AuditLog(Base):

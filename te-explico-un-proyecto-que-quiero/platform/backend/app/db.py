@@ -74,3 +74,10 @@ def ensure_runtime_schema() -> None:
             for name, ddl in audit_columns.items():
                 if name not in audit_existing:
                     connection.execute(text(f"ALTER TABLE audit_logs ADD COLUMN {name} {ddl}"))
+
+        for table_name in ("patients", "practitioners", "appointments"):
+            if table_name not in table_names:
+                continue
+            table_existing = {column["name"] for column in inspector.get_columns(table_name)}
+            if "metadata_json" not in table_existing:
+                connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN metadata_json TEXT"))

@@ -1148,6 +1148,31 @@ async function syncCurrentSubscriptionFromBackend(options = {}) {
   }
 }
 
+function backendDataEnabled(account = currentClinicAccount()) {
+  return Boolean(backendTokenForAccount(account)) && account?.key !== demoClinicKey;
+}
+
+function parseBackendMetadata(value) {
+  if (!value) return {};
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function backendMetadataJson(value, excludedKeys = []) {
+  const blocked = new Set(["id", "password", "dniFileData", "token", "accessToken", ...excludedKeys]);
+  const metadata = {};
+  Object.entries(value || {}).forEach(([key, entryValue]) => {
+    if (!blocked.has(key) && entryValue !== undefined) {
+      metadata[key] = entryValue;
+    }
+  });
+  return JSON.stringify(metadata);
+}
+
 function formatSuperadminDate(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -1313,10 +1338,13 @@ async function createBackendUserIfAvailable(payload) {
   }
 }
 
-function apiPatientToUi(patient) {
+function apiPatientToUi(patient, previous = {}) {
+  const meta = parseBackendMetadata(patient.metadata_json);
   return {
+    ...previous,
+    ...meta,
     id: patient.id,
-    name: patient.name || `${patient.first_name || ""} ${patient.last_name || ""}`.trim(),
+    name: patient.name || meta.name || `${meta.firstName || ""} ${meta.lastName || ""}`.trim(),
     phone: patient.phone || "",
     email: patient.email || "",
     last: "API",
@@ -1325,13 +1353,49 @@ function apiPatientToUi(patient) {
   };
 }
 
-function uiPatientToApi(form) {
+function uiPatientToApi(patient) {
   return {
-    name: patientFullNameFromForm(form),
-    phone: form.elements.phone.value.trim() || null,
-    email: form.elements.email.value.trim() || null,
-    alert: form.elements.alert.value.trim() || null,
-    status: "Activo"
+    name: patient.name,
+    phone: patient.phone && patient.phone !== "No indicado" ? patient.phone : null,
+    email: patient.email || null,
+    alert: patient.alert || null,
+    status: patient.status || "Activo",
+    metadata_json: backendMetadataJson(patient, ["name", "phone", "email", "alert", "status", "last"])
+  };
+}
+
+function apiPractitionerToUi(practitioner, previous = {}) {
+  const meta = parseBackendMetadata(practitioner.metadata_json);
+  return {
+    ...previous,
+    ...meta,
+    id: practitioner.id,
+    name: practitioner.name || meta.name || "Trabajador",
+    specialty: practitioner.specialty || meta.specialty || "",
+    color: practitioner.color || meta.color || "#168776",
+    commissionRate: Number(practitioner.commission_rate || 0),
+    target: Math.round(Number(practitioner.monthly_target_cents || 0) / 100),
+    availabilityStart: practitioner.availability_start || meta.availabilityStart || "08:00",
+    availabilityEnd: practitioner.availability_end || meta.availabilityEnd || "14:00",
+    availabilityStart2: practitioner.availability_start_2 || meta.availabilityStart2 || "",
+    availabilityEnd2: practitioner.availability_end_2 || meta.availabilityEnd2 || "",
+    active: practitioner.active !== false
+  };
+}
+
+function uiPractitionerToApi(practitioner) {
+  return {
+    name: practitioner.name,
+    specialty: practitioner.specialty || null,
+    color: practitioner.color || "#168776",
+    commission_rate: Number(practitioner.commissionRate || 0),
+    monthly_target_cents: Math.round(Number(practitioner.target || 0) * 100),
+    availability_start: practitioner.availabilityStart || "08:00",
+    availability_end: practitioner.availabilityEnd || "14:00",
+    availability_start_2: practitioner.availabilityStart2 || null,
+    availability_end_2: practitioner.availabilityEnd2 || null,
+    active: practitioner.active !== false,
+    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "active"])
   };
 }
 
@@ -1356,34 +1420,80 @@ function uiServiceToApi(form) {
   };
 }
 
-function apiAppointmentToUi(appointment) {
-  const startsAt = new Date(appointment.starts_at);
+function apiAppointmentToUi(appointment, previous = {}) {
+  const meta = parseBackendMetadata(appointment.metadata_json);
   return {
+    ...previous,
+    ...meta,
     id: appointment.id,
-    date: startsAt.toISOString().slice(0, 10),
+    date: appointment.date || meta.date || selectedDate,
     patientId: appointment.patient_id,
     practitionerId: appointment.practitioner_id,
     roomId: appointment.room_id,
     serviceId: appointment.service_id,
-    start: `${String(startsAt.getHours()).padStart(2, "0")}:${String(startsAt.getMinutes()).padStart(2, "0")}`,
+    start: appointment.start || meta.start || "12:00",
+    end: appointment.end || meta.end || "",
     status: appointment.status,
     internalNotes: appointment.internal_notes || ""
   };
 }
 
 function uiAppointmentToApi(candidate) {
-  const today = new Date(`${candidate.date || selectedDate}T00:00:00`);
-  const [hour, minute] = candidate.start.split(":").map(Number);
-  const startsAt = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, minute, 0);
   return {
     patient_id: candidate.patientId,
     practitioner_id: candidate.practitionerId,
     room_id: candidate.roomId,
     service_id: candidate.serviceId,
-    starts_at: startsAt.toISOString(),
+    date: candidate.date || selectedDate,
+    start: candidate.start,
+    end: candidate.end || appointmentEnd(candidate),
     status: candidate.status,
-    internal_notes: candidate.internalNotes || null
+    internal_notes: candidate.internalNotes || null,
+    metadata_json: backendMetadataJson(candidate, ["patientId", "practitionerId", "roomId", "serviceId", "date", "start", "end", "status", "internalNotes"])
   };
+}
+
+async function savePatientToBackend(patient, previousId = "") {
+  if (!backendDataEnabled()) return patient;
+  const method = previousId && !String(previousId).startsWith("p") ? "PATCH" : "POST";
+  const path = method === "PATCH" ? `/patients/${encodeURIComponent(previousId)}` : "/patients";
+  const saved = await backendRequest(path, {
+    method,
+    body: JSON.stringify(uiPatientToApi(patient))
+  });
+  return apiPatientToUi(saved, patient);
+}
+
+async function deletePatientFromBackend(patientId) {
+  if (!backendDataEnabled() || String(patientId).startsWith("p")) return;
+  await backendRequest(`/patients/${encodeURIComponent(patientId)}`, { method: "DELETE" });
+}
+
+async function savePractitionerToBackend(practitioner, previousId = "") {
+  if (!backendDataEnabled()) return practitioner;
+  const method = previousId && !String(previousId).startsWith("worker-") ? "PATCH" : "POST";
+  const path = method === "PATCH" ? `/practitioners/${encodeURIComponent(previousId)}` : "/practitioners";
+  const saved = await backendRequest(path, {
+    method,
+    body: JSON.stringify(uiPractitionerToApi(practitioner))
+  });
+  return apiPractitionerToUi(saved, practitioner);
+}
+
+async function deletePractitionerFromBackend(practitionerId) {
+  if (!backendDataEnabled() || String(practitionerId).startsWith("worker-")) return;
+  await backendRequest(`/practitioners/${encodeURIComponent(practitionerId)}`, { method: "DELETE" });
+}
+
+async function saveAppointmentToBackend(appointment, previousId = "") {
+  if (!backendDataEnabled()) return appointment;
+  const method = previousId && !String(previousId).startsWith("local-") ? "PATCH" : "POST";
+  const path = method === "PATCH" ? `/appointments/${encodeURIComponent(previousId)}` : "/appointments";
+  const saved = await backendRequest(path, {
+    method,
+    body: JSON.stringify(uiAppointmentToApi(appointment))
+  });
+  return apiAppointmentToUi(saved, appointment);
 }
 
 function minutes(time) {
@@ -2981,8 +3091,17 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
     await showNotice("No se puede mover la cita", validation.message, { variant: "warning" });
     return;
   }
+  let movedAppointment = { ...appointment, date: dateValue, start: hour, movedAt: new Date().toISOString(), movedBy: currentSessionName() };
+  if (backendDataEnabled()) {
+    try {
+      movedAppointment = await saveAppointmentToBackend(movedAppointment, appointment.id);
+    } catch (error) {
+      await showNotice("No se puede mover la cita", `No se pudo actualizar en backend: ${error.message}`, { variant: "warning" });
+      return;
+    }
+  }
   appointments = appointments.map((item) => String(item.id) === String(appointment.id)
-    ? { ...item, date: dateValue, start: hour, movedAt: new Date().toISOString(), movedBy: currentSessionName() }
+    ? movedAppointment
     : item
   );
   saveClinicState("appointments", appointments);
@@ -5781,31 +5900,29 @@ function setupAccessManagement() {
 }
 
 async function hydrateFromApi() {
-  if (!apiEnabled || !isDemoClinic()) {
+  if (!backendDataEnabled()) {
     return;
   }
 
-  return;
-
   try {
-    const [apiPatients, apiServices, apiAppointments] = await Promise.all([
-      apiRequest("/api/patients"),
-      apiRequest("/api/services"),
-      apiRequest("/api/appointments")
+    const [apiPatients, apiPractitioners, apiAppointments] = await Promise.all([
+      backendRequest("/patients"),
+      backendRequest("/practitioners"),
+      backendRequest("/appointments")
     ]);
-    patients = mergeById(apiPatients.map(apiPatientToUi), defaultPatients);
-    services = mergeById(apiServices.map(apiServiceToUi), defaultServices);
-    appointments = apiAppointments.length
-      ? normalizeAppointments(mergeById(apiAppointments.map(apiAppointmentToUi), defaultAppointments))
-      : defaultAppointments;
+    patients = apiPatients.map((patient) => apiPatientToUi(patient, byId(patients, patient.id)));
+    practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
+    appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
     selectedPatientId = patients[0]?.id || null;
     saveClinicState("patients", patients);
-    saveClinicState("services", services);
+    saveClinicState("practitioners", practitioners);
     saveClinicState("appointments", appointments);
     renderAppointmentFormOptions();
+    renderLoginProfiles();
     renderAll();
   } catch (error) {
-    console.warn("Klinia API demo unavailable, using local data.", error);
+    console.warn("Klinia backend data unavailable, keeping local cache.", error);
+    showToast(`No se pudo sincronizar datos con backend: ${error.message}`, "warning");
   }
 }
 
@@ -6896,17 +7013,31 @@ function renderRecurrenceReview(available, conflicts) {
     </div>
     <button class="secondary-button" type="button" id="create-available-recurring" ${available.length ? "" : "disabled"}>Crear solo disponibles</button>
   `;
-  $("#create-available-recurring")?.addEventListener("click", () => {
+  $("#create-available-recurring")?.addEventListener("click", async () => {
     const dialog = $("#appointment-dialog");
     const form = $("#appointment-form");
     if (!pendingRecurringReview?.available?.length) return;
-    finishAppointmentCreation(pendingRecurringReview.available, dialog, form);
+    await finishAppointmentCreation(pendingRecurringReview.available, dialog, form);
     resetRecurrenceReview();
   });
 }
 
-function finishAppointmentCreation(newAppointments, dialog = $("#appointment-dialog"), form = $("#appointment-form")) {
-  const items = Array.isArray(newAppointments) ? newAppointments : [newAppointments];
+async function finishAppointmentCreation(newAppointments, dialog = $("#appointment-dialog"), form = $("#appointment-form")) {
+  let items = Array.isArray(newAppointments) ? newAppointments : [newAppointments];
+  if (backendDataEnabled()) {
+    try {
+      items = await Promise.all(items.map((item) => saveAppointmentToBackend(item, item.id)));
+    } catch (error) {
+      const errorBox = $("#form-error");
+      if (errorBox) {
+        errorBox.textContent = `No se pudo guardar la cita en backend: ${error.message}`;
+        errorBox.classList.add("visible");
+      } else {
+        showToast(`No se pudo guardar la cita en backend: ${error.message}`, "error");
+      }
+      return;
+    }
+  }
   appointments = [...appointments, ...items];
   saveClinicState("appointments", appointments);
   selectedDate = items[0]?.date || selectedDate;
@@ -7094,17 +7225,7 @@ function setupDialog() {
       return;
     }
 
-    if (apiEnabled && isDemoClinic() && candidates.length === 1 && candidate.serviceId && byId(services, candidate.serviceId)) {
-      apiRequest("/api/appointments", {
-        method: "POST",
-        body: JSON.stringify(uiAppointmentToApi(candidate))
-      })
-        .then((appointment) => finishAppointmentCreation(apiAppointmentToUi(appointment), dialog, form))
-        .catch(() => finishAppointmentCreation(candidate, dialog, form));
-      return;
-    }
-
-    finishAppointmentCreation(candidates, dialog, form);
+    await finishAppointmentCreation(candidates, dialog, form);
   });
 }
 
@@ -7427,13 +7548,16 @@ function setupAppointmentDetail() {
       cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : ""
     };
 
-    if (apiEnabled && isDemoClinic() && !String(selectedAppointmentId).startsWith("local-")) {
-      apiRequest(`/api/appointments/${selectedAppointmentId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify(payload)
-      })
-        .then((appointment) => finish({ ...apiAppointmentToUi(appointment), cancelledBy, cancelledAt: localUpdate.cancelledAt, invoiceGenerated: localUpdate.invoiceGenerated, paymentStatus: localUpdate.paymentStatus, paymentMethod: localUpdate.paymentMethod, patientPackId: localUpdate.patientPackId, plannedPatientPackId: localUpdate.plannedPatientPackId, patientPackUsedAt: localUpdate.patientPackUsedAt }))
-        .catch(() => finish(localUpdate));
+    if (backendDataEnabled()) {
+      try {
+        const savedAppointment = await saveAppointmentToBackend(localUpdate, selectedAppointmentId);
+        finish(savedAppointment);
+      } catch (error) {
+        if (detailError) {
+          detailError.textContent = `No se pudo actualizar la cita en backend: ${error.message}`;
+          detailError.classList.add("visible");
+        }
+      }
       return;
     }
 
@@ -7491,6 +7615,12 @@ async function deletePatientById(patientId) {
     confirmLabel: "Eliminar"
   });
   if (!confirmed) return;
+  try {
+    await deletePatientFromBackend(patientId);
+  } catch (error) {
+    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    return;
+  }
   patients = patients.filter((item) => item.id !== patientId);
   if (selectedPatientId === patientId) {
     selectedPatientId = patients[0]?.id || null;
@@ -7586,7 +7716,7 @@ function setupPatientDialog() {
     const finish = (patient) => {
       const editingPatientId = form.dataset.editingPatientId || "";
       patients = editingPatientId
-        ? patients.map((item) => item.id === patient.id ? patient : item)
+        ? patients.map((item) => item.id === editingPatientId ? patient : item)
         : [...patients, patient];
       selectedPatientId = patient.id;
       patientProfileOpen = true;
@@ -7607,20 +7737,17 @@ function setupPatientDialog() {
       }
     };
 
-    if (!form.dataset.editingPatientId && apiEnabled && isDemoClinic()) {
-      apiRequest("/api/patients", {
-        method: "POST",
-        body: JSON.stringify(uiPatientToApi(form))
-      })
-        .then((patient) => finish({ ...localPatient, ...apiPatientToUi(patient) }))
-        .catch(() => {
-          const error = $("#patient-form-error");
-          if (error) {
-            error.textContent = "No se pudo guardar en servidor. Se guarda localmente para no perder los datos.";
-            error.classList.add("visible");
-          }
-          finish(localPatient);
-        });
+    if (backendDataEnabled()) {
+      try {
+        const savedPatient = await savePatientToBackend(localPatient, form.dataset.editingPatientId || "");
+        finish(savedPatient);
+      } catch (error) {
+        const errorBox = $("#patient-form-error");
+        if (errorBox) {
+          errorBox.textContent = `No se pudo guardar en backend: ${error.message}`;
+          errorBox.classList.add("visible");
+        }
+      }
       return;
     }
 
@@ -8209,6 +8336,12 @@ async function deletePractitionerById(practitionerId) {
     confirmLabel: "Eliminar"
   });
   if (!confirmed) return;
+  try {
+    await deletePractitionerFromBackend(practitionerId);
+  } catch (error) {
+    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    return;
+  }
   practitioners = practitioners.filter((item) => item.id !== practitionerId);
   saveClinicState("practitioners", practitioners);
   renderFilters();
@@ -8515,20 +8648,29 @@ function setupConfiguration() {
       availabilityStart2: form.elements.availabilityStart2.value,
       availabilityEnd2: form.elements.availabilityEnd2.value
     };
+    let savedPractitioner = practitioner;
+    if (backendDataEnabled()) {
+      try {
+        savedPractitioner = await savePractitionerToBackend(practitioner, form.dataset.editingPractitionerId || "");
+      } catch (error) {
+        $("#practitioner-key-status").textContent = `No se pudo guardar el trabajador en backend: ${error.message}`;
+        return;
+      }
+    }
     practitioners = form.dataset.editingPractitionerId
-      ? practitioners.map((item) => item.id === practitioner.id ? practitioner : item)
-      : [...practitioners, practitioner];
-    if (practitioner.email) {
+      ? practitioners.map((item) => item.id === form.dataset.editingPractitionerId ? savedPractitioner : item)
+      : [...practitioners, savedPractitioner];
+    if (savedPractitioner.email) {
       try {
         const backendUser = await createBackendUserIfAvailable({
-          name: practitioner.name,
-          email: practitioner.email,
+          name: savedPractitioner.name,
+          email: savedPractitioner.email,
           password: practitioner.password,
           role: "practitioner",
           active: true
         });
         if (backendUser?.id) {
-          practitioners = practitioners.map((item) => item.id === practitioner.id ? { ...item, backendUserId: backendUser.id } : item);
+          practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? { ...item, backendUserId: backendUser.id } : item);
         }
       } catch (error) {
         $("#practitioner-key-status").textContent = backendTokenForAccount(currentClinicAccount())
