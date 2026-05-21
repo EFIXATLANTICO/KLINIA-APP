@@ -5348,6 +5348,18 @@ body.superadmin-mode .public-nav-actions {
   font-weight: 800;
 }
 
+.superadmin-sync-note {
+  width: min(100% - 48px, 1280px);
+  margin: 0 auto 16px;
+  padding: 12px 14px;
+  border: 1px solid #f0d18c;
+  border-radius: var(--radius-sm);
+  background: #fff8e8;
+  color: #705000;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 .superadmin-table-wrap {
   width: 100%;
   overflow: auto;
@@ -5423,6 +5435,7 @@ body.superadmin-mode .public-nav-actions {
   .superadmin-head,
   .superadmin-kpis,
   .superadmin-filters,
+  .superadmin-sync-note,
   .superadmin-grid {
     width: min(100% - 28px, 1280px);
   }

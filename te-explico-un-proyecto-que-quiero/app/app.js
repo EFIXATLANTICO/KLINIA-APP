@@ -1266,6 +1266,16 @@ async function loadSuperadminPanel() {
     ]);
     const clinics = mergeSuperadminClinics(backendClinics);
     const localClinics = clinics.filter((clinic) => clinic.source === "local");
+    const localSyncNote = $("#superadmin-local-sync-note");
+    if (localSyncNote) {
+      if (localClinics.length) {
+        localSyncNote.textContent = `${localClinics.length} clinica${localClinics.length === 1 ? "" : "s"} aparece${localClinics.length === 1 ? "" : "n"} solo en este navegador porque se creo antes de quedar enlazada al backend. Se muestra${localClinics.length === 1 ? "" : "n"} como pendiente${localClinics.length === 1 ? "" : "s"} para no perder visibilidad, pero no tendra${localClinics.length === 1 ? "" : "n"} auditoria completa hasta migrarla${localClinics.length === 1 ? "" : "s"} a PostgreSQL.`;
+        localSyncNote.classList.remove("hidden");
+      } else {
+        localSyncNote.textContent = "";
+        localSyncNote.classList.add("hidden");
+      }
+    }
 
     $("#superadmin-total-clinics").textContent = localClinics.length
       ? `${overview.total_clinics ?? 0} + ${localClinics.length}`
@@ -1448,6 +1458,9 @@ function backendLoginMessage(error) {
   }
   if (error?.status === 422) {
     return "El acceso no se ha enviado con el formato correcto. Actualiza la pagina y vuelve a intentarlo.";
+  }
+  if (String(error?.message || "").toLowerCase().includes("failed to fetch")) {
+    return "No se pudo conectar con el servidor de Klinia. Revisa la conexion y actualiza la pagina.";
   }
   return error?.message || "No se pudo comprobar el acceso con el backend.";
 }
@@ -6938,6 +6951,10 @@ function setupLogin() {
     const backendFirst = await tryBackendLogin(identifier, password);
     if (backendFirst.handled) {
       persistLoginCredentials(form, identifier, password);
+      return;
+    }
+    if (backendFirst.error && backendRequiredForProduction()) {
+      showLoginError(backendLoginMessage(backendFirst.error), backendFirst.error.status === 401 ? form.elements.password : form.elements.center);
       return;
     }
 
