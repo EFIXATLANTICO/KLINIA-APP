@@ -127,7 +127,7 @@ class SuperAdminOverviewOut(BaseModel):
 class SuperAdminClinicOut(BaseModel):
     id: str
     name: str
-    email: EmailStr
+    email: str
     phone: str | None = None
     subscription_plan: str = "trial"
     subscription_status: str = "trialing"

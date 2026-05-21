@@ -948,13 +948,17 @@ function forgetSavedLoginCredentials() {
 function clearRealLoginFields() {
   const loginForm = $("#login-form");
   const profileForm = $("#profile-form");
+  clearLoginErrors();
   if (loginForm) {
     loginForm.elements.center.value = "";
     loginForm.elements.password.value = "";
     loginForm.elements.remember.checked = false;
+    loginForm.elements.center.removeAttribute("aria-invalid");
+    loginForm.elements.password.removeAttribute("aria-invalid");
   }
   if (profileForm) {
     profileForm.elements.password.value = "";
+    profileForm.elements.password.removeAttribute("aria-invalid");
   }
   pendingClinicKey = null;
   renderLoginProfiles();
@@ -994,6 +998,7 @@ function showProfileLoginStep(clinicKey) {
   if (!isAuthenticated) {
     showPublicView("login", { resetLogin: false });
   }
+  clearLoginErrors();
   pendingClinicKey = clinicKey;
   $("#login-form").classList.add("hidden");
   $("#profile-form").classList.remove("hidden");
@@ -1206,6 +1211,38 @@ function renderSuperadminEmpty(tbody, colspan, message) {
   }
 }
 
+function localSuperadminClinics(backendClinics = []) {
+  const backendKeys = new Set((backendClinics || []).flatMap((clinic) => [
+    String(clinic.id || "").toLowerCase(),
+    String(clinic.email || "").trim().toLowerCase(),
+    String(clinic.name || "").trim().toLowerCase()
+  ]).filter(Boolean));
+  return clinicAccounts
+    .filter((account) => account.key !== demoClinicKey)
+    .filter((account) => !backendKeys.has(String(account.backendClinicId || "").toLowerCase()))
+    .filter((account) => !backendKeys.has(String(account.email || "").trim().toLowerCase()))
+    .filter((account) => !backendKeys.has(String(account.name || "").trim().toLowerCase()))
+    .map((account) => ({
+      id: `local:${account.key}`,
+      name: account.name || "Clinica local",
+      email: account.email || account.ownerEmail || "",
+      phone: account.phone || "",
+      subscription_plan: account.paymentPlan || "local",
+      subscription_status: "local_pending_backend",
+      created_at: account.createdAt || "",
+      users_count: 0,
+      last_activity_at: null,
+      source: "local"
+    }));
+}
+
+function mergeSuperadminClinics(backendClinics = []) {
+  return [
+    ...backendClinics.map((clinic) => ({ ...clinic, source: "backend" })),
+    ...localSuperadminClinics(backendClinics)
+  ];
+}
+
 async function loadSuperadminPanel() {
   const token = superadminToken();
   if (!token) return;
@@ -1221,34 +1258,40 @@ async function loadSuperadminPanel() {
   if (dateTo) params.set("date_to", `${dateTo}T23:59:59`);
 
   try {
-    const [overview, clinics, users, audit] = await Promise.all([
+    const [overview, backendClinics, users, audit] = await Promise.all([
       backendRequest("/superadmin/overview", { token, auth: false }),
       backendRequest("/superadmin/clinics", { token, auth: false }),
       backendRequest(`/superadmin/users${clinicId ? `?clinic_id=${encodeURIComponent(clinicId)}` : ""}`, { token, auth: false }),
       backendRequest(`/superadmin/audit-log${params.toString() ? `?${params.toString()}` : ""}`, { token, auth: false })
     ]);
+    const clinics = mergeSuperadminClinics(backendClinics);
+    const localClinics = clinics.filter((clinic) => clinic.source === "local");
 
-    $("#superadmin-total-clinics").textContent = overview.total_clinics ?? "-";
+    $("#superadmin-total-clinics").textContent = localClinics.length
+      ? `${overview.total_clinics ?? 0} + ${localClinics.length}`
+      : (overview.total_clinics ?? "-");
     $("#superadmin-active-clinics").textContent = overview.active_clinics ?? "-";
     $("#superadmin-trial-clinics").textContent = overview.trialing_clinics ?? "-";
     $("#superadmin-failed-logins").textContent = overview.failed_logins_24h ?? "-";
 
     const clinicFilter = $("#superadmin-clinic-filter");
     if (clinicFilter && !clinicFilter.dataset.loaded) {
-      clinicFilter.innerHTML = `<option value="">Todas las clinicas</option>${clinics.map((clinic) => `<option value="${escapeHtml(clinic.id)}">${escapeHtml(clinic.name)}</option>`).join("")}`;
+      clinicFilter.innerHTML = `<option value="">Todas las clinicas backend</option>${backendClinics.map((clinic) => `<option value="${escapeHtml(clinic.id)}">${escapeHtml(clinic.name)}</option>`).join("")}`;
       clinicFilter.dataset.loaded = "true";
       clinicFilter.value = clinicId;
     }
 
-    $("#superadmin-clinics-count").textContent = `${clinics.length} clinicas`;
+    $("#superadmin-clinics-count").textContent = localClinics.length
+      ? `${backendClinics.length} backend + ${localClinics.length} locales`
+      : `${backendClinics.length} clinicas backend`;
     const clinicsTable = $("#superadmin-clinics-table");
     if (!clinics.length) {
       renderSuperadminEmpty(clinicsTable, 4, "Todavia no hay clinicas registradas.");
     } else {
       clinicsTable.innerHTML = clinics.map((clinic) => `
         <tr>
-          <td><strong>${escapeHtml(clinic.name)}</strong><span>${escapeHtml(clinic.email)}</span></td>
-          <td><span class="superadmin-status ${superadminStatusClass(clinic.subscription_status)}">${escapeHtml(clinic.subscription_status || "-")}</span><span>${escapeHtml(clinic.subscription_plan || "-")}</span></td>
+          <td><strong>${escapeHtml(clinic.name)}</strong><span>${escapeHtml(clinic.email || "Sin email")}</span><span class="superadmin-source ${clinic.source === "local" ? "local" : "backend"}">${clinic.source === "local" ? "Local pendiente de backend" : "Backend"}</span></td>
+          <td><span class="superadmin-status ${superadminStatusClass(clinic.subscription_status)}">${escapeHtml(clinic.source === "local" ? "pendiente" : (clinic.subscription_status || "-"))}</span><span>${escapeHtml(clinic.subscription_plan || "-")}</span></td>
           <td>${Number(clinic.users_count || 0)}</td>
           <td>${escapeHtml(formatSuperadminDate(clinic.last_activity_at))}</td>
         </tr>
@@ -1361,6 +1404,34 @@ function persistLoginCredentials(form, identifier, password) {
   }
 }
 
+function setInlineError(selector, message = "") {
+  const error = $(selector);
+  if (!error) return;
+  error.textContent = message;
+  error.classList.toggle("visible", Boolean(message));
+}
+
+function clearLoginErrors() {
+  setInlineError("#login-error");
+  setInlineError("#profile-login-error");
+}
+
+function showLoginError(message, field = null) {
+  setInlineError("#login-error", message);
+  if (field) {
+    field.setAttribute("aria-invalid", "true");
+    field.focus();
+  }
+}
+
+function showProfileLoginError(message, field = null) {
+  setInlineError("#profile-login-error", message);
+  if (field) {
+    field.setAttribute("aria-invalid", "true");
+    field.focus();
+  }
+}
+
 function backendProfileForUser(user = {}) {
   if (user.role === "practitioner") {
     return user.practitioner_id || user.practitionerId || "practitioner";
@@ -1370,7 +1441,7 @@ function backendProfileForUser(user = {}) {
 
 function backendLoginMessage(error) {
   if (error?.status === 401) {
-    return "Credenciales incorrectas. Revisa usuario y contrasena.";
+    return "Usuario o contraseña incorrectos.";
   }
   if (error?.status === 409) {
     return "Ese email existe en mas de una clinica. Entra usando el email de la clinica o selecciona la clinica guardada.";
@@ -6855,8 +6926,15 @@ function setupLogin() {
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    clearLoginErrors();
+    form.elements.center.removeAttribute("aria-invalid");
+    form.elements.password.removeAttribute("aria-invalid");
     const identifier = form.elements.center.value.trim();
     const password = form.elements.password.value;
+    if (!identifier || !password) {
+      showLoginError("Escribe usuario y contraseña para entrar.", !identifier ? form.elements.center : form.elements.password);
+      return;
+    }
     const backendFirst = await tryBackendLogin(identifier, password);
     if (backendFirst.handled) {
       persistLoginCredentials(form, identifier, password);
@@ -6866,15 +6944,11 @@ function setupLogin() {
     const principal = loginPrincipalByIdentifier(form.elements.center.value);
     if (principal) {
       if (!principal.password) {
-        form.elements.password.setCustomValidity("Este usuario todavia no tiene una contrasena configurada.");
-        form.reportValidity();
-        form.elements.password.setCustomValidity("");
+        showLoginError("Este usuario todavía no tiene una contraseña configurada.", form.elements.password);
         return;
       }
       if (password !== principal.password) {
-        form.elements.password.setCustomValidity("Contrasena incorrecta para este usuario.");
-        form.reportValidity();
-        form.elements.password.setCustomValidity("");
+        showLoginError("Contraseña incorrecta para este usuario.", form.elements.password);
         return;
       }
       persistLoginCredentials(form, identifier, password);
@@ -6888,21 +6962,15 @@ function setupLogin() {
       const message = backendFirst.error
         ? backendLoginMessage(backendFirst.error)
         : "No encuentro esa clinica. Escribe el nombre o el email registrado.";
-      form.elements.center.setCustomValidity(message);
-      form.reportValidity();
-      form.elements.center.setCustomValidity("");
+      showLoginError(message, backendFirst.error?.status === 401 ? form.elements.password : form.elements.center);
       return;
     }
     if (account.key === demoClinicKey) {
-      form.elements.center.setCustomValidity("La clinica demo se abre desde Demo visual, no desde el acceso real.");
-      form.reportValidity();
-      form.elements.center.setCustomValidity("");
+      showLoginError("La clínica demo se abre desde Demo visual, no desde el acceso real.", form.elements.center);
       return;
     }
     if (password !== clinicAccessPasswordForAccount(account)) {
-      form.elements.password.setCustomValidity("Contrasena incorrecta para esta clinica.");
-      form.reportValidity();
-      form.elements.password.setCustomValidity("");
+      showLoginError("Contraseña incorrecta para esta clínica.", form.elements.password);
       return;
     }
     persistLoginCredentials(form, identifier, password);
@@ -6913,6 +6981,8 @@ function setupLogin() {
   $("#profile-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    setInlineError("#profile-login-error");
+    form.elements.password.removeAttribute("aria-invalid");
     const account = clinicAccountByKey(pendingClinicKey || demoClinicKey);
     const profile = form.elements.profile.value;
     const loginPractitioners = normalizePractitioners(loadClinicStateFor(account.key, "practitioners", account.key === demoClinicKey ? defaultPractitioners : []));
@@ -6923,15 +6993,11 @@ function setupLogin() {
         ? account.staffPassword
         : practitioner?.password || "";
     if (!expectedPassword) {
-      form.elements.password.setCustomValidity("Este perfil no tiene una contrasena propia configurada.");
-      form.reportValidity();
-      form.elements.password.setCustomValidity("");
+      showProfileLoginError("Este perfil no tiene una contraseña propia configurada.", form.elements.password);
       return;
     }
     if (form.elements.password.value !== expectedPassword) {
-      form.elements.password.setCustomValidity("Contrasena incorrecta para este perfil.");
-      form.reportValidity();
-      form.elements.password.setCustomValidity("");
+      showProfileLoginError("Contraseña incorrecta para este perfil.", form.elements.password);
       return;
     }
     enterPlatform(profile, account.key);

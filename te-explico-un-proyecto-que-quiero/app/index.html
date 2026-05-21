@@ -15,7 +15,7 @@
       body.login-mode .app-shell { display: none !important; }
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
-    <link rel="stylesheet" href="./styles.css?v=20260521-login-fix2" />
+    <link rel="stylesheet" href="./styles.css?v=20260521-login-superadmin-fix" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -144,6 +144,7 @@
                 Contrasena clinica
                 <input name="password" type="password" autocomplete="current-password" required />
               </label>
+              <p class="form-error login-error-message" id="login-error" role="alert" aria-live="polite"></p>
               <div class="login-row">
                 <label class="check-row">
                   <input name="remember" type="checkbox" />
@@ -167,6 +168,7 @@
                 Contrasena del perfil
                 <input name="password" type="password" autocomplete="current-password" required />
               </label>
+              <p class="form-error login-error-message" id="profile-login-error" role="alert" aria-live="polite"></p>
               <button class="primary-button" type="submit">Iniciar sesion</button>
               <button class="secondary-button" type="button" id="back-to-clinic-login">Cambiar clinica</button>
             </form>
@@ -344,6 +346,7 @@
             </label>
             <button class="primary-button" type="submit">Filtrar actividad</button>
           </form>
+          <p class="superadmin-sync-note hidden" id="superadmin-local-sync-note" role="status"></p>
 
           <div class="superadmin-grid">
             <section class="superadmin-card">
@@ -2235,7 +2238,7 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260521-login-fix2"></script>
+    <script src="./app.js?v=20260521-login-superadmin-fix"></script>
   </body>
 </html>
 

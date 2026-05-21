@@ -186,6 +186,12 @@ body.login-mode .app-shell {
   margin-top: 4px;
 }
 
+.login-error-message {
+  border: 1px solid rgba(180, 35, 44, 0.22);
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .demo-access-shell {
   margin-inline: auto;
 }
@@ -5390,9 +5396,27 @@ body.superadmin-mode .public-nav-actions {
 .superadmin-status.failure,
 .superadmin-status.past_due,
 .superadmin-status.canceled,
-.superadmin-status.incomplete {
+.superadmin-status.incomplete,
+.superadmin-status.local_pending_backend {
   background: #ffe9e9;
   color: #b4232c;
+}
+
+.superadmin-source {
+  display: inline-flex !important;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  background: #edf7f5;
+  color: var(--primary-dark);
+}
+
+.superadmin-source.local {
+  background: #fff3d6;
+  color: #8a5a00;
 }
 
 @media (max-width: 900px) {
