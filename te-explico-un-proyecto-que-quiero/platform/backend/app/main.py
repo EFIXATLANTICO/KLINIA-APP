@@ -198,6 +198,26 @@ def safe_metadata(metadata: dict | None) -> dict:
     return safe
 
 
+def normalized_identifier(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def looks_like_email(value: str) -> bool:
+    return "@" in value and "." in value.rsplit("@", 1)[-1]
+
+
+def clinic_by_identifier(db: Session, value: str | None) -> Clinic | None:
+    identifier = normalized_identifier(value)
+    if not identifier:
+        return None
+    return db.scalar(
+        select(Clinic).where(
+            (func.lower(Clinic.email) == identifier)
+            | (func.lower(Clinic.name) == identifier)
+        )
+    )
+
+
 def request_ip(request: Request | None) -> str | None:
     if not request:
         return None
@@ -582,21 +602,53 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
 
 @app.post("/auth/login", response_model=TokenOut)
 def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
-    email = str(payload.email).lower()
-    if not payload.clinic_id and not payload.clinic_email:
-        superadmin = db.scalar(select(User).where(User.email == email, User.role == UserRole.superadmin, User.active.is_(True)))
+    identifier = normalized_identifier(payload.email)
+    if not identifier:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Login identifier is required")
+
+    if not payload.clinic_id and not payload.clinic_email and looks_like_email(identifier):
+        superadmin = db.scalar(select(User).where(User.email == identifier, User.role == UserRole.superadmin, User.active.is_(True)))
         if superadmin and verify_password(payload.password, superadmin.password_hash):
             audit_action(db, superadmin, "login-success", "auth", superadmin.id, {"role": superadmin.role.value}, request=request)
             db.commit()
             token = create_access_token(subject=superadmin.id, clinic_id=None, role=superadmin.role.value)
             return TokenOut(access_token=token, clinic_id=None, subscription_status="active")
 
+    if not payload.clinic_id and not payload.clinic_email:
+        clinic = clinic_by_identifier(db, identifier)
+        if clinic:
+            owner = db.scalar(
+                select(User).where(
+                    User.clinic_id == clinic.id,
+                    User.role == UserRole.owner,
+                    User.active.is_(True),
+                )
+            )
+            if owner and verify_password(payload.password, owner.password_hash):
+                audit_action(db, owner, "login-success", "auth", owner.id, {"role": owner.role.value, "identifier": "clinic"}, request=request)
+                db.commit()
+                token = create_access_token(subject=owner.id, clinic_id=owner.clinic_id, role=owner.role.value)
+                return TokenOut(access_token=token, clinic_id=owner.clinic_id, subscription_status=clinic.subscription_status)
+            audit_action(
+                db,
+                owner,
+                "login-failed",
+                "auth",
+                metadata={"identifier": identifier, "reason": "invalid_clinic_credentials"},
+                clinic_id=clinic.id,
+                result="failure",
+                request=request,
+            )
+            db.commit()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    email = identifier
     query = select(User).where(User.email == email, User.active.is_(True))
     resolved_clinic_id = payload.clinic_id
     if payload.clinic_id:
         query = query.where(User.clinic_id == payload.clinic_id)
     elif payload.clinic_email:
-        clinic = db.scalar(select(Clinic).where(Clinic.email == str(payload.clinic_email).lower()))
+        clinic = clinic_by_identifier(db, payload.clinic_email)
         if clinic:
             resolved_clinic_id = clinic.id
             query = query.where(User.clinic_id == clinic.id)

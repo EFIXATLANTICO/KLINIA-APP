@@ -871,7 +871,7 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   selectedPractitionerIds = ["all"];
   saveState("selected-practitioner-ids", selectedPractitionerIds);
 
-  if (isPractitionerSession() && !practitioners.some((item) => item.id === currentSession.practitionerId)) {
+  if (isPractitionerSession() && !backendDataEnabled(account) && !practitioners.some((item) => item.id === currentSession.practitionerId)) {
     currentSession = { role: "owner", practitionerId: null };
     saveState("session", currentSession);
   }
@@ -1347,6 +1347,91 @@ async function createBackendUserIfAvailable(payload) {
       account,
       body: JSON.stringify(payload)
     });
+  }
+}
+
+function persistLoginCredentials(form, identifier, password) {
+  if (form.elements.remember.checked) {
+    saveState("saved-login-credentials", {
+      center: identifier,
+      password
+    });
+  } else {
+    forgetSavedLoginCredentials();
+  }
+}
+
+function backendProfileForUser(user = {}) {
+  if (user.role === "practitioner") {
+    return user.practitioner_id || user.practitionerId || "practitioner";
+  }
+  return user.role || "owner";
+}
+
+function backendLoginMessage(error) {
+  if (error?.status === 401) {
+    return "Credenciales incorrectas. Revisa usuario y contrasena.";
+  }
+  if (error?.status === 409) {
+    return "Ese email existe en mas de una clinica. Entra usando el email de la clinica o selecciona la clinica guardada.";
+  }
+  if (error?.status === 422) {
+    return "El acceso no se ha enviado con el formato correcto. Actualiza la pagina y vuelve a intentarlo.";
+  }
+  return error?.message || "No se pudo comprobar el acceso con el backend.";
+}
+
+async function tryBackendLogin(identifier, password, options = {}) {
+  const cleanIdentifier = String(identifier || "").trim();
+  if (!cleanIdentifier || !password) {
+    return { handled: false, error: null };
+  }
+  try {
+    const session = await backendRequest("/auth/login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({
+        email: cleanIdentifier,
+        password,
+        clinic_id: options.clinicId || options.account?.backendClinicId || undefined,
+        clinic_email: options.clinicEmail || options.account?.email || undefined
+      })
+    });
+    const me = await backendRequest("/me", { token: session.access_token, auth: false });
+    if (me?.user?.role === "superadmin") {
+      enterSuperadmin(session, me);
+      return { handled: true, session, me };
+    }
+    const accountKey = options.account?.key || slugifyClinicName(me?.clinic?.name || session.clinic_id || cleanIdentifier);
+    const nextAccount = {
+      ...(options.account || {}),
+      key: accountKey,
+      name: me?.clinic?.name || options.account?.name || "Clinica Klinia",
+      email: me?.clinic?.email || options.account?.email || cleanIdentifier,
+      phone: me?.clinic?.phone || options.account?.phone || "",
+      password: options.account?.password || "",
+      ownerEmail: me?.user?.role === "owner" ? me.user.email : (options.account?.ownerEmail || me?.clinic?.email || cleanIdentifier),
+      ownerPassword: options.account?.ownerPassword || "",
+      paymentPlan: normalizeSaasPlanId(me?.clinic?.subscription_plan || options.account?.paymentPlan || "trial"),
+      subscriptionStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.subscriptionStatus || "trialing",
+      billingStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.billingStatus || "trialing",
+      trialEndsAt: (me?.clinic?.trial_ends_at || options.account?.trialEndsAt || "").slice(0, 10) || addDaysIso(todayIso(), 30),
+      backendToken: session.access_token,
+      backendClinicId: session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "",
+      billingProfile: {
+        ...(options.account?.billingProfile || {}),
+        billingName: me?.clinic?.billing_name || me?.clinic?.name || options.account?.billingProfile?.billingName || "",
+        billingEmail: me?.clinic?.billing_email || me?.clinic?.email || options.account?.billingProfile?.billingEmail || "",
+        taxId: me?.clinic?.tax_id || options.account?.billingProfile?.taxId || "",
+        billingAddress: me?.clinic?.billing_address || options.account?.billingProfile?.billingAddress || ""
+      }
+    };
+    ensureClinicAccount(nextAccount);
+    renderLoginClinics();
+    enterPlatform(backendProfileForUser(me?.user), accountKey);
+    return { handled: true, session, me, account: nextAccount };
+  } catch (error) {
+    return { handled: false, error };
   }
 }
 
@@ -6770,9 +6855,16 @@ function setupLogin() {
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const identifier = form.elements.center.value.trim();
+    const password = form.elements.password.value;
+    const backendFirst = await tryBackendLogin(identifier, password);
+    if (backendFirst.handled) {
+      persistLoginCredentials(form, identifier, password);
+      return;
+    }
+
     const principal = loginPrincipalByIdentifier(form.elements.center.value);
     if (principal) {
-      const password = form.elements.password.value;
       if (!principal.password) {
         form.elements.password.setCustomValidity("Este usuario todavia no tiene una contrasena configurada.");
         form.reportValidity();
@@ -6785,14 +6877,7 @@ function setupLogin() {
         form.elements.password.setCustomValidity("");
         return;
       }
-      if (form.elements.remember.checked) {
-        saveState("saved-login-credentials", {
-          center: form.elements.center.value.trim(),
-          password
-        });
-      } else {
-        forgetSavedLoginCredentials();
-      }
+      persistLoginCredentials(form, identifier, password);
       await ensureBackendLoginForAccount(principal.account, password);
       enterPlatform(principal.profile, principal.account.key);
       return;
@@ -6800,51 +6885,12 @@ function setupLogin() {
 
     const account = clinicAccountByClinicIdentifier(form.elements.center.value) || clinicAccountByLogin(form.elements.center.value);
     if (!account) {
-      try {
-        const session = await backendRequest("/auth/login", {
-          method: "POST",
-          auth: false,
-          body: JSON.stringify({
-            email: form.elements.center.value.trim(),
-            password: form.elements.password.value
-          })
-        });
-        const me = await backendRequest("/me", { token: session.access_token, auth: false });
-        if (me?.user?.role === "superadmin") {
-          enterSuperadmin(session, me);
-          return;
-        }
-        const backendKey = slugifyClinicName(me?.clinic?.name || session.clinic_id || form.elements.center.value);
-        const nextAccount = {
-          key: backendKey,
-          name: me?.clinic?.name || "Clinica Klinia",
-          email: me?.clinic?.email || form.elements.center.value.trim(),
-          phone: me?.clinic?.phone || "",
-          password: "",
-          ownerEmail: me?.user?.email || form.elements.center.value.trim(),
-          ownerPassword: "",
-          paymentPlan: normalizeSaasPlanId(me?.clinic?.subscription_plan || "trial"),
-          subscriptionStatus: session.subscription_status || me?.clinic?.subscription_status || "trialing",
-          billingStatus: session.subscription_status || me?.clinic?.subscription_status || "trialing",
-          trialEndsAt: (me?.clinic?.trial_ends_at || "").slice(0, 10) || addDaysIso(todayIso(), 30),
-          backendToken: session.access_token,
-          backendClinicId: session.clinic_id || me?.clinic?.id || "",
-          billingProfile: {
-            billingName: me?.clinic?.billing_name || me?.clinic?.name || "",
-            billingEmail: me?.clinic?.billing_email || me?.clinic?.email || "",
-            taxId: me?.clinic?.tax_id || "",
-            billingAddress: me?.clinic?.billing_address || ""
-          }
-        };
-        ensureClinicAccount(nextAccount);
-        renderLoginClinics();
-        enterPlatform(me?.user?.role || "owner", backendKey);
-        return;
-      } catch {
-        form.elements.center.setCustomValidity("No encuentro esa clinica. Escribe el nombre o el email registrado.");
-        form.reportValidity();
-        form.elements.center.setCustomValidity("");
-      }
+      const message = backendFirst.error
+        ? backendLoginMessage(backendFirst.error)
+        : "No encuentro esa clinica. Escribe el nombre o el email registrado.";
+      form.elements.center.setCustomValidity(message);
+      form.reportValidity();
+      form.elements.center.setCustomValidity("");
       return;
     }
     if (account.key === demoClinicKey) {
@@ -6853,21 +6899,13 @@ function setupLogin() {
       form.elements.center.setCustomValidity("");
       return;
     }
-    const password = form.elements.password.value;
     if (password !== clinicAccessPasswordForAccount(account)) {
       form.elements.password.setCustomValidity("Contrasena incorrecta para esta clinica.");
       form.reportValidity();
       form.elements.password.setCustomValidity("");
       return;
     }
-    if (form.elements.remember.checked) {
-      saveState("saved-login-credentials", {
-        center: form.elements.center.value.trim(),
-        password
-      });
-    } else {
-      forgetSavedLoginCredentials();
-    }
+    persistLoginCredentials(form, identifier, password);
     await ensureBackendLoginForAccount(account, password);
     showProfileLoginStep(account.key);
   });

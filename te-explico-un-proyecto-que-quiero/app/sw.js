@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-core-backend-20260520";
+const KLINIA_CACHE = "klinia-login-fix-20260521b";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260520-core-backend",
-  "./app.js?v=20260520-core-backend",
+  "./styles.css?v=20260521-login-fix2",
+  "./app.js?v=20260521-login-fix2",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
@@ -17,7 +17,12 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== KLINIA_CACHE).map((key) => caches.delete(key)))));
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== KLINIA_CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+      .then((clients) => Promise.all(clients.map((client) => client.navigate(client.url).catch(() => null))))
+  );
   self.clients.claim();
 });
 
@@ -25,6 +30,19 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
+  const isFreshAsset = event.request.mode === "navigate" || ["script", "style", "worker"].includes(event.request.destination);
+  if (isFreshAsset) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(KLINIA_CACHE).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./offline.html")))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
