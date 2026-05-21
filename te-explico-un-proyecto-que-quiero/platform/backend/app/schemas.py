@@ -27,10 +27,10 @@ class ClinicRegisterIn(BaseModel):
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=1, max_length=255)
     password: str
     clinic_id: str | None = None
-    clinic_email: EmailStr | None = None
+    clinic_email: str | None = Field(default=None, max_length=255)
 
 
 class AccessRecoveryRequestIn(BaseModel):
@@ -65,6 +65,7 @@ class ClinicOut(BaseModel):
 class UserOut(BaseModel):
     id: str
     clinic_id: str | None = None
+    practitioner_id: str | None = None
     name: str
     email: EmailStr
     role: UserRole
@@ -84,6 +85,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=4)
     role: UserRole = UserRole.staff
     active: bool = True
+    practitioner_id: str | None = None
 
 
 class UserUpdate(BaseModel):
@@ -92,6 +94,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=4)
     role: UserRole | None = None
     active: bool | None = None
+    practitioner_id: str | None = None
 
 
 class AuditLogOut(BaseModel):

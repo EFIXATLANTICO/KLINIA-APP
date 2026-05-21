@@ -1173,6 +1173,18 @@ function backendMetadataJson(value, excludedKeys = []) {
   return JSON.stringify(metadata);
 }
 
+function looksLikeBackendId(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
+}
+
+function backendWriteTarget(basePath, previousId = "") {
+  const shouldPatch = looksLikeBackendId(previousId);
+  return {
+    method: shouldPatch ? "PATCH" : "POST",
+    path: shouldPatch ? `${basePath}/${encodeURIComponent(previousId)}` : basePath
+  };
+}
+
 function formatSuperadminDate(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -1406,17 +1418,71 @@ function apiServiceToUi(service) {
     description: service.description || "",
     duration: service.duration_minutes,
     price: Math.round(service.price_cents / 100),
+    type: service.type || "individual",
+    capacity: service.capacity || 1,
+    monthlyPrice: Math.round(Number(service.monthly_price_cents || 0) / 100),
+    dropInPrice: Math.round(Number(service.drop_in_price_cents || 0) / 100),
+    commissionPerPatient: Number(service.commission_per_patient || 0),
     active: service.active
   };
 }
 
-function uiServiceToApi(form) {
+function uiServiceToApi(input) {
+  if (!input?.elements) {
+    const service = input || {};
+    return {
+      name: service.name,
+      description: service.description || null,
+      duration_minutes: Number(service.duration || 60),
+      price_cents: Math.round(Number(service.price || 0) * 100),
+      type: service.type || "individual",
+      capacity: Number(service.capacity || 1),
+      monthly_price_cents: Math.round(Number(service.monthlyPrice || 0) * 100),
+      drop_in_price_cents: Math.round(Number(service.dropInPrice || 0) * 100),
+      commission_per_patient: Number(service.commissionPerPatient || 0),
+      active: service.active !== false
+    };
+  }
+  const form = input;
+  const serviceType = form.elements.groupSession?.checked ? "group" : "individual";
   return {
     name: form.elements.name.value.trim(),
     description: form.elements.description.value.trim() || null,
     duration_minutes: Number(form.elements.duration.value),
-    price_cents: Number(form.elements.price.value) * 100,
+    price_cents: (serviceType === "group"
+      ? Number(form.elements.dropInPrice?.value || form.elements.monthlyPrice?.value || 0)
+      : Number(form.elements.price.value)) * 100,
+    type: serviceType,
+    capacity: Number(form.elements.capacity?.value || 1),
+    monthly_price_cents: Number(form.elements.monthlyPrice?.value || 0) * 100,
+    drop_in_price_cents: Number(form.elements.dropInPrice?.value || 0) * 100,
+    commission_per_patient: parseDecimal(form.elements.commissionPerPatient?.value, 0),
     active: form.elements.active.checked
+  };
+}
+
+function apiRoomToUi(room) {
+  return {
+    id: room.id,
+    name: room.name,
+    type: room.type || "",
+    active: room.active !== false
+  };
+}
+
+function uiRoomToApi(input) {
+  if (!input?.elements) {
+    const room = input || {};
+    return {
+      name: room.name,
+      type: room.type || null,
+      active: room.active !== false
+    };
+  }
+  return {
+    name: input.elements.name.value.trim(),
+    type: input.elements.type.value.trim() || null,
+    active: true
   };
 }
 
@@ -1455,8 +1521,7 @@ function uiAppointmentToApi(candidate) {
 
 async function savePatientToBackend(patient, previousId = "") {
   if (!backendDataEnabled()) return patient;
-  const method = previousId && !String(previousId).startsWith("p") ? "PATCH" : "POST";
-  const path = method === "PATCH" ? `/patients/${encodeURIComponent(previousId)}` : "/patients";
+  const { method, path } = backendWriteTarget("/patients", previousId);
   const saved = await backendRequest(path, {
     method,
     body: JSON.stringify(uiPatientToApi(patient))
@@ -1465,14 +1530,13 @@ async function savePatientToBackend(patient, previousId = "") {
 }
 
 async function deletePatientFromBackend(patientId) {
-  if (!backendDataEnabled() || String(patientId).startsWith("p")) return;
+  if (!backendDataEnabled() || !looksLikeBackendId(patientId)) return;
   await backendRequest(`/patients/${encodeURIComponent(patientId)}`, { method: "DELETE" });
 }
 
 async function savePractitionerToBackend(practitioner, previousId = "") {
   if (!backendDataEnabled()) return practitioner;
-  const method = previousId && !String(previousId).startsWith("worker-") ? "PATCH" : "POST";
-  const path = method === "PATCH" ? `/practitioners/${encodeURIComponent(previousId)}` : "/practitioners";
+  const { method, path } = backendWriteTarget("/practitioners", previousId);
   const saved = await backendRequest(path, {
     method,
     body: JSON.stringify(uiPractitionerToApi(practitioner))
@@ -1481,19 +1545,192 @@ async function savePractitionerToBackend(practitioner, previousId = "") {
 }
 
 async function deletePractitionerFromBackend(practitionerId) {
-  if (!backendDataEnabled() || String(practitionerId).startsWith("worker-")) return;
+  if (!backendDataEnabled() || !looksLikeBackendId(practitionerId)) return;
   await backendRequest(`/practitioners/${encodeURIComponent(practitionerId)}`, { method: "DELETE" });
+}
+
+async function saveRoomToBackend(room, previousId = "") {
+  if (!backendDataEnabled()) return room;
+  const { method, path } = backendWriteTarget("/rooms", previousId);
+  const saved = await backendRequest(path, {
+    method,
+    body: JSON.stringify(uiRoomToApi(room))
+  });
+  return apiRoomToUi(saved);
+}
+
+async function deleteRoomFromBackend(roomId) {
+  if (!backendDataEnabled() || !looksLikeBackendId(roomId)) return;
+  await backendRequest(`/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
+}
+
+async function saveServiceToBackend(service, previousId = "") {
+  if (!backendDataEnabled()) return service;
+  const { method, path } = backendWriteTarget("/services", previousId);
+  const saved = await backendRequest(path, {
+    method,
+    body: JSON.stringify(uiServiceToApi(service))
+  });
+  return apiServiceToUi(saved);
+}
+
+async function deleteServiceFromBackend(serviceId) {
+  if (!backendDataEnabled() || !looksLikeBackendId(serviceId)) return;
+  await backendRequest(`/services/${encodeURIComponent(serviceId)}`, { method: "DELETE" });
 }
 
 async function saveAppointmentToBackend(appointment, previousId = "") {
   if (!backendDataEnabled()) return appointment;
-  const method = previousId && !String(previousId).startsWith("local-") ? "PATCH" : "POST";
-  const path = method === "PATCH" ? `/appointments/${encodeURIComponent(previousId)}` : "/appointments";
+  const { method, path } = backendWriteTarget("/appointments", previousId);
   const saved = await backendRequest(path, {
     method,
     body: JSON.stringify(uiAppointmentToApi(appointment))
   });
   return apiAppointmentToUi(saved, appointment);
+}
+
+async function uploadLocalCollectionToBackend(localItems, saveItem) {
+  const items = [];
+  const idMap = new Map();
+  for (const item of localItems) {
+    const saved = await saveItem(item, "");
+    if (item?.id && saved?.id) {
+      idMap.set(String(item.id), saved.id);
+    }
+    items.push(saved);
+  }
+  return { items, idMap };
+}
+
+function remapId(value, idMap) {
+  return idMap.get(String(value || "")) || value;
+}
+
+function remapBackendReferences(maps) {
+  const hasPatientMap = maps.patients.size > 0;
+  const hasPractitionerMap = maps.practitioners.size > 0;
+  const hasRoomMap = maps.rooms.size > 0;
+  const hasServiceMap = maps.services.size > 0;
+  if (!hasPatientMap && !hasPractitionerMap && !hasRoomMap && !hasServiceMap) {
+    return;
+  }
+  appointments = appointments.map((appointment) => ({
+    ...appointment,
+    patientId: remapId(appointment.patientId, maps.patients),
+    practitionerId: remapId(appointment.practitionerId, maps.practitioners),
+    roomId: remapId(appointment.roomId, maps.rooms),
+    serviceId: remapId(appointment.serviceId, maps.services)
+  }));
+  groups = groups.map((group) => ({
+    ...group,
+    practitionerId: remapId(group.practitionerId, maps.practitioners),
+    roomId: remapId(group.roomId, maps.rooms),
+    serviceId: remapId(group.serviceId, maps.services),
+    patientIds: (group.patientIds || []).map((patientId) => remapId(patientId, maps.patients))
+  }));
+  clinicalNotes = clinicalNotes.map((note) => ({
+    ...note,
+    patientId: remapId(note.patientId, maps.patients)
+  }));
+  patientConsents = patientConsents.map((consent) => ({
+    ...consent,
+    patientId: remapId(consent.patientId, maps.patients)
+  }));
+  patientPacks = patientPacks.map((pack) => ({
+    ...pack,
+    patientId: remapId(pack.patientId, maps.patients),
+    serviceId: remapId(pack.serviceId, maps.services)
+  }));
+  availabilityBlocks = availabilityBlocks.map((block) => ({
+    ...block,
+    practitionerId: remapId(block.practitionerId, maps.practitioners)
+  }));
+  groupSessionOverrides = groupSessionOverrides.map((override) => ({
+    ...override,
+    practitionerId: remapId(override.practitionerId, maps.practitioners)
+  }));
+  if (selectedPatientId) {
+    selectedPatientId = remapId(selectedPatientId, maps.patients);
+  }
+  if (currentSession?.practitionerId) {
+    currentSession = {
+      ...currentSession,
+      practitionerId: remapId(currentSession.practitionerId, maps.practitioners)
+    };
+    saveState("session", currentSession);
+  }
+  saveClinicState("appointments", appointments);
+  saveClinicState("groups", groups);
+  saveClinicState("clinical-notes", clinicalNotes);
+  saveClinicState("patient-consents", patientConsents);
+  saveClinicState("patient-packs", patientPacks);
+  saveClinicState("availability-blocks", availabilityBlocks);
+  saveClinicState("group-session-overrides", groupSessionOverrides);
+}
+
+function appointmentWithBackendReferences(appointment, maps) {
+  const end = appointment.end || appointmentEnd(appointment);
+  return {
+    ...appointment,
+    end,
+    patientId: remapId(appointment.patientId, maps.patients),
+    practitionerId: remapId(appointment.practitionerId, maps.practitioners),
+    roomId: remapId(appointment.roomId, maps.rooms),
+    serviceId: remapId(appointment.serviceId, maps.services)
+  };
+}
+
+function appointmentCanSyncToBackend(appointment) {
+  return looksLikeBackendId(appointment.patientId)
+    && looksLikeBackendId(appointment.practitionerId)
+    && looksLikeBackendId(appointment.roomId)
+    && looksLikeBackendId(appointment.serviceId)
+    && Boolean(appointment.date && appointment.start);
+}
+
+async function bootstrapBackendDataIfNeeded(apiData) {
+  const maps = {
+    patients: new Map(),
+    practitioners: new Map(),
+    rooms: new Map(),
+    services: new Map()
+  };
+  let { apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = apiData;
+
+  if (!apiPatients.length && patients.length) {
+    const uploaded = await uploadLocalCollectionToBackend(patients, savePatientToBackend);
+    apiPatients = uploaded.items;
+    maps.patients = uploaded.idMap;
+  }
+  if (!apiPractitioners.length && practitioners.length) {
+    const uploaded = await uploadLocalCollectionToBackend(practitioners, savePractitionerToBackend);
+    apiPractitioners = uploaded.items;
+    maps.practitioners = uploaded.idMap;
+  }
+  if (!apiRooms.length && rooms.length) {
+    const uploaded = await uploadLocalCollectionToBackend(rooms, saveRoomToBackend);
+    apiRooms = uploaded.items;
+    maps.rooms = uploaded.idMap;
+  }
+  if (!apiServices.length && services.length) {
+    const uploaded = await uploadLocalCollectionToBackend(services, saveServiceToBackend);
+    apiServices = uploaded.items;
+    maps.services = uploaded.idMap;
+  }
+
+  remapBackendReferences(maps);
+
+  if (!apiAppointments.length && appointments.length) {
+    const readyAppointments = appointments
+      .map((appointment) => appointmentWithBackendReferences(appointment, maps))
+      .filter(appointmentCanSyncToBackend);
+    if (readyAppointments.length === appointments.length) {
+      const uploaded = await uploadLocalCollectionToBackend(readyAppointments, saveAppointmentToBackend);
+      apiAppointments = uploaded.items;
+    }
+  }
+
+  return { apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments };
 }
 
 function minutes(time) {
@@ -5905,17 +6142,30 @@ async function hydrateFromApi() {
   }
 
   try {
-    const [apiPatients, apiPractitioners, apiAppointments] = await Promise.all([
+    let [apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments] = await Promise.all([
       backendRequest("/patients"),
       backendRequest("/practitioners"),
+      backendRequest("/rooms"),
+      backendRequest("/services"),
       backendRequest("/appointments")
     ]);
+    ({ apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = await bootstrapBackendDataIfNeeded({
+      apiPatients,
+      apiPractitioners,
+      apiRooms,
+      apiServices,
+      apiAppointments
+    }));
     patients = apiPatients.map((patient) => apiPatientToUi(patient, byId(patients, patient.id)));
     practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
+    rooms = apiRooms.map((room) => apiRoomToUi(room));
+    services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
     selectedPatientId = patients[0]?.id || null;
     saveClinicState("patients", patients);
     saveClinicState("practitioners", practitioners);
+    saveClinicState("rooms", rooms);
+    saveClinicState("services", services);
     saveClinicState("appointments", appointments);
     renderAppointmentFormOptions();
     renderLoginProfiles();
@@ -7823,6 +8073,12 @@ async function deleteServiceById(serviceId) {
     confirmLabel: "Eliminar"
   });
   if (!confirmed) return;
+  try {
+    await deleteServiceFromBackend(serviceId);
+  } catch (error) {
+    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    return;
+  }
   services = services.filter((item) => item.id !== serviceId);
   saveClinicState("services", services);
   renderAppointmentFormOptions();
@@ -7847,12 +8103,13 @@ function setupServiceDialog() {
   form.elements.groupSession?.addEventListener("change", () => updateServiceGroupFieldsVisibility(form));
   updateServiceGroupFieldsVisibility(form);
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const serviceType = form.elements.groupSession?.checked ? "group" : "individual";
+    const editingServiceId = form.dataset.editingServiceId || "";
     const localService = {
-      id: form.dataset.editingServiceId || `svc${Date.now()}`,
+      id: editingServiceId || `svc${Date.now()}`,
       name: form.elements.name.value.trim(),
       description: form.elements.description.value.trim(),
       duration: Number(form.elements.duration.value),
@@ -7860,7 +8117,7 @@ function setupServiceDialog() {
         ? Number(form.elements.dropInPrice?.value || form.elements.monthlyPrice?.value || 0)
         : Number(form.elements.price.value),
       type: serviceType,
-      capacity: 1,
+      capacity: serviceType === "group" ? Number(form.elements.capacity?.value || 1) : 1,
       monthlyPrice: serviceType === "group" ? Number(form.elements.monthlyPrice?.value || 0) : 0,
       dropInPrice: serviceType === "group" ? Number(form.elements.dropInPrice?.value || form.elements.price.value || 0) : 0,
       commissionPerPatient: serviceType === "group" ? parseDecimal(form.elements.commissionPerPatient?.value, 0) : 0,
@@ -7868,8 +8125,8 @@ function setupServiceDialog() {
     };
 
     const finish = (service) => {
-      services = form.dataset.editingServiceId
-        ? services.map((item) => item.id === service.id ? service : item)
+      services = editingServiceId
+        ? services.map((item) => item.id === editingServiceId ? service : item)
         : [...services, service];
       saveClinicState("services", services);
       renderAppointmentFormOptions();
@@ -7878,13 +8135,13 @@ function setupServiceDialog() {
       renderAll();
     };
 
-    if (!form.dataset.editingServiceId && apiEnabled && isDemoClinic()) {
-      apiRequest("/api/services", {
-        method: "POST",
-        body: JSON.stringify(uiServiceToApi(form))
-      })
-        .then((service) => finish(apiServiceToUi(service)))
-        .catch(() => finish(localService));
+    if (backendDataEnabled()) {
+      try {
+        const savedService = await saveServiceToBackend(localService, editingServiceId);
+        finish(savedService);
+      } catch (error) {
+        showToast(`No se pudo guardar el servicio en backend: ${error.message}`, "error");
+      }
       return;
     }
 
@@ -8387,6 +8644,12 @@ async function deleteRoomById(roomId) {
     confirmLabel: "Eliminar"
   });
   if (!confirmed) return;
+  try {
+    await deleteRoomFromBackend(roomId);
+  } catch (error) {
+    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    return;
+  }
   rooms = rooms.filter((item) => item.id !== roomId);
   saveClinicState("rooms", rooms);
   renderFilters();
@@ -8660,14 +8923,15 @@ function setupConfiguration() {
     practitioners = form.dataset.editingPractitionerId
       ? practitioners.map((item) => item.id === form.dataset.editingPractitionerId ? savedPractitioner : item)
       : [...practitioners, savedPractitioner];
-    if (savedPractitioner.email) {
+    if (savedPractitioner.email && practitioner.password) {
       try {
         const backendUser = await createBackendUserIfAvailable({
           name: savedPractitioner.name,
           email: savedPractitioner.email,
           password: practitioner.password,
           role: "practitioner",
-          active: true
+          active: true,
+          practitioner_id: savedPractitioner.id
         });
         if (backendUser?.id) {
           practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? { ...item, backendUserId: backendUser.id } : item);
@@ -8677,6 +8941,8 @@ function setupConfiguration() {
           ? `Trabajador guardado localmente. No se pudo sincronizar usuario backend: ${error.message}`
           : "Trabajador guardado localmente. Inicia sesion backend para crear el usuario real.";
       }
+    } else if (savedPractitioner.email && backendDataEnabled()) {
+      $("#practitioner-key-status").textContent = "Trabajador guardado. Genera o introduce una clave para activar su acceso backend.";
     }
     saveClinicState("practitioners", practitioners);
     resetPractitionerForm(form);
@@ -8695,17 +8961,27 @@ function setupConfiguration() {
     $("#room-dialog").showModal();
   });
 
-  $("#room-form").addEventListener("submit", (event) => {
+  $("#room-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const editingRoomId = form.dataset.editingRoomId || "";
     const room = {
-      id: form.dataset.editingRoomId || `room-${Date.now()}`,
+      id: editingRoomId || `room-${Date.now()}`,
       name: form.elements.name.value.trim(),
       type: form.elements.type.value.trim()
     };
-    rooms = form.dataset.editingRoomId
-      ? rooms.map((item) => item.id === room.id ? room : item)
-      : [...rooms, room];
+    let savedRoom = room;
+    if (backendDataEnabled()) {
+      try {
+        savedRoom = await saveRoomToBackend(room, editingRoomId);
+      } catch (error) {
+        showToast(`No se pudo guardar la sala en backend: ${error.message}`, "error");
+        return;
+      }
+    }
+    rooms = editingRoomId
+      ? rooms.map((item) => item.id === editingRoomId ? savedRoom : item)
+      : [...rooms, savedRoom];
     saveClinicState("rooms", rooms);
     resetRoomForm(form);
     $("#room-dialog").close();

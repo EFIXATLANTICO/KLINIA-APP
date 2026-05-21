@@ -159,6 +159,30 @@ def apply_update(item, payload) -> None:
         setattr(item, field, value)
 
 
+def link_user_to_practitioner(db: Session, clinic_id: str, target_user: User, practitioner_id: str | None) -> None:
+    if not practitioner_id:
+        raise HTTPException(status_code=400, detail="Practitioner users require practitioner_id")
+    practitioner = clinic_item_or_404(db, Practitioner, practitioner_id, clinic_id)
+    if practitioner.user_id and practitioner.user_id != target_user.id:
+        raise HTTPException(status_code=409, detail="Practitioner already has a user")
+    current_link = db.scalar(
+        select(Practitioner).where(
+            Practitioner.clinic_id == clinic_id,
+            Practitioner.user_id == target_user.id,
+            Practitioner.id != practitioner.id,
+        )
+    )
+    if current_link:
+        current_link.user_id = None
+    practitioner.user_id = target_user.id
+
+
+def unlink_practitioner_user(db: Session, clinic_id: str, target_user: User) -> None:
+    current_link = db.scalar(select(Practitioner).where(Practitioner.clinic_id == clinic_id, Practitioner.user_id == target_user.id))
+    if current_link:
+        current_link.user_id = None
+
+
 SENSITIVE_METADATA_KEYS = {"password", "password_hash", "token", "access_token", "secret", "stripe_secret_key", "stripe_webhook_secret"}
 
 
@@ -669,6 +693,8 @@ def list_users(user: User = Depends(require_roles(UserRole.owner)), db: Session 
 def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> User:
     if payload.role == UserRole.superadmin:
         raise HTTPException(status_code=403, detail="Superadmin users cannot be created from a clinic")
+    if payload.role == UserRole.practitioner and not payload.practitioner_id:
+        raise HTTPException(status_code=400, detail="Practitioner users require practitioner_id")
     email = str(payload.email).lower()
     existing = db.scalar(select(User).where(User.clinic_id == user.clinic_id, User.email == email))
     if existing:
@@ -683,7 +709,9 @@ def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole
     )
     db.add(next_user)
     db.flush()
-    audit_action(db, user, "create-user", "user", next_user.id, {"role": next_user.role.value})
+    if next_user.role == UserRole.practitioner:
+        link_user_to_practitioner(db, user.clinic_id, next_user, payload.practitioner_id)
+    audit_action(db, user, "create-user", "user", next_user.id, {"role": next_user.role.value, "practitioner_id": payload.practitioner_id})
     db.commit()
     db.refresh(next_user)
     return next_user
@@ -709,6 +737,11 @@ def update_user(user_id: str, payload: UserUpdate, user: User = Depends(require_
         if target.id == user.id and data["role"] != UserRole.owner:
             raise HTTPException(status_code=400, detail="Owner cannot demote their own account")
         target.role = data["role"]
+    if target.role == UserRole.practitioner:
+        if "practitioner_id" in data or not target.practitioner:
+            link_user_to_practitioner(db, user.clinic_id, target, data.get("practitioner_id"))
+    else:
+        unlink_practitioner_user(db, user.clinic_id, target)
     if "active" in data and data["active"] is not None:
         if target.id == user.id and data["active"] is False:
             raise HTTPException(status_code=400, detail="Owner cannot deactivate their own account")
@@ -1113,7 +1146,9 @@ def delete_service(service_id: str, user: User = Depends(require_subscribed_role
 @app.get("/appointments", response_model=list[AppointmentOut])
 def list_appointments(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Appointment]:
     query = select(Appointment).where(Appointment.clinic_id == user.clinic_id).order_by(Appointment.date, Appointment.start)
-    if user.role == UserRole.practitioner and user.practitioner:
+    if user.role == UserRole.practitioner:
+        if not user.practitioner:
+            return []
         query = query.where(Appointment.practitioner_id == user.practitioner.id)
     return list(db.scalars(query))
 
@@ -1130,8 +1165,11 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
         if not exists:
             raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
 
-    if user.role == UserRole.practitioner and user.practitioner and payload.practitioner_id != user.practitioner.id:
-        raise HTTPException(status_code=403, detail="Practitioners can only create their own appointments")
+    if user.role == UserRole.practitioner:
+        if not user.practitioner:
+            raise HTTPException(status_code=403, detail="Practitioner user is not linked to a worker")
+        if payload.practitioner_id != user.practitioner.id:
+            raise HTTPException(status_code=403, detail="Practitioners can only create their own appointments")
 
     appointment = Appointment(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(appointment)
@@ -1145,8 +1183,11 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
 @app.patch("/appointments/{appointment_id}", response_model=AppointmentOut)
 def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> Appointment:
     appointment = clinic_item_or_404(db, Appointment, appointment_id, user.clinic_id)
-    if user.role == UserRole.practitioner and user.practitioner and appointment.practitioner_id != user.practitioner.id:
-        raise HTTPException(status_code=403, detail="Practitioners can only edit their own appointments")
+    if user.role == UserRole.practitioner:
+        if not user.practitioner:
+            raise HTTPException(status_code=403, detail="Practitioner user is not linked to a worker")
+        if appointment.practitioner_id != user.practitioner.id:
+            raise HTTPException(status_code=403, detail="Practitioners can only edit their own appointments")
 
     data = payload.model_dump(exclude_unset=True)
     for model, key in (
@@ -1158,7 +1199,7 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
         if key in data:
             clinic_item_or_404(db, model, data[key], user.clinic_id)
 
-    if user.role == UserRole.practitioner and user.practitioner and data.get("practitioner_id", appointment.practitioner_id) != user.practitioner.id:
+    if user.role == UserRole.practitioner and data.get("practitioner_id", appointment.practitioner_id) != user.practitioner.id:
         raise HTTPException(status_code=403, detail="Practitioners can only assign their own appointments")
 
     previous_status = appointment.status
@@ -1173,8 +1214,11 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
 @app.delete("/appointments/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_appointment(appointment_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> None:
     appointment = clinic_item_or_404(db, Appointment, appointment_id, user.clinic_id)
-    if user.role == UserRole.practitioner and user.practitioner and appointment.practitioner_id != user.practitioner.id:
-        raise HTTPException(status_code=403, detail="Practitioners can only delete their own appointments")
+    if user.role == UserRole.practitioner:
+        if not user.practitioner:
+            raise HTTPException(status_code=403, detail="Practitioner user is not linked to a worker")
+        if appointment.practitioner_id != user.practitioner.id:
+            raise HTTPException(status_code=403, detail="Practitioners can only delete their own appointments")
     audit_action(db, user, "delete-appointment", "appointment", appointment.id)
     db.delete(appointment)
     db.commit()

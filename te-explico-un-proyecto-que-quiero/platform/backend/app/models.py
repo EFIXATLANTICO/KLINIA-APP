@@ -72,6 +72,10 @@ class User(TimestampMixin, Base):
     clinic: Mapped[Clinic | None] = relationship(back_populates="users")
     practitioner: Mapped["Practitioner | None"] = relationship(back_populates="user")
 
+    @property
+    def practitioner_id(self) -> str | None:
+        return self.practitioner.id if self.practitioner else None
+
 
 class Practitioner(TimestampMixin, Base):
     __tablename__ = "practitioners"
