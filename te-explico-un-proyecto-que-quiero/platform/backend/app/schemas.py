@@ -11,6 +11,7 @@ class TokenOut(BaseModel):
     clinic_id: str | None = None
     subscription_status: str | None = None
     checkout_url: str | None = None
+    force_password_change: bool = False
 
 
 class ClinicRegisterIn(BaseModel):
@@ -46,7 +47,7 @@ class PasswordChangeIn(BaseModel):
 class ClinicOut(BaseModel):
     id: str
     name: str
-    email: EmailStr
+    email: str
     phone: str | None = None
     billing_name: str | None = None
     billing_email: EmailStr | None = None
@@ -67,9 +68,10 @@ class UserOut(BaseModel):
     clinic_id: str | None = None
     practitioner_id: str | None = None
     name: str
-    email: EmailStr
+    email: str
     role: UserRole
     active: bool
+    force_password_change: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -143,17 +145,20 @@ class SuperAdminUserOut(BaseModel):
     clinic_id: str | None = None
     clinic_name: str | None = None
     name: str
-    email: EmailStr
+    email: str
     role: UserRole
     active: bool
+    force_password_change: bool = False
     created_at: datetime
     last_access_at: datetime | None = None
+    last_failed_login_at: datetime | None = None
+    access_status: str = "ok"
 
 
 class SuperAdminAuditLogOut(AuditLogOut):
     clinic_name: str | None = None
     user_name: str | None = None
-    user_email: EmailStr | None = None
+    user_email: str | None = None
 
 
 class SuperAdminUserUpdateIn(BaseModel):
@@ -164,10 +169,33 @@ class SuperAdminUserUpdateIn(BaseModel):
 class SuperAdminPasswordResetOut(BaseModel):
     user_id: str
     temporary_password: str
+    force_password_change: bool = True
 
 
 class SuperAdminClinicUpdateIn(BaseModel):
     subscription_status: str | None = Field(default=None, max_length=40)
+
+
+class SuperAdminAccessIssueOut(BaseModel):
+    id: str
+    clinic_id: str | None = None
+    clinic_name: str | None = None
+    user_id: str | None = None
+    user_email: str | None = None
+    severity: str
+    issue_type: str
+    message: str
+    recommended_action: str
+    created_at: datetime | None = None
+
+
+class SuperAdminRepairAccessOut(BaseModel):
+    clinic_id: str
+    user_id: str
+    user_email: str
+    temporary_password: str
+    actions: list[str]
+    force_password_change: bool = True
 
 
 class PlanOut(BaseModel):

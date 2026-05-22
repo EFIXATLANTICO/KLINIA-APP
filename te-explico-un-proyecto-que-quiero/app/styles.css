@@ -5642,14 +5642,16 @@ body.superadmin-mode .public-nav-actions {
 
 .superadmin-alert-list,
 .superadmin-mini-list,
-.superadmin-action-grid {
+.superadmin-action-grid,
+.superadmin-support-list {
   display: grid;
   gap: 10px;
 }
 
 .superadmin-alert,
 .superadmin-mini-list article,
-.superadmin-action-grid article {
+.superadmin-action-grid article,
+.superadmin-support-issue {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -5661,15 +5663,43 @@ body.superadmin-mode .public-nav-actions {
 .superadmin-mini-list strong,
 .superadmin-mini-list span,
 .superadmin-action-grid strong,
-.superadmin-action-grid span {
+.superadmin-action-grid span,
+.superadmin-support-issue strong,
+.superadmin-support-issue span,
+.superadmin-support-issue small {
   display: block;
 }
 
 .superadmin-alert span,
 .superadmin-mini-list span,
-.superadmin-action-grid span {
+.superadmin-action-grid span,
+.superadmin-support-issue span,
+.superadmin-support-issue small {
   color: var(--muted);
   margin-top: 3px;
+}
+
+.superadmin-support-issue {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.superadmin-support-issue.critical,
+.superadmin-support-issue.danger {
+  border-color: #f4b5b5;
+  background: #fff1f1;
+}
+
+.superadmin-support-issue.warning {
+  border-color: #f0d18c;
+  background: #fff8e8;
+}
+
+.superadmin-support-issue.info {
+  border-color: #bae3df;
+  background: #f1fbfa;
 }
 
 .superadmin-alert.warning {
@@ -5728,6 +5758,10 @@ body.superadmin-mode .public-nav-actions {
   .superadmin-topbar-actions,
   .superadmin-search {
     width: 100%;
+  }
+
+  .superadmin-support-issue {
+    grid-template-columns: 1fr;
   }
 }
 

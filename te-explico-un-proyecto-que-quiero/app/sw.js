@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-login-trim-fix-20260522";
+const KLINIA_CACHE = "klinia-access-support-20260522";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260522-login-trim-fix",
-  "./app.js?v=20260522-login-trim-fix",
+  "./styles.css?v=20260522-access-support",
+  "./app.js?v=20260522-access-support",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

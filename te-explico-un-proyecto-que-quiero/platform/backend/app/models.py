@@ -13,6 +13,7 @@ class UserRole(str, enum.Enum):
     owner = "owner"
     staff = "staff"
     practitioner = "practitioner"
+    support = "support"
 
 
 class AppointmentStatus(str, enum.Enum):
@@ -68,6 +69,7 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    force_password_change: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     clinic: Mapped[Clinic | None] = relationship(back_populates="users")
     practitioner: Mapped["Practitioner | None"] = relationship(back_populates="user")

@@ -56,12 +56,18 @@ def ensure_runtime_schema() -> None:
         }
         if engine.dialect.name == "postgresql":
             connection.execute(text("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'superadmin'"))
+            connection.execute(text("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'support'"))
             connection.execute(text("ALTER TABLE users ALTER COLUMN clinic_id DROP NOT NULL"))
             if "audit_logs" in table_names:
                 connection.execute(text("ALTER TABLE audit_logs ALTER COLUMN clinic_id DROP NOT NULL"))
         for name, ddl in clinic_columns.items():
             if name not in existing:
                 connection.execute(text(f"ALTER TABLE clinics ADD COLUMN {name} {ddl}"))
+
+        if "users" in table_names:
+            user_existing = {column["name"] for column in inspector.get_columns("users")}
+            if "force_password_change" not in user_existing:
+                connection.execute(text("ALTER TABLE users ADD COLUMN force_password_change BOOLEAN DEFAULT FALSE"))
 
         if "audit_logs" in table_names:
             audit_existing = {column["name"] for column in inspector.get_columns("audit_logs")}
