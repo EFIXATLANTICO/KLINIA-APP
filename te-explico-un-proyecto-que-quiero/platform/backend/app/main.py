@@ -58,7 +58,7 @@ from .schemas import (
     PlanOut,
     TokenOut,
 )
-from .security import create_access_token, hash_password, verify_password
+from .security import create_access_token, hash_password, verify_login_password, verify_password
 
 
 settings = get_settings()
@@ -564,6 +564,9 @@ def frontend_asset(asset_name: str) -> FileResponse:
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
     email = str(payload.email).lower()
+    password = payload.password.strip()
+    if not password:
+        raise HTTPException(status_code=422, detail="Password is required")
     existing = db.scalar(
         select(Clinic).where(
             (Clinic.email == email)
@@ -595,7 +598,7 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
         clinic_id=clinic.id,
         name=payload.owner_name,
         email=email,
-        password_hash=hash_password(payload.password),
+        password_hash=hash_password(password),
         role=UserRole.owner,
     )
     db.add(user)
@@ -620,7 +623,7 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
 
     if not payload.clinic_id and not payload.clinic_email and looks_like_email(identifier):
         superadmin = db.scalar(select(User).where(User.email == identifier, User.role == UserRole.superadmin, User.active.is_(True)))
-        if superadmin and verify_password(payload.password, superadmin.password_hash):
+        if superadmin and verify_login_password(payload.password, superadmin.password_hash):
             audit_action(db, superadmin, "login-success", "auth", superadmin.id, {"role": superadmin.role.value}, request=request)
             db.commit()
             token = create_access_token(subject=superadmin.id, clinic_id=None, role=superadmin.role.value)
@@ -636,7 +639,7 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
                     User.active.is_(True),
                 )
             )
-            if owner and verify_password(payload.password, owner.password_hash):
+            if owner and verify_login_password(payload.password, owner.password_hash):
                 audit_action(db, owner, "login-success", "auth", owner.id, {"role": owner.role.value, "identifier": "clinic"}, request=request)
                 db.commit()
                 token = create_access_token(subject=owner.id, clinic_id=owner.clinic_id, role=owner.role.value)
@@ -682,7 +685,7 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
         db.commit()
         raise HTTPException(status_code=409, detail="Clinic identifier required for this email")
     user = users[0] if users else None
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user or not verify_login_password(payload.password, user.password_hash):
         audit_action(
             db,
             user,
@@ -763,11 +766,14 @@ def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole
     existing = db.scalar(select(User).where(User.clinic_id == user.clinic_id, User.email == email))
     if existing:
         raise HTTPException(status_code=409, detail="User email already exists in this clinic")
+    password = payload.password.strip()
+    if not password:
+        raise HTTPException(status_code=422, detail="Password is required")
     next_user = User(
         clinic_id=user.clinic_id,
         name=payload.name,
         email=email,
-        password_hash=hash_password(payload.password),
+        password_hash=hash_password(password),
         role=payload.role,
         active=payload.active,
     )
@@ -792,7 +798,10 @@ def update_user(user_id: str, payload: UserUpdate, user: User = Depends(require_
             raise HTTPException(status_code=409, detail="User email already exists in this clinic")
         target.email = email
     if "password" in data and data["password"]:
-        target.password_hash = hash_password(data["password"])
+        password = str(data["password"]).strip()
+        if not password:
+            raise HTTPException(status_code=422, detail="Password is required")
+        target.password_hash = hash_password(password)
     if "name" in data:
         target.name = data["name"]
     if "role" in data and data["role"] is not None:

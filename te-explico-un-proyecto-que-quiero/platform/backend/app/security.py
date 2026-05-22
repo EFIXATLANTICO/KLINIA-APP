@@ -17,6 +17,13 @@ def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
+def verify_login_password(password: str, password_hash: str) -> bool:
+    if verify_password(password, password_hash):
+        return True
+    trimmed = password.strip()
+    return trimmed != password and verify_password(trimmed, password_hash)
+
+
 def create_access_token(subject: str, clinic_id: str | None, role: str, expires_minutes: int | None = None, extra_claims: dict | None = None) -> str:
     settings = get_settings()
     expires_at = datetime.now(UTC) + timedelta(minutes=expires_minutes or settings.access_token_expire_minutes)

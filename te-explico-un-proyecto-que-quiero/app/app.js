@@ -7459,7 +7459,7 @@ function setupLogin() {
     form.elements.center.removeAttribute("aria-invalid");
     form.elements.password.removeAttribute("aria-invalid");
     const identifier = form.elements.center.value.trim();
-    const password = form.elements.password.value;
+    const password = form.elements.password.value.trim();
     if (!identifier || !password) {
       showLoginError("Escribe usuario y contraseña para entrar.", !identifier ? form.elements.center : form.elements.password);
       return;
@@ -7521,7 +7521,7 @@ function setupLogin() {
     const loginPractitioners = normalizePractitioners(loadClinicStateFor(account.key, "practitioners", account.key === demoClinicKey ? defaultPractitioners : []));
     const practitioner = byId(loginPractitioners, profile);
     const identity = profileLoginIdentity(account, profile, practitioner);
-    const typedPassword = form.elements.password.value;
+    const typedPassword = form.elements.password.value.trim();
     if (identity.email && typedPassword) {
       const backendProfileLogin = await tryBackendLogin(identity.email, typedPassword, { account });
       if (backendProfileLogin.handled) {
