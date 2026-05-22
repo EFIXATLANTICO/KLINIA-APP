@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -46,7 +47,10 @@ from .schemas import (
     ServiceUpdate,
     SuperAdminAuditLogOut,
     SuperAdminClinicOut,
+    SuperAdminClinicUpdateIn,
     SuperAdminOverviewOut,
+    SuperAdminPasswordResetOut,
+    SuperAdminUserUpdateIn,
     SuperAdminUserOut,
     UserCreate,
     UserOut,
@@ -196,6 +200,11 @@ def safe_metadata(metadata: dict | None) -> dict:
             continue
         safe[key_text] = value
     return safe
+
+
+def generate_temporary_password(length: int = 14) -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def normalized_identifier(value: str | None) -> str:
@@ -939,6 +948,161 @@ def superadmin_clinic_users(
     if not db.get(Clinic, clinic_id):
         raise HTTPException(status_code=404, detail="Clinic not found")
     return superadmin_users(clinic_id=clinic_id, admin=admin, db=db)
+
+
+@app.patch("/superadmin/users/{user_id}", response_model=SuperAdminUserOut)
+def superadmin_update_user(
+    user_id: str,
+    payload: SuperAdminUserUpdateIn,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminUserOut:
+    target = db.get(User, user_id)
+    if not target or target.role == UserRole.superadmin:
+        raise HTTPException(status_code=404, detail="User not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if payload.role is not None:
+        if payload.role == UserRole.superadmin:
+            raise HTTPException(status_code=400, detail="Cannot assign superadmin role here")
+        if target.role == UserRole.practitioner and payload.role != UserRole.practitioner:
+            unlink_practitioner_user(db, target.clinic_id, target)
+        target.role = payload.role
+    if payload.active is not None:
+        target.active = payload.active
+    audit_action(
+        db,
+        admin,
+        "superadmin-update-user",
+        "user",
+        target.id,
+        {"target_email": target.email, "fields": sorted(changes.keys())},
+        clinic_id=target.clinic_id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(target)
+    clinic = db.get(Clinic, target.clinic_id) if target.clinic_id else None
+    last_access_at = db.scalar(select(func.max(AuditLog.created_at)).where(AuditLog.user_id == target.id, AuditLog.action == "login-success"))
+    return SuperAdminUserOut(
+        id=target.id,
+        clinic_id=target.clinic_id,
+        clinic_name=clinic.name if clinic else None,
+        name=target.name,
+        email=target.email,
+        role=target.role,
+        active=target.active,
+        created_at=target.created_at,
+        last_access_at=last_access_at,
+    )
+
+
+@app.post("/superadmin/users/{user_id}/reset-password", response_model=SuperAdminPasswordResetOut)
+def superadmin_reset_user_password(
+    user_id: str,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminPasswordResetOut:
+    target = db.get(User, user_id)
+    if not target or target.role == UserRole.superadmin:
+        raise HTTPException(status_code=404, detail="User not found")
+    temporary_password = generate_temporary_password()
+    target.password_hash = hash_password(temporary_password)
+    audit_action(
+        db,
+        admin,
+        "superadmin-reset-password",
+        "user",
+        target.id,
+        {"target_email": target.email},
+        clinic_id=target.clinic_id,
+        request=request,
+    )
+    db.commit()
+    return SuperAdminPasswordResetOut(user_id=target.id, temporary_password=temporary_password)
+
+
+@app.patch("/superadmin/clinics/{clinic_id}", response_model=SuperAdminClinicOut)
+def superadmin_update_clinic(
+    clinic_id: str,
+    payload: SuperAdminClinicUpdateIn,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminClinicOut:
+    clinic = db.get(Clinic, clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    if payload.subscription_status is not None:
+        clinic.subscription_status = payload.subscription_status
+    audit_action(
+        db,
+        admin,
+        "superadmin-update-clinic",
+        "clinic",
+        clinic.id,
+        {"fields": sorted(payload.model_dump(exclude_unset=True).keys())},
+        clinic_id=clinic.id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(clinic)
+    users_count = db.scalar(select(func.count()).select_from(User).where(User.clinic_id == clinic.id)) or 0
+    last_activity_at = db.scalar(select(func.max(AuditLog.created_at)).where(AuditLog.clinic_id == clinic.id))
+    return SuperAdminClinicOut(
+        id=clinic.id,
+        name=clinic.name,
+        email=clinic.email,
+        phone=clinic.phone,
+        subscription_plan=clinic.subscription_plan,
+        subscription_status=clinic.subscription_status,
+        trial_ends_at=clinic.trial_ends_at,
+        current_period_end=clinic.current_period_end,
+        created_at=clinic.created_at,
+        users_count=users_count,
+        last_activity_at=last_activity_at,
+    )
+
+
+@app.post("/superadmin/clinics/{clinic_id}/impersonation-token", response_model=TokenOut)
+def superadmin_impersonation_token(
+    clinic_id: str,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> TokenOut:
+    clinic = db.get(Clinic, clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    target = db.scalar(
+        select(User).where(
+            User.clinic_id == clinic.id,
+            User.role == UserRole.owner,
+            User.active.is_(True),
+        )
+    ) or db.scalar(select(User).where(User.clinic_id == clinic.id, User.active.is_(True)))
+    if not target:
+        raise HTTPException(status_code=404, detail="No active user found for clinic")
+    audit_action(
+        db,
+        admin,
+        "superadmin-impersonate-clinic",
+        "clinic",
+        clinic.id,
+        {"target_user_id": target.id, "target_role": target.role.value},
+        clinic_id=clinic.id,
+        request=request,
+    )
+    db.commit()
+    token = create_access_token(
+        subject=target.id,
+        clinic_id=clinic.id,
+        role=target.role.value,
+        expires_minutes=30,
+        extra_claims={"impersonated_by": admin.id, "impersonation": True},
+    )
+    return TokenOut(access_token=token, clinic_id=clinic.id, subscription_status=clinic.subscription_status)
 
 
 @app.get("/superadmin/audit-log", response_model=list[SuperAdminAuditLogOut])

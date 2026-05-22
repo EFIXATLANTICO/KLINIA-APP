@@ -22,7 +22,7 @@ def create_access_token(subject: str, clinic_id: str | None, role: str, expires_
     expires_at = datetime.now(UTC) + timedelta(minutes=expires_minutes or settings.access_token_expire_minutes)
     payload = {"sub": subject, "clinic_id": clinic_id, "role": role, "exp": expires_at}
     if extra_claims:
-      payload.update(extra_claims)
+        payload.update(extra_claims)
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

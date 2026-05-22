@@ -156,6 +156,20 @@ class SuperAdminAuditLogOut(AuditLogOut):
     user_email: EmailStr | None = None
 
 
+class SuperAdminUserUpdateIn(BaseModel):
+    role: UserRole | None = None
+    active: bool | None = None
+
+
+class SuperAdminPasswordResetOut(BaseModel):
+    user_id: str
+    temporary_password: str
+
+
+class SuperAdminClinicUpdateIn(BaseModel):
+    subscription_status: str | None = Field(default=None, max_length=40)
+
+
 class PlanOut(BaseModel):
     id: str
     name: str

@@ -1493,10 +1493,14 @@ function renderSuperadminUsersTable() {
     <tr>
       <td><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.email)}</span></td>
       <td>${escapeHtml(item.clinic_name || "-")}</td>
-      <td>${escapeHtml(item.role || "-")}</td>
+      <td>
+        <select class="superadmin-table-select" data-superadmin-role-user="${escapeHtml(item.id)}" aria-label="Cambiar rol de ${escapeHtml(item.name)}">
+          ${["owner", "staff", "practitioner"].map((role) => `<option value="${role}" ${item.role === role ? "selected" : ""}>${role}</option>`).join("")}
+        </select>
+      </td>
       <td><span class="superadmin-status ${item.active ? "active" : "inactive"}">${item.active ? "Activo" : "Inactivo"}</span></td>
       <td>${escapeHtml(formatSuperadminDate(item.last_access_at))}</td>
-      <td><div class="superadmin-row-actions"><button type="button" data-superadmin-user-action="reset:${escapeHtml(item.id)}">Reset clave</button><button type="button" data-superadmin-user-action="role:${escapeHtml(item.id)}">Rol</button></div></td>
+      <td><div class="superadmin-row-actions"><button type="button" data-superadmin-reset-user="${escapeHtml(item.id)}">Reset clave</button><button type="button" data-superadmin-toggle-user="${escapeHtml(item.id)}" data-active="${item.active ? "true" : "false"}">${item.active ? "Bloquear" : "Activar"}</button></div></td>
     </tr>
   `).join("");
 }
@@ -1555,11 +1559,11 @@ function renderSuperadminClinicDetail() {
     ? clinicAudit.map((item) => `<article><strong>${escapeHtml(item.action)}</strong><span>${escapeHtml(formatSuperadminDate(item.created_at))} - ${escapeHtml(item.result || "success")}</span></article>`).join("")
     : `<article><strong>Sin actividad</strong><span>No hay eventos auditados para esta clinica.</span></article>`;
   $("#superadmin-detail-actions").innerHTML = [
-    ["Impersonar clinica", "Preparado. Requiere endpoint backend con auditoria y caducidad corta."],
-    ["Resetear acceso direccion", "Preparado. Debe generar clave temporal y registrar auditoria."],
-    ["Bloquear clinica", "Preparado. Debe validar suscripcion, soporte y RGPD antes de activar."],
-    ["Exportar auditoria", "Disponible desde el boton Exportar en el modulo Auditoria."]
-  ].map(([title, text]) => `<article><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span></article>`).join("");
+    ["Impersonar clinica", "Genera un token temporal de 30 minutos y registra la accion.", `data-superadmin-action="impersonate-clinic"`],
+    [clinic.subscription_status === "canceled" ? "Reactivar clinica" : "Bloquear clinica", "Cambia el estado de suscripcion para permitir o bloquear uso.", `data-superadmin-action="toggle-clinic-status"`],
+    ["Resetear acceso direccion", "Genera una clave temporal para el usuario direccion activo.", `data-superadmin-action="reset-owner"`],
+    ["Exportar auditoria", "Descarga eventos filtrados en CSV.", `data-superadmin-action="export-audit"`]
+  ].map(([title, text, action]) => `<article><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span><button class="secondary-button compact-inline-button" type="button" ${action}>Ejecutar</button></article>`).join("");
 }
 
 function renderSuperadminPreparedPanels() {
@@ -1606,6 +1610,146 @@ function exportSuperadminCsv() {
     ...rows.map((row) => headers.map((header) => `"${String(row[header] ?? "").replaceAll('"', '""')}"`).join(";"))
   ].join("\n");
   downloadTextFile(`superadmin-${superadminActiveModule}-${todayIso()}.csv`, csv, "text/csv");
+}
+
+async function superadminResetUserPassword(userId) {
+  const user = superadminData.users.find((item) => item.id === userId);
+  if (!user) return;
+  const confirmed = await showConfirm({
+    eyebrow: "Accion sensible",
+    title: "Resetear clave",
+    message: `Vas a generar una clave temporal para ${user.name}.`,
+    detail: "La clave actual dejara de funcionar. Entregala por un canal seguro.",
+    confirmLabel: "Generar clave",
+    variant: "primary"
+  });
+  if (!confirmed) return;
+  try {
+    const result = await backendRequest(`/superadmin/users/${encodeURIComponent(userId)}/reset-password`, {
+      method: "POST",
+      token: superadminToken(),
+      auth: false
+    });
+    await loadSuperadminPanel();
+    await showNotice(
+      "Clave temporal generada",
+      `Nueva clave para ${user.name}: ${result.temporary_password}`,
+      { variant: "success" }
+    );
+  } catch (error) {
+    showToast(`No se pudo resetear la clave: ${error.message}`, "error");
+  }
+}
+
+async function superadminUpdateUser(userId, payload) {
+  try {
+    await backendRequest(`/superadmin/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      token: superadminToken(),
+      auth: false,
+      body: JSON.stringify(payload)
+    });
+    await loadSuperadminPanel();
+    showToast("Usuario actualizado.", "success");
+  } catch (error) {
+    showToast(`No se pudo actualizar el usuario: ${error.message}`, "error");
+    await loadSuperadminPanel();
+  }
+}
+
+async function superadminToggleUser(userId, activeValue) {
+  const user = superadminData.users.find((item) => item.id === userId);
+  if (!user) return;
+  const nextActive = !activeValue;
+  const confirmed = await showConfirm({
+    eyebrow: "Accion sensible",
+    title: nextActive ? "Activar usuario" : "Bloquear usuario",
+    message: `${nextActive ? "Activar" : "Bloquear"} acceso de ${user.name}.`,
+    detail: "La accion quedara registrada en auditoria.",
+    confirmLabel: nextActive ? "Activar" : "Bloquear",
+    variant: nextActive ? "primary" : "danger"
+  });
+  if (!confirmed) return;
+  await superadminUpdateUser(userId, { active: nextActive });
+}
+
+async function superadminUpdateClinicStatus(clinicId, statusValue) {
+  const clinic = clinicBySuperadminId(clinicId);
+  if (!clinic || clinic.source !== "backend") {
+    showToast("Solo se pueden modificar clinicas persistidas en backend.", "warning");
+    return;
+  }
+  const confirmed = await showConfirm({
+    eyebrow: "Suscripcion",
+    title: statusValue === "canceled" ? "Bloquear clinica" : "Reactivar clinica",
+    message: `Cambiar estado de ${clinic.name} a ${statusValue}.`,
+    detail: "Esto afecta al acceso funcional de la clinica y se auditara.",
+    confirmLabel: statusValue === "canceled" ? "Bloquear" : "Reactivar"
+  });
+  if (!confirmed) return;
+  try {
+    await backendRequest(`/superadmin/clinics/${encodeURIComponent(clinic.id)}`, {
+      method: "PATCH",
+      token: superadminToken(),
+      auth: false,
+      body: JSON.stringify({ subscription_status: statusValue })
+    });
+    await loadSuperadminPanel();
+    showToast("Clinica actualizada.", "success");
+  } catch (error) {
+    showToast(`No se pudo actualizar la clinica: ${error.message}`, "error");
+  }
+}
+
+async function superadminResetOwnerForClinic(clinicId) {
+  const owner = superadminData.users.find((user) => user.clinic_id === clinicId && user.role === "owner" && user.active)
+    || superadminData.users.find((user) => user.clinic_id === clinicId && user.active);
+  if (!owner) {
+    showToast("No hay usuario activo en esta clinica para resetear clave.", "warning");
+    return;
+  }
+  await superadminResetUserPassword(owner.id);
+}
+
+async function superadminImpersonateClinic(clinicId) {
+  const clinic = clinicBySuperadminId(clinicId);
+  if (!clinic || clinic.source !== "backend") {
+    showToast("Solo se puede impersonar una clinica persistida en backend.", "warning");
+    return;
+  }
+  const confirmed = await showConfirm({
+    eyebrow: "Impersonacion",
+    title: "Entrar como clinica",
+    message: `Entraras temporalmente en ${clinic.name}.`,
+    detail: "El token caduca en 30 minutos y la accion quedara registrada en auditoria.",
+    confirmLabel: "Impersonar",
+    variant: "primary"
+  });
+  if (!confirmed) return;
+  try {
+    const session = await backendRequest(`/superadmin/clinics/${encodeURIComponent(clinic.id)}/impersonation-token`, {
+      method: "POST",
+      token: superadminToken(),
+      auth: false
+    });
+    const accountKey = slugifyClinicName(clinic.name || clinic.id);
+    ensureClinicAccount({
+      key: accountKey,
+      name: clinic.name || "Clinica",
+      email: clinic.email || "",
+      phone: clinic.phone || "",
+      paymentPlan: normalizeSaasPlanId(clinic.subscription_plan || "trial"),
+      subscriptionStatus: clinic.subscription_status || session.subscription_status || "active",
+      billingStatus: clinic.subscription_status || session.subscription_status || "active",
+      backendToken: session.access_token,
+      backendClinicId: clinic.id,
+      ownerEmail: clinic.email || ""
+    });
+    enterPlatform("owner", accountKey);
+    showToast(`Sesion temporal abierta en ${clinic.name}.`, "success");
+  } catch (error) {
+    showToast(`No se pudo impersonar la clinica: ${error.message}`, "error");
+  }
 }
 
 async function loadSuperadminPanel() {
@@ -1784,6 +1928,42 @@ function backendLoginMessage(error) {
     return "No se pudo conectar con el servidor de Klinia. Revisa la conexion y actualiza la pagina.";
   }
   return error?.message || "No se pudo comprobar el acceso con el backend.";
+}
+
+function canFallbackToLocalLogin(error, identifier) {
+  if (!error) return true;
+  if (!backendRequiredForProduction()) return true;
+  if (error.status !== 401) return false;
+  return Boolean(
+    loginPrincipalByIdentifier(identifier)
+      || clinicAccountByClinicIdentifier(identifier)
+      || clinicAccountByLogin(identifier)
+  );
+}
+
+function profileLoginIdentity(account, profile, practitioner = null) {
+  if (!account) {
+    return { email: "", password: "", label: "" };
+  }
+  if (profile === "owner") {
+    return {
+      email: ownerEmailForAccount(account),
+      password: ownerPasswordForAccount(account),
+      label: account.ownerName || "Direccion"
+    };
+  }
+  if (profile === "staff") {
+    return {
+      email: account.staffEmail || "",
+      password: account.staffPassword || "",
+      label: "Recepcion / empleado"
+    };
+  }
+  return {
+    email: practitioner?.email || "",
+    password: practitioner?.password || "",
+    label: practitioner?.name || "Trabajador"
+  };
 }
 
 async function tryBackendLogin(identifier, password, options = {}) {
@@ -7289,7 +7469,7 @@ function setupLogin() {
       persistLoginCredentials(form, identifier, password);
       return;
     }
-    if (backendFirst.error && backendRequiredForProduction()) {
+    if (backendFirst.error && !canFallbackToLocalLogin(backendFirst.error, identifier)) {
       showLoginError(backendLoginMessage(backendFirst.error), backendFirst.error.status === 401 ? form.elements.password : form.elements.center);
       return;
     }
@@ -7331,7 +7511,7 @@ function setupLogin() {
     showProfileLoginStep(account.key);
   });
 
-  $("#profile-form").addEventListener("submit", (event) => {
+  $("#profile-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     setInlineError("#profile-login-error");
@@ -7340,16 +7520,25 @@ function setupLogin() {
     const profile = form.elements.profile.value;
     const loginPractitioners = normalizePractitioners(loadClinicStateFor(account.key, "practitioners", account.key === demoClinicKey ? defaultPractitioners : []));
     const practitioner = byId(loginPractitioners, profile);
-    const expectedPassword = profile === "owner"
-      ? ownerPasswordForAccount(account)
-      : profile === "staff"
-        ? account.staffPassword
-        : practitioner?.password || "";
-    if (!expectedPassword) {
-      showProfileLoginError("Este perfil no tiene una contraseña propia configurada.", form.elements.password);
+    const identity = profileLoginIdentity(account, profile, practitioner);
+    const typedPassword = form.elements.password.value;
+    if (identity.email && typedPassword) {
+      const backendProfileLogin = await tryBackendLogin(identity.email, typedPassword, { account });
+      if (backendProfileLogin.handled) {
+        return;
+      }
+      if (backendProfileLogin.error && !canFallbackToLocalLogin(backendProfileLogin.error, identity.email)) {
+        showProfileLoginError(backendLoginMessage(backendProfileLogin.error), form.elements.password);
+        return;
+      }
+    }
+    if (!identity.password) {
+      showProfileLoginError(identity.email
+        ? "Este perfil existe, pero no tiene clave local. Si se creo en backend, entra con su email directamente."
+        : "Este perfil no tiene email ni contraseña propia configurada.", form.elements.password);
       return;
     }
-    if (form.elements.password.value !== expectedPassword) {
+    if (typedPassword !== identity.password) {
       showProfileLoginError("Contraseña incorrecta para este perfil.", form.elements.password);
       return;
     }
@@ -7575,7 +7764,12 @@ function setupLogin() {
     setSuperadminModule("audit");
   });
   $("#superadmin-detail-impersonate")?.addEventListener("click", () => {
-    showToast("Impersonacion preparada: falta endpoint backend con auditoria y token temporal.", "warning");
+    const clinic = clinicBySuperadminId();
+    if (!clinic) {
+      showToast("Selecciona una clinica primero.", "warning");
+      return;
+    }
+    superadminImpersonateClinic(clinic.id);
   });
   $("#superadmin-notifications-button")?.addEventListener("click", () => {
     showToast("Notificaciones preparadas para conectar con alertas de soporte y sistema.", "info");
@@ -7591,12 +7785,42 @@ function setupLogin() {
     if (impersonateButton) {
       selectedSuperadminClinicId = impersonateButton.dataset.superadminImpersonate;
       setSuperadminModule("clinic-detail");
-      showToast("Impersonacion preparada: requiere endpoint seguro antes de activarla.", "warning");
+      superadminImpersonateClinic(selectedSuperadminClinicId);
       return;
     }
-    const userAction = event.target.closest("[data-superadmin-user-action]");
-    if (userAction) {
-      showToast("Accion de usuario preparada: falta endpoint backend especifico y auditoria de ejecucion.", "warning");
+    const resetUserButton = event.target.closest("[data-superadmin-reset-user]");
+    if (resetUserButton) {
+      superadminResetUserPassword(resetUserButton.dataset.superadminResetUser);
+      return;
+    }
+    const toggleUserButton = event.target.closest("[data-superadmin-toggle-user]");
+    if (toggleUserButton) {
+      superadminToggleUser(toggleUserButton.dataset.superadminToggleUser, toggleUserButton.dataset.active === "true");
+      return;
+    }
+    const actionButton = event.target.closest("[data-superadmin-action]");
+    if (actionButton) {
+      const clinic = clinicBySuperadminId();
+      if (!clinic) {
+        showToast("Selecciona una clinica primero.", "warning");
+        return;
+      }
+      if (actionButton.dataset.superadminAction === "impersonate-clinic") {
+        superadminImpersonateClinic(clinic.id);
+      } else if (actionButton.dataset.superadminAction === "toggle-clinic-status") {
+        superadminUpdateClinicStatus(clinic.id, clinic.subscription_status === "canceled" ? "active" : "canceled");
+      } else if (actionButton.dataset.superadminAction === "reset-owner") {
+        superadminResetOwnerForClinic(clinic.id);
+      } else if (actionButton.dataset.superadminAction === "export-audit") {
+        setSuperadminModule("audit");
+        exportSuperadminCsv();
+      }
+    }
+  });
+  $(".superadmin-console")?.addEventListener("change", (event) => {
+    const roleSelect = event.target.closest("[data-superadmin-role-user]");
+    if (roleSelect) {
+      superadminUpdateUser(roleSelect.dataset.superadminRoleUser, { role: roleSelect.value });
     }
   });
   $("#superadmin-logout-button")?.addEventListener("click", async () => {

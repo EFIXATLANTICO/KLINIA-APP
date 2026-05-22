@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-superadmin-console-20260522";
+const KLINIA_CACHE = "klinia-superadmin-actions-20260522b";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260522-superadmin-console",
-  "./app.js?v=20260522-superadmin-console",
+  "./styles.css?v=20260522-superadmin-actions2",
+  "./app.js?v=20260522-superadmin-actions2",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

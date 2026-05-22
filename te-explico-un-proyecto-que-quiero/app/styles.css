@@ -5507,6 +5507,13 @@ body.superadmin-mode .public-nav-actions {
   min-height: 38px;
 }
 
+.superadmin-table-select {
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-weight: 900;
+}
+
 .superadmin-row-actions button {
   border: 1px solid var(--border);
   border-radius: 7px;
