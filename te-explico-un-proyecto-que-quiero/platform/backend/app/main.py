@@ -261,14 +261,17 @@ def ensure_initial_superadmin() -> None:
         setup_log("superadmin skipped because SUPERADMIN_EMAIL or SUPERADMIN_PASSWORD is missing")
         return
     email = settings.superadmin_email.lower().strip()
-    if len(settings.superadmin_password.encode("utf-8")) > 72:
+    superadmin_password = settings.superadmin_password.strip()
+    if not superadmin_password:
+        raise ValueError("SUPERADMIN_PASSWORD is empty after trimming whitespace")
+    if len(superadmin_password.encode("utf-8")) > 72:
         raise ValueError("SUPERADMIN_PASSWORD exceeds bcrypt 72 byte limit")
     setup_log("superadmin bootstrap for %s", email)
     with Session(engine) as db:
         user = db.scalar(select(User).where(User.email == email, User.role == UserRole.superadmin))
         if user:
             user.name = settings.superadmin_name or user.name
-            user.password_hash = hash_password(settings.superadmin_password)
+            user.password_hash = hash_password(superadmin_password)
             user.active = True
             db.commit()
             setup_log("superadmin updated and password synchronized for %s", email)
@@ -277,7 +280,7 @@ def ensure_initial_superadmin() -> None:
             clinic_id=None,
             name=settings.superadmin_name,
             email=email,
-            password_hash=hash_password(settings.superadmin_password),
+            password_hash=hash_password(superadmin_password),
             role=UserRole.superadmin,
             active=True,
         )

@@ -15,7 +15,7 @@
       body.login-mode .app-shell { display: none !important; }
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
-    <link rel="stylesheet" href="./styles.css?v=20260521-login-superadmin-fix3" />
+    <link rel="stylesheet" href="./styles.css?v=20260522-superadmin-console" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -309,84 +309,210 @@
         </section>
 
         <section class="public-view superadmin-view" data-public-screen="superadmin" aria-label="Administracion de Klinia">
-          <div class="superadmin-head">
-            <div>
-              <p class="eyebrow">Administracion de plataforma</p>
-              <h1>Panel superadmin</h1>
-              <p>Supervision operativa, accesos y auditoria persistente desde backend.</p>
-            </div>
-            <button class="secondary-button" type="button" id="superadmin-logout-button">Cerrar sesion</button>
-          </div>
+          <div class="superadmin-console">
+            <aside class="superadmin-sidebar" aria-label="Navegacion superadmin">
+              <div class="superadmin-brand">
+                <img src="./assets/klinia-logo.svg" alt="Klinia" />
+                <div><strong>Klinia</strong><span>Superadmin</span></div>
+              </div>
+              <nav class="superadmin-nav">
+                <button class="active" type="button" data-superadmin-module="dashboard">Dashboard</button>
+                <button type="button" data-superadmin-module="clinics">Clinicas</button>
+                <button type="button" data-superadmin-module="clinic-detail">Detalle clinica</button>
+                <button type="button" data-superadmin-module="users">Usuarios</button>
+                <button type="button" data-superadmin-module="subscriptions">Planes y suscripciones</button>
+                <button type="button" data-superadmin-module="billing">Facturacion</button>
+                <button type="button" data-superadmin-module="support">Soporte y tickets</button>
+                <button type="button" data-superadmin-module="audit">Auditoria</button>
+                <button type="button" data-superadmin-module="communications">Comunicaciones</button>
+                <button type="button" data-superadmin-module="reports">Informes</button>
+                <button type="button" data-superadmin-module="settings">Configuracion</button>
+                <button type="button" data-superadmin-module="system">Integraciones y logs</button>
+              </nav>
+              <div class="superadmin-sidebar-footer">
+                <span id="superadmin-backend-state">Backend conectado</span>
+                <button class="secondary-button" type="button" id="superadmin-logout-button">Cerrar sesion</button>
+              </div>
+            </aside>
 
-          <section class="superadmin-kpis" aria-label="Resumen general">
-            <article><span>Clinicas</span><strong id="superadmin-total-clinics">-</strong></article>
-            <article><span>Activas</span><strong id="superadmin-active-clinics">-</strong></article>
-            <article><span>En prueba</span><strong id="superadmin-trial-clinics">-</strong></article>
-            <article><span>Fallos 24h</span><strong id="superadmin-failed-logins">-</strong></article>
-          </section>
+            <main class="superadmin-main">
+              <header class="superadmin-topbar">
+                <div>
+                  <p class="eyebrow">Administracion de plataforma</p>
+                  <h1 id="superadmin-module-title">Dashboard</h1>
+                  <p id="superadmin-module-subtitle">Supervision operativa, accesos y auditoria persistente desde backend.</p>
+                </div>
+                <div class="superadmin-topbar-actions">
+                  <label class="superadmin-search">
+                    <span>Buscar</span>
+                    <input id="superadmin-global-search" type="search" placeholder="Clinica, usuario, email, accion..." />
+                  </label>
+                  <button class="secondary-button" type="button" id="superadmin-export-button">Exportar</button>
+                  <button class="secondary-button" type="button" id="superadmin-refresh-button">Actualizar</button>
+                  <button class="icon-button" type="button" id="superadmin-notifications-button" aria-label="Notificaciones">!</button>
+                </div>
+              </header>
 
-          <form class="superadmin-filters" id="superadmin-filter-form">
-            <label>
-              Clinica
-              <select name="clinicId" id="superadmin-clinic-filter">
-                <option value="">Todas las clinicas</option>
-              </select>
-            </label>
-            <label>
-              Accion
-              <input name="action" type="text" placeholder="login-failed, create-patient..." />
-            </label>
-            <label>
-              Desde
-              <input name="dateFrom" type="date" />
-            </label>
-            <label>
-              Hasta
-              <input name="dateTo" type="date" />
-            </label>
-            <button class="primary-button" type="submit">Filtrar actividad</button>
-          </form>
-          <p class="superadmin-sync-note hidden" id="superadmin-local-sync-note" role="status"></p>
+              <form class="superadmin-filters" id="superadmin-filter-form">
+                <label>
+                  Clinica
+                  <select name="clinicId" id="superadmin-clinic-filter">
+                    <option value="">Todas las clinicas backend</option>
+                  </select>
+                </label>
+                <label>
+                  Accion
+                  <input name="action" type="text" placeholder="login-failed, create-patient..." />
+                </label>
+                <label>
+                  Desde
+                  <input name="dateFrom" type="date" />
+                </label>
+                <label>
+                  Hasta
+                  <input name="dateTo" type="date" />
+                </label>
+                <button class="primary-button" type="submit">Aplicar filtros</button>
+              </form>
+              <p class="superadmin-sync-note hidden" id="superadmin-local-sync-note" role="status"></p>
 
-          <div class="superadmin-grid">
-            <section class="superadmin-card">
-              <div class="superadmin-card-head">
-                <h2>Clinicas registradas</h2>
-                <span id="superadmin-clinics-count">-</span>
-              </div>
-              <div class="superadmin-table-wrap">
-                <table>
-                  <thead><tr><th>Clinica</th><th>Suscripcion</th><th>Usuarios</th><th>Ultima actividad</th></tr></thead>
-                  <tbody id="superadmin-clinics-table"></tbody>
-                </table>
-              </div>
-            </section>
+              <section class="superadmin-panel active" data-superadmin-panel="dashboard">
+                <section class="superadmin-kpis" aria-label="Resumen general">
+                  <article><span>Clinicas totales</span><strong id="superadmin-total-clinics">-</strong><small id="superadmin-clinics-count">-</small></article>
+                  <article><span>Usuarios</span><strong id="superadmin-total-users">-</strong><small id="superadmin-users-count">-</small></article>
+                  <article><span>Ingresos</span><strong id="superadmin-revenue">Pendiente</strong><small>Requiere facturacion backend</small></article>
+                  <article><span>Tickets abiertos</span><strong id="superadmin-open-tickets">0</strong><small>Modulo preparado</small></article>
+                  <article><span>Activas</span><strong id="superadmin-active-clinics">-</strong><small>Suscripcion active</small></article>
+                  <article><span>En prueba</span><strong id="superadmin-trial-clinics">-</strong><small>Trial / trialing</small></article>
+                  <article><span>Fallos 24h</span><strong id="superadmin-failed-logins">-</strong><small>Desde auditoria</small></article>
+                  <article><span>Actividad 24h</span><strong id="superadmin-activity-24h">-</strong><small>Eventos backend</small></article>
+                </section>
 
-            <section class="superadmin-card">
-              <div class="superadmin-card-head">
-                <h2>Usuarios</h2>
-                <span id="superadmin-users-count">-</span>
-              </div>
-              <div class="superadmin-table-wrap">
-                <table>
-                  <thead><tr><th>Usuario</th><th>Clinica</th><th>Rol</th><th>Ultimo acceso</th></tr></thead>
-                  <tbody id="superadmin-users-table"></tbody>
-                </table>
-              </div>
-            </section>
+                <div class="superadmin-grid">
+                  <section class="superadmin-card">
+                    <div class="superadmin-card-head"><h2>Crecimiento y estado</h2><span>Datos reales disponibles</span></div>
+                    <div class="superadmin-chart" id="superadmin-growth-chart"></div>
+                  </section>
+                  <section class="superadmin-card">
+                    <div class="superadmin-card-head"><h2>Actividad reciente</h2><span id="superadmin-audit-count">-</span></div>
+                    <div class="superadmin-table-wrap compact">
+                      <table>
+                        <thead><tr><th>Fecha</th><th>Clinica</th><th>Accion</th><th>Resultado</th></tr></thead>
+                        <tbody id="superadmin-dashboard-activity-table"></tbody>
+                      </table>
+                    </div>
+                  </section>
+                  <section class="superadmin-card superadmin-card-wide">
+                    <div class="superadmin-card-head"><h2>Alertas operativas</h2><span id="superadmin-alerts-count">-</span></div>
+                    <div class="superadmin-alert-list" id="superadmin-alert-list"></div>
+                  </section>
+                </div>
+              </section>
 
-            <section class="superadmin-card superadmin-card-wide">
-              <div class="superadmin-card-head">
-                <h2>Actividad reciente</h2>
-                <button class="secondary-button" type="button" id="superadmin-refresh-button">Actualizar</button>
-              </div>
-              <div class="superadmin-table-wrap">
-                <table>
-                  <thead><tr><th>Fecha</th><th>Clinica</th><th>Usuario</th><th>Accion</th><th>Resultado</th></tr></thead>
-                  <tbody id="superadmin-audit-table"></tbody>
-                </table>
-              </div>
-            </section>
+              <section class="superadmin-panel" data-superadmin-panel="clinics">
+                <section class="superadmin-card superadmin-card-wide">
+                  <div class="superadmin-card-head">
+                    <h2>Clinicas registradas</h2>
+                    <div class="superadmin-inline-actions">
+                      <select id="superadmin-clinic-status-filter" aria-label="Filtrar por estado">
+                        <option value="">Todos los estados</option>
+                        <option value="active">Activas</option>
+                        <option value="trialing">En prueba</option>
+                        <option value="past_due">Impagadas</option>
+                        <option value="local_pending_backend">Locales pendientes</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="superadmin-table-wrap">
+                    <table>
+                      <thead><tr><th>Clinica</th><th>Suscripcion</th><th>Usuarios</th><th>Ultima actividad</th><th>Acciones</th></tr></thead>
+                      <tbody id="superadmin-clinics-table"></tbody>
+                    </table>
+                  </div>
+                </section>
+              </section>
+
+              <section class="superadmin-panel" data-superadmin-panel="clinic-detail">
+                <section class="superadmin-detail-header">
+                  <div><span>Clinica seleccionada</span><strong id="superadmin-detail-name">Selecciona una clinica</strong><small id="superadmin-detail-email">-</small></div>
+                  <div class="superadmin-inline-actions">
+                    <button class="secondary-button" type="button" id="superadmin-detail-open-audit">Ver auditoria</button>
+                    <button class="secondary-button" type="button" id="superadmin-detail-impersonate">Impersonar</button>
+                  </div>
+                </section>
+                <div class="superadmin-grid">
+                  <section class="superadmin-card"><div class="superadmin-card-head"><h2>Informacion general</h2></div><dl class="superadmin-definition-list" id="superadmin-detail-general"></dl></section>
+                  <section class="superadmin-card"><div class="superadmin-card-head"><h2>Plan y uso</h2></div><dl class="superadmin-definition-list" id="superadmin-detail-plan"></dl></section>
+                  <section class="superadmin-card"><div class="superadmin-card-head"><h2>Usuarios</h2><span id="superadmin-detail-users-count">-</span></div><div id="superadmin-detail-users" class="superadmin-mini-list"></div></section>
+                  <section class="superadmin-card"><div class="superadmin-card-head"><h2>Actividad reciente</h2></div><div id="superadmin-detail-activity" class="superadmin-mini-list"></div></section>
+                  <section class="superadmin-card superadmin-card-wide"><div class="superadmin-card-head"><h2>Acciones administrativas</h2><span>Preparadas con trazabilidad</span></div><div class="superadmin-action-grid" id="superadmin-detail-actions"></div></section>
+                </div>
+              </section>
+
+              <section class="superadmin-panel" data-superadmin-panel="users">
+                <section class="superadmin-card superadmin-card-wide">
+                  <div class="superadmin-card-head">
+                    <h2>Usuarios globales</h2>
+                    <div class="superadmin-inline-actions">
+                      <select id="superadmin-user-role-filter" aria-label="Filtrar por rol">
+                        <option value="">Todos los roles</option>
+                        <option value="owner">Direccion</option>
+                        <option value="staff">Recepcion / staff</option>
+                        <option value="practitioner">Profesional</option>
+                      </select>
+                      <select id="superadmin-user-status-filter" aria-label="Filtrar por estado">
+                        <option value="">Todos</option>
+                        <option value="active">Activos</option>
+                        <option value="inactive">Inactivos</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="superadmin-table-wrap">
+                    <table>
+                      <thead><tr><th>Usuario</th><th>Clinica</th><th>Rol</th><th>Estado</th><th>Ultimo acceso</th><th>Acciones</th></tr></thead>
+                      <tbody id="superadmin-users-table"></tbody>
+                    </table>
+                  </div>
+                </section>
+              </section>
+
+              <section class="superadmin-panel" data-superadmin-panel="audit">
+                <section class="superadmin-card superadmin-card-wide">
+                  <div class="superadmin-card-head">
+                    <h2>Auditoria</h2>
+                    <span>Eventos persistentes de backend</span>
+                  </div>
+                  <div class="superadmin-table-wrap">
+                    <table>
+                      <thead><tr><th>Fecha</th><th>Clinica</th><th>Usuario</th><th>Accion</th><th>Resultado</th><th>Origen</th></tr></thead>
+                      <tbody id="superadmin-audit-table"></tbody>
+                    </table>
+                  </div>
+                </section>
+              </section>
+
+              <section class="superadmin-panel" data-superadmin-panel="subscriptions">
+                <div class="superadmin-grid" id="superadmin-subscriptions-grid"></div>
+              </section>
+              <section class="superadmin-panel" data-superadmin-panel="billing">
+                <div class="superadmin-grid" id="superadmin-billing-grid"></div>
+              </section>
+              <section class="superadmin-panel" data-superadmin-panel="support">
+                <div class="superadmin-grid" id="superadmin-support-grid"></div>
+              </section>
+              <section class="superadmin-panel" data-superadmin-panel="communications">
+                <div class="superadmin-grid" id="superadmin-communications-grid"></div>
+              </section>
+              <section class="superadmin-panel" data-superadmin-panel="reports">
+                <div class="superadmin-grid" id="superadmin-reports-grid"></div>
+              </section>
+              <section class="superadmin-panel" data-superadmin-panel="settings">
+                <div class="superadmin-grid" id="superadmin-settings-grid"></div>
+              </section>
+              <section class="superadmin-panel" data-superadmin-panel="system">
+                <div class="superadmin-grid" id="superadmin-system-grid"></div>
+              </section>
+            </main>
           </div>
         </section>
       </div>
@@ -2238,7 +2364,7 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260521-login-superadmin-fix3"></script>
+    <script src="./app.js?v=20260522-superadmin-console"></script>
   </body>
 </html>
 
