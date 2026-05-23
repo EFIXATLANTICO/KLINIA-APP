@@ -1596,6 +1596,7 @@ function renderSuperadminPreparedPanels() {
           ${issue.clinic_id ? `<button type="button" data-superadmin-open-clinic="${escapeHtml(issue.clinic_id)}">Detalle</button>` : ""}
           ${issue.clinic_id && ["no-users", "no-owner", "owner-inactive"].includes(issue.issue_type) ? `<button type="button" data-superadmin-repair-access="${escapeHtml(issue.clinic_id)}">Reparar acceso</button>` : ""}
           ${issue.user_id ? `<button type="button" data-superadmin-reset-user="${escapeHtml(issue.user_id)}">Reset clave</button>` : ""}
+          ${issue.practitioner_id ? `<button type="button" data-superadmin-create-practitioner-access="${escapeHtml(issue.practitioner_id)}">Crear acceso</button>` : ""}
         </div>
       </article>
     `).join("")
@@ -1783,6 +1784,33 @@ async function superadminRepairClinicAccess(clinicId) {
     );
   } catch (error) {
     showToast(`No se pudo reparar el acceso: ${error.message}`, "error");
+  }
+}
+
+async function superadminCreatePractitionerAccess(practitionerId) {
+  const confirmed = await showConfirm({
+    eyebrow: "Soporte de acceso",
+    title: "Crear acceso de trabajador",
+    message: "Se creara o reutilizara el usuario backend del trabajador y se generara una clave temporal.",
+    detail: "Solo funciona si el trabajador tiene email guardado. La accion quedara auditada.",
+    confirmLabel: "Crear acceso",
+    variant: "primary"
+  });
+  if (!confirmed) return;
+  try {
+    const result = await backendRequest(`/superadmin/practitioners/${encodeURIComponent(practitionerId)}/create-access`, {
+      method: "POST",
+      token: superadminToken(),
+      auth: false
+    });
+    await loadSuperadminPanel();
+    await showNotice(
+      "Acceso de trabajador creado",
+      `Usuario: ${result.user_email}\nClave temporal: ${result.temporary_password}\nDebe cambiarla al iniciar sesion.`,
+      { variant: "success" }
+    );
+  } catch (error) {
+    showToast(`No se pudo crear el acceso del trabajador: ${error.message}`, "error");
   }
 }
 
@@ -2006,15 +2034,21 @@ function backendLoginMessage(error) {
   return error?.message || "No se pudo comprobar el acceso con el backend.";
 }
 
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
 function canFallbackToLocalLogin(error, identifier) {
   if (!error) return true;
   if (!backendRequiredForProduction()) return true;
-  if (error.status !== 401) return false;
-  return Boolean(
+  const hasLocalIdentity = Boolean(
     loginPrincipalByIdentifier(identifier)
       || clinicAccountByClinicIdentifier(identifier)
       || clinicAccountByLogin(identifier)
   );
+  if (error.status === 401) return hasLocalIdentity;
+  if (error.status === 422) return hasLocalIdentity;
+  return false;
 }
 
 function profileLoginIdentity(account, profile, practitioner = null) {
@@ -2161,15 +2195,20 @@ async function tryBackendLogin(identifier, password, options = {}) {
   if (!cleanIdentifier || !password) {
     return { handled: false, error: null };
   }
+  const resolvedAccount = options.account || clinicAccountByClinicIdentifier(cleanIdentifier) || clinicAccountByLogin(cleanIdentifier);
+  const backendEmail = looksLikeEmail(cleanIdentifier)
+    ? cleanIdentifier
+    : (ownerEmailForAccount(resolvedAccount) || resolvedAccount?.email || cleanIdentifier);
+  const backendClinicEmail = options.clinicEmail || resolvedAccount?.email || resolvedAccount?.name || "";
   try {
     const session = await backendRequest("/auth/login", {
       method: "POST",
       auth: false,
       body: JSON.stringify({
-        email: cleanIdentifier,
+        email: backendEmail,
         password,
-        clinic_id: options.clinicId || options.account?.backendClinicId || undefined,
-        clinic_email: options.clinicEmail || options.account?.email || undefined
+        clinic_id: options.clinicId || resolvedAccount?.backendClinicId || undefined,
+        clinic_email: backendClinicEmail || undefined
       })
     });
     const me = await backendRequest("/me", { token: session.access_token, auth: false });
@@ -8129,6 +8168,11 @@ function setupLogin() {
     const repairAccessButton = event.target.closest("[data-superadmin-repair-access]");
     if (repairAccessButton) {
       superadminRepairClinicAccess(repairAccessButton.dataset.superadminRepairAccess);
+      return;
+    }
+    const createPractitionerAccessButton = event.target.closest("[data-superadmin-create-practitioner-access]");
+    if (createPractitionerAccessButton) {
+      superadminCreatePractitionerAccess(createPractitionerAccessButton.dataset.superadminCreatePractitionerAccess);
       return;
     }
     const actionButton = event.target.closest("[data-superadmin-action]");
