@@ -197,6 +197,36 @@
           </form>
         </dialog>
 
+        <dialog id="change-password-dialog">
+          <form method="dialog" class="modal-form" id="change-password-form" novalidate>
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Seguridad de acceso</p>
+                <h2>Cambiar clave</h2>
+              </div>
+              <button class="icon-button dialog-close" type="button" data-dialog-id="change-password-dialog" title="Cerrar">x</button>
+            </div>
+            <p class="form-help" id="change-password-help">Actualiza la clave de este usuario. No guardamos contrasenas en texto plano.</p>
+            <label>
+              Clave actual
+              <input name="currentPassword" type="password" autocomplete="current-password" required />
+            </label>
+            <label>
+              Nueva clave
+              <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+            </label>
+            <label>
+              Repetir nueva clave
+              <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+            </label>
+            <p class="form-error" id="change-password-error" role="alert"></p>
+            <div class="modal-actions">
+              <button class="secondary-button dialog-close" type="button" data-dialog-id="change-password-dialog">Cancelar</button>
+              <button class="primary-button" type="submit">Guardar clave</button>
+            </div>
+          </form>
+        </dialog>
+
         <section class="public-view" data-public-screen="demo" aria-label="Acceso demo de Klinia">
           <button class="link-button public-back-button" type="button" data-public-view-target="landing">&larr; Volver a planes</button>
           <div class="login-shell public-login-shell demo-access-shell">
@@ -556,6 +586,7 @@
               </select>
             </label>
             <button class="secondary-button install-button hidden" type="button" id="install-app">Instalar app</button>
+            <button class="secondary-button" type="button" id="change-password-button">Mi clave</button>
             <button class="secondary-button" type="button" id="logout-button">Salir</button>
             <button class="primary-button" type="button" id="new-appointment">Nueva cita</button>
           </div>

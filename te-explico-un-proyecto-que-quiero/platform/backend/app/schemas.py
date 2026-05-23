@@ -39,6 +39,16 @@ class AccessRecoveryRequestIn(BaseModel):
     clinic_email: EmailStr | None = None
 
 
+class AccessRecoveryRequestOut(BaseModel):
+    id: str
+    clinic_id: str | None = None
+    user_id: str | None = None
+    user_email: str
+    status: str
+    requested_at: datetime
+    resolved_at: datetime | None = None
+
+
 class PasswordChangeIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=160)
@@ -182,6 +192,7 @@ class SuperAdminAccessIssueOut(BaseModel):
     clinic_name: str | None = None
     user_id: str | None = None
     user_email: str | None = None
+    practitioner_id: str | None = None
     severity: str
     issue_type: str
     message: str
@@ -191,6 +202,15 @@ class SuperAdminAccessIssueOut(BaseModel):
 
 class SuperAdminRepairAccessOut(BaseModel):
     clinic_id: str
+    user_id: str
+    user_email: str
+    temporary_password: str
+    actions: list[str]
+    force_password_change: bool = True
+
+
+class SuperAdminPractitionerAccessOut(BaseModel):
+    practitioner_id: str
     user_id: str
     user_email: str
     temporary_password: str
@@ -306,6 +326,7 @@ class PractitionerUpdate(BaseModel):
 
 class PractitionerOut(PractitionerBase):
     id: str
+    user_id: str | None = None
 
     model_config = {"from_attributes": True}
 

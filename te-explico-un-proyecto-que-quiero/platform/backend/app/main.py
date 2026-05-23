@@ -21,6 +21,7 @@ from .deps import current_subscribed_user, current_user, require_roles, require_
 from .models import Appointment, AppointmentStatus, AuditLog, Clinic, Patient, Practitioner, Room, Service, User, UserRole
 from .schemas import (
     AccessRecoveryRequestIn,
+    AccessRecoveryRequestOut,
     AppointmentCreate,
     AppointmentOut,
     AppointmentUpdate,
@@ -52,6 +53,7 @@ from .schemas import (
     SuperAdminOverviewOut,
     SuperAdminPasswordResetOut,
     SuperAdminRepairAccessOut,
+    SuperAdminPractitionerAccessOut,
     SuperAdminUserUpdateIn,
     SuperAdminUserOut,
     UserCreate,
@@ -202,6 +204,16 @@ def safe_metadata(metadata: dict | None) -> dict:
             continue
         safe[key_text] = value
     return safe
+
+
+def parse_metadata_json(value: str | None) -> dict:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def generate_temporary_password(length: int = 14) -> str:
@@ -765,6 +777,36 @@ def recovery_request(payload: AccessRecoveryRequestIn, request: Request, db: Ses
     return {"ok": True}
 
 
+@app.get("/access-recovery-requests", response_model=list[AccessRecoveryRequestOut])
+def list_access_recovery_requests(
+    user: User = Depends(require_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> list[AccessRecoveryRequestOut]:
+    items = list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.clinic_id == user.clinic_id, AuditLog.action == "access-recovery-request")
+            .order_by(AuditLog.created_at.desc())
+            .limit(100)
+        )
+    )
+    output: list[AccessRecoveryRequestOut] = []
+    for item in items:
+        metadata = parse_metadata_json(item.metadata_json)
+        output.append(
+            AccessRecoveryRequestOut(
+                id=item.id,
+                clinic_id=item.clinic_id,
+                user_id=item.user_id,
+                user_email=str(metadata.get("email") or ""),
+                status=item.result or "requested",
+                requested_at=item.created_at,
+                resolved_at=None,
+            )
+        )
+    return output
+
+
 @app.get("/users", response_model=list[UserOut])
 def list_users(user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> list[User]:
     return list(db.scalars(select(User).where(User.clinic_id == user.clinic_id).order_by(User.name)))
@@ -851,6 +893,58 @@ def deactivate_user(user_id: str, user: User = Depends(require_roles(UserRole.ow
     db.commit()
 
 
+@app.post("/users/{user_id}/reset-password", response_model=SuperAdminPasswordResetOut)
+def owner_reset_user_password(
+    user_id: str,
+    request: Request,
+    user: User = Depends(require_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> SuperAdminPasswordResetOut:
+    target = clinic_user_or_404(db, user_id, user.clinic_id)
+    if target.id == user.id:
+        raise HTTPException(status_code=400, detail="Use /me/password to change your own password")
+    result = reset_clinic_user_password(db, target)
+    audit_action(
+        db,
+        user,
+        "owner-reset-user-password",
+        "user",
+        target.id,
+        {"target_email": target.email},
+        request=request,
+    )
+    db.commit()
+    return result
+
+
+@app.post("/access-recovery-requests/{request_id}/resolve", response_model=SuperAdminPasswordResetOut)
+def resolve_access_recovery_request(
+    request_id: str,
+    request: Request,
+    user: User = Depends(require_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> SuperAdminPasswordResetOut:
+    item = db.get(AuditLog, request_id)
+    if not item or item.clinic_id != user.clinic_id or item.action != "access-recovery-request":
+        raise HTTPException(status_code=404, detail="Recovery request not found")
+    target = db.get(User, item.user_id) if item.user_id else None
+    if not target or target.clinic_id != user.clinic_id or target.role == UserRole.superadmin:
+        raise HTTPException(status_code=404, detail="Recovery request has no valid user")
+    result = reset_clinic_user_password(db, target)
+    item.result = "resolved"
+    audit_action(
+        db,
+        user,
+        "resolve-access-recovery-request",
+        "auth",
+        item.id,
+        {"target_user_id": target.id, "target_email": target.email},
+        request=request,
+    )
+    db.commit()
+    return result
+
+
 @app.get("/audit-log", response_model=list[AuditLogOut])
 def list_audit_log(user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> list[AuditLog]:
     return list(
@@ -917,15 +1011,17 @@ def collect_superadmin_access_issues(db: Session) -> list[SuperAdminAccessIssueO
         recommended_action: str,
         severity: str = "warning",
         user: User | None = None,
+        practitioner: Practitioner | None = None,
         created_at: datetime | None = None,
     ) -> None:
         issues.append(
             SuperAdminAccessIssueOut(
-                id=f"{clinic.id if clinic else 'platform'}:{user.id if user else 'clinic'}:{issue_type}",
+                id=f"{clinic.id if clinic else 'platform'}:{user.id if user else practitioner.id if practitioner else 'clinic'}:{issue_type}",
                 clinic_id=clinic.id if clinic else None,
                 clinic_name=clinic.name if clinic else None,
                 user_id=user.id if user else None,
                 user_email=user.email if user else None,
+                practitioner_id=practitioner.id if practitioner else None,
                 severity=severity,
                 issue_type=issue_type,
                 message=message,
@@ -1009,6 +1105,7 @@ def collect_superadmin_access_issues(db: Session) -> list[SuperAdminAccessIssueO
                 severity="info",
                 message=f"El trabajador {practitioner.name} no tiene usuario backend vinculado.",
                 recommended_action="Crear usuario desde Configuracion > Trabajadores o desde soporte",
+                practitioner=practitioner,
                 created_at=practitioner.created_at,
             )
     return issues
@@ -1050,6 +1147,60 @@ def repair_clinic_owner_access(db: Session, clinic: Clinic) -> SuperAdminRepairA
         clinic_id=clinic.id,
         user_id=owner.id,
         user_email=owner.email,
+        temporary_password=temporary_password,
+        actions=actions,
+        force_password_change=True,
+    )
+
+
+def reset_clinic_user_password(db: Session, target: User) -> SuperAdminPasswordResetOut:
+    temporary_password = generate_temporary_password()
+    target.password_hash = hash_password(temporary_password)
+    target.force_password_change = True
+    target.active = True
+    return SuperAdminPasswordResetOut(user_id=target.id, temporary_password=temporary_password, force_password_change=True)
+
+
+def create_practitioner_access(db: Session, practitioner: Practitioner) -> SuperAdminPractitionerAccessOut:
+    actions: list[str] = []
+    metadata = parse_metadata_json(practitioner.metadata_json)
+    email = normalized_identifier(metadata.get("email") or metadata.get("accessEmail") or metadata.get("loginEmail"))
+    if not email:
+        raise HTTPException(status_code=409, detail="Practitioner has no email in metadata to create access")
+    target = db.scalar(
+        select(User).where(
+            User.clinic_id == practitioner.clinic_id,
+            func.lower(User.email) == email,
+        )
+    )
+    if not target:
+        target = User(
+            clinic_id=practitioner.clinic_id,
+            name=practitioner.name,
+            email=email,
+            password_hash=hash_password(generate_temporary_password()),
+            role=UserRole.practitioner,
+            active=True,
+            force_password_change=True,
+        )
+        db.add(target)
+        db.flush()
+        actions.append("user-created")
+    else:
+        target.name = target.name or practitioner.name
+        target.role = UserRole.practitioner
+        target.active = True
+        actions.append("user-reused")
+    temporary_password = generate_temporary_password()
+    target.password_hash = hash_password(temporary_password)
+    target.force_password_change = True
+    practitioner.user_id = target.id
+    actions.append("practitioner-linked")
+    actions.append("temporary-password-generated")
+    return SuperAdminPractitionerAccessOut(
+        practitioner_id=practitioner.id,
+        user_id=target.id,
+        user_email=target.email,
         temporary_password=temporary_password,
         actions=actions,
         force_password_change=True,
@@ -1303,6 +1454,31 @@ def superadmin_repair_clinic_access(
         clinic.id,
         {"target_user_id": result.user_id, "actions": result.actions},
         clinic_id=clinic.id,
+        request=request,
+    )
+    db.commit()
+    return result
+
+
+@app.post("/superadmin/practitioners/{practitioner_id}/create-access", response_model=SuperAdminPractitionerAccessOut)
+def superadmin_create_practitioner_access(
+    practitioner_id: str,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminPractitionerAccessOut:
+    practitioner = db.get(Practitioner, practitioner_id)
+    if not practitioner:
+        raise HTTPException(status_code=404, detail="Practitioner not found")
+    result = create_practitioner_access(db, practitioner)
+    audit_action(
+        db,
+        admin,
+        "superadmin-create-practitioner-access",
+        "practitioner",
+        practitioner.id,
+        {"target_user_id": result.user_id, "target_email": result.user_email, "actions": result.actions},
+        clinic_id=practitioner.clinic_id,
         request=request,
     )
     db.commit()

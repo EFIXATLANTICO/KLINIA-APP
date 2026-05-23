@@ -692,6 +692,7 @@ let patientConsents = loadClinicState("patient-consents", []);
 let patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
 let auditLog = loadClinicState("audit-log", []);
 let accessRecoveryRequests = loadState("access-recovery-requests", []);
+let backendAccessRecoveryRequests = [];
 let autoReminderRunning = false;
 let pendingRecurringReview = null;
 let patientProfileOpen = false;
@@ -2041,6 +2042,120 @@ function profileLoginIdentity(account, profile, practitioner = null) {
   };
 }
 
+function currentSessionAccessIdentity() {
+  const account = currentClinicAccount();
+  if (isOwner()) {
+    return {
+      label: "Direccion",
+      email: ownerEmailForAccount(account),
+      localPassword: ownerPasswordForAccount(account),
+      backendUserId: null
+    };
+  }
+  if (isStaff()) {
+    return {
+      label: "Recepcion",
+      email: account.staffEmail || "",
+      localPassword: account.staffPassword || "",
+      backendUserId: null
+    };
+  }
+  const practitioner = currentPractitioner();
+  return {
+    label: practitioner?.name || "Trabajador",
+    email: practitioner?.email || "",
+    localPassword: practitioner?.password || "",
+    backendUserId: practitioner?.userId || practitioner?.backendUserId || null
+  };
+}
+
+function updateLocalCurrentSessionPassword(nextPassword) {
+  const account = currentClinicAccount();
+  if (!account || account.key === demoClinicKey) return;
+  if (isOwner()) {
+    clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
+      item.key === activeClinicKey ? { ...item, password: nextPassword, ownerPassword: nextPassword } : item
+    )));
+    saveClinicAccounts();
+  } else if (isStaff()) {
+    clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
+      item.key === activeClinicKey ? { ...item, staffPassword: nextPassword } : item
+    )));
+    saveClinicAccounts();
+  } else if (currentSession.practitionerId) {
+    practitioners = practitioners.map((item) => (
+      item.id === currentSession.practitionerId ? { ...item, password: nextPassword } : item
+    ));
+    saveClinicState("practitioners", practitioners);
+  }
+  renderLoginProfiles();
+}
+
+function openChangePasswordDialog(options = {}) {
+  const dialog = $("#change-password-dialog");
+  const form = $("#change-password-form");
+  if (!dialog || !form) return;
+  form.reset();
+  const identity = currentSessionAccessIdentity();
+  $("#change-password-help").textContent = options.force
+    ? `Has entrado con una clave temporal como ${identity.label}. Cambiala ahora para mantener el acceso seguro.`
+    : `Cambia la clave de ${identity.label}${identity.email ? ` (${identity.email})` : ""}. No guardamos contrasenas reales en claro.`;
+  $("#change-password-error").textContent = "";
+  $("#change-password-error").classList.remove("visible");
+  dialog.showModal();
+}
+
+async function submitPasswordChange(form) {
+  const currentPassword = form.elements.currentPassword.value;
+  const newPassword = form.elements.newPassword.value;
+  const confirmPassword = form.elements.confirmPassword.value;
+  const error = $("#change-password-error");
+  error.classList.remove("visible");
+  error.textContent = "";
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    error.textContent = "Completa la clave actual y la nueva clave.";
+    error.classList.add("visible");
+    return;
+  }
+  if (newPassword.length < 8) {
+    error.textContent = "La nueva clave debe tener al menos 8 caracteres.";
+    error.classList.add("visible");
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    error.textContent = "Las dos claves nuevas no coinciden.";
+    error.classList.add("visible");
+    return;
+  }
+  const account = currentClinicAccount();
+  const hasBackend = backendTokenForAccount(account);
+  if (hasBackend) {
+    try {
+      await backendRequest("/me/password", {
+        method: "POST",
+        account,
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+      });
+    } catch (backendError) {
+      error.textContent = backendError.status === 401
+        ? "La clave actual no es correcta."
+        : `No se pudo actualizar la clave en backend: ${backendError.message}`;
+      error.classList.add("visible");
+      return;
+    }
+  } else {
+    const identity = currentSessionAccessIdentity();
+    if (identity.localPassword && currentPassword !== identity.localPassword) {
+      error.textContent = "La clave actual no es correcta.";
+      error.classList.add("visible");
+      return;
+    }
+  }
+  updateLocalCurrentSessionPassword(newPassword);
+  $("#change-password-dialog")?.close();
+  showToast("Clave actualizada correctamente.", "success");
+}
+
 async function tryBackendLogin(identifier, password, options = {}) {
   const cleanIdentifier = String(identifier || "").trim();
   if (!cleanIdentifier || !password) {
@@ -2091,6 +2206,7 @@ async function tryBackendLogin(identifier, password, options = {}) {
     enterPlatform(backendProfileForUser(me?.user), accountKey);
     if (session.force_password_change || me?.user?.force_password_change) {
       showToast("Has entrado con una clave temporal. Cambiala desde tu perfil o Configuracion cuanto antes.", "warning");
+      setTimeout(() => openChangePasswordDialog({ force: true }), 300);
     }
     return { handled: true, session, me, account: nextAccount };
   } catch (error) {
@@ -2139,6 +2255,7 @@ function apiPractitionerToUi(practitioner, previous = {}) {
     availabilityEnd: practitioner.availability_end || meta.availabilityEnd || "14:00",
     availabilityStart2: practitioner.availability_start_2 || meta.availabilityStart2 || "",
     availabilityEnd2: practitioner.availability_end_2 || meta.availabilityEnd2 || "",
+    userId: practitioner.user_id || meta.userId || "",
     active: practitioner.active !== false
   };
 }
@@ -6645,9 +6762,48 @@ function accessRecoveryLabel(request) {
 }
 
 function accessRecoveryRequestsForActiveClinic() {
-  return accessRecoveryRequests
+  const localItems = accessRecoveryRequests
     .filter((request) => request.clinicKey === activeClinicKey && request.status !== "resolved")
+    .map((request) => ({ ...request, source: "local" }));
+  const backendItems = backendAccessRecoveryRequests
+    .filter((request) => request.status !== "resolved")
+    .map((request) => ({
+      id: request.id,
+      email: request.user_email || "",
+      clinicKey: activeClinicKey,
+      clinicName: clinic.name,
+      profile: request.user_id || "backend",
+      label: "Usuario backend",
+      requestedAt: request.requested_at,
+      status: request.status,
+      source: "backend"
+    }));
+  return [...backendItems, ...localItems]
     .sort((a, b) => String(b.requestedAt || "").localeCompare(String(a.requestedAt || "")));
+}
+
+let accessRecoveryBackendSyncKey = "";
+
+function syncBackendAccessRecoveryRequests() {
+  const account = currentClinicAccount();
+  if (!backendTokenForAccount(account) || !isOwner()) {
+    backendAccessRecoveryRequests = [];
+    return;
+  }
+  const syncKey = `${account.key}:${account.backendToken || ""}`;
+  if (accessRecoveryBackendSyncKey === syncKey) {
+    return;
+  }
+  accessRecoveryBackendSyncKey = syncKey;
+  backendRequest("/access-recovery-requests", { account })
+    .then((items) => {
+      backendAccessRecoveryRequests = Array.isArray(items) ? items : [];
+      renderAccessRecoveryRequests();
+    })
+    .catch(() => {
+      backendAccessRecoveryRequests = [];
+      renderAccessRecoveryRequests();
+    });
 }
 
 function renderAccessRecoveryRequests() {
@@ -6655,22 +6811,26 @@ function renderAccessRecoveryRequests() {
   if (!list) {
     return;
   }
+  syncBackendAccessRecoveryRequests();
   const requests = accessRecoveryRequestsForActiveClinic();
   list.innerHTML = requests.length
     ? requests.map((request) => `
       <article class="compact-item action-card access-recovery-card">
         <div>
-          <strong>${escapeHtml(accessRecoveryLabel(request))}</strong>
+          <strong>${escapeHtml(accessRecoveryLabel(request))}${request.source === "backend" ? " · backend" : ""}</strong>
           <span>${escapeHtml(request.email)} - solicitado ${new Date(request.requestedAt).toLocaleString("es-ES")}</span>
         </div>
         <div class="compact-actions">
-          <button class="secondary-button compact-inline-button" type="button" data-resolve-access-request="${request.id}">Generar nueva clave</button>
-          <button class="secondary-button compact-inline-button" type="button" data-dismiss-access-request="${request.id}">Cerrar</button>
+          <button class="secondary-button compact-inline-button" type="button" ${request.source === "backend" ? `data-resolve-backend-access-request="${request.id}"` : `data-resolve-access-request="${request.id}"`}>Generar nueva clave</button>
+          ${request.source === "local" ? `<button class="secondary-button compact-inline-button" type="button" data-dismiss-access-request="${request.id}">Cerrar</button>` : ""}
         </div>
       </article>
     `).join("")
     : `<article class="compact-item"><span>Sin solicitudes de recuperacion de clave pendientes.</span></article>`;
 
+  $$("[data-resolve-backend-access-request]").forEach((button) => {
+    button.addEventListener("click", () => resolveBackendAccessRecoveryRequest(button.dataset.resolveBackendAccessRequest));
+  });
   $$("[data-resolve-access-request]").forEach((button) => {
     button.addEventListener("click", () => resolveAccessRecoveryRequest(button.dataset.resolveAccessRequest));
   });
@@ -6721,21 +6881,98 @@ async function resolveAccessRecoveryRequest(requestId) {
   );
 }
 
+async function resolveBackendAccessRecoveryRequest(requestId) {
+  const request = backendAccessRecoveryRequests.find((item) => item.id === requestId);
+  if (!request) return;
+  const confirmed = await showConfirm({
+    eyebrow: "Recuperacion de acceso",
+    title: "Generar clave temporal",
+    message: `Vas a generar una clave temporal para ${request.user_email}.`,
+    detail: "La clave actual dejara de funcionar, el usuario debera cambiarla al entrar y la accion quedara auditada.",
+    confirmLabel: "Generar clave",
+    variant: "primary"
+  });
+  if (!confirmed) return;
+  try {
+    const result = await backendRequest(`/access-recovery-requests/${encodeURIComponent(request.id)}/resolve`, {
+      method: "POST",
+      account: currentClinicAccount()
+    });
+    accessRecoveryBackendSyncKey = "";
+    backendAccessRecoveryRequests = backendAccessRecoveryRequests.map((item) => (
+      item.id === request.id ? { ...item, status: "resolved" } : item
+    ));
+    renderAccessRecoveryRequests();
+    await showNotice(
+      "Clave temporal generada",
+      `Nueva clave para ${request.user_email}: ${result.temporary_password}. Entrégala por un canal seguro.`,
+      { variant: "success" }
+    );
+  } catch (error) {
+    await showNotice("No se pudo generar la clave", error.message, { variant: "danger" });
+  }
+}
+
 async function resetPractitionerAccessKey(practitionerId) {
   const practitioner = byId(practitioners, practitionerId);
   if (!practitioner || !canManageClinic()) {
     return;
   }
   const nextKey = generateAccessKey();
+  let backendNotice = "";
+  if (backendDataEnabled() && (practitioner.backendUserId || practitioner.userId)) {
+    try {
+      const result = await backendRequest(`/users/${encodeURIComponent(practitioner.backendUserId || practitioner.userId)}/reset-password`, {
+        method: "POST",
+        account: currentClinicAccount()
+      });
+      if (result?.temporary_password) {
+        backendNotice = " Clave backend temporal generada y cambio obligatorio activado.";
+        practitioners = practitioners.map((item) => (
+          item.id === practitioner.id ? { ...item, password: result.temporary_password } : item
+        ));
+        saveClinicState("practitioners", practitioners);
+        renderLoginProfiles();
+        renderSettings();
+        await showNotice(
+          "Clave generada",
+          `Nueva clave temporal para ${practitioner.name}: ${result.temporary_password}. Entrégala de forma segura.`,
+          { variant: "success" }
+        );
+        return;
+      }
+    } catch (error) {
+      backendNotice = ` No se pudo resetear en backend: ${error.message}.`;
+    }
+  }
   practitioners = practitioners.map((item) => (
     item.id === practitioner.id ? { ...item, password: nextKey } : item
   ));
   saveClinicState("practitioners", practitioners);
+  if (backendDataEnabled() && practitioner.email && !(practitioner.backendUserId || practitioner.userId)) {
+    try {
+      const backendUser = await createBackendUserIfAvailable({
+        name: practitioner.name,
+        email: practitioner.email,
+        password: nextKey,
+        role: "practitioner",
+        active: true,
+        practitioner_id: practitioner.id
+      });
+      if (backendUser?.id) {
+        practitioners = practitioners.map((item) => item.id === practitioner.id ? { ...item, backendUserId: backendUser.id, userId: backendUser.id } : item);
+        saveClinicState("practitioners", practitioners);
+        backendNotice = " Usuario backend creado.";
+      }
+    } catch (error) {
+      backendNotice = ` No se pudo crear usuario backend: ${error.message}.`;
+    }
+  }
   renderLoginProfiles();
   renderSettings();
   await showNotice(
     "Clave generada",
-    `Nueva clave para ${practitioner.name}: ${nextKey}.${practitioner.email ? "" : " Añade un email de acceso para que pueda iniciar sesion."}`,
+    `Nueva clave para ${practitioner.name}: ${nextKey}.${practitioner.email ? "" : " Añade un email de acceso para que pueda iniciar sesion."}${backendNotice}`,
     { variant: practitioner.email ? "success" : "warning" }
   );
 }
@@ -7491,11 +7728,18 @@ function setupPublicAccessNavigation() {
       $("#access-recovery-error").classList.add("visible");
       return;
     }
-    createAccessRecoveryRequest(email);
+    const localQueued = createAccessRecoveryRequest(email);
+    await backendRequest("/auth/recovery-request", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ email })
+    }).catch(() => null);
     $("#access-recovery-dialog")?.close();
     await showNotice(
       "Solicitud enviada",
-      "Si el email existe en una clinica, direccion vera la solicitud en Configuracion > Trabajadores y podra generar una clave nueva.",
+      localQueued
+        ? "Si el email existe en una clinica, direccion vera la solicitud en Configuracion > Trabajadores y podra generar una clave nueva."
+        : "Si el email existe en backend, direccion o soporte podran revisar la solicitud y generar una clave nueva.",
       { variant: "success" }
     );
   });
@@ -7817,6 +8061,12 @@ function setupLogin() {
     applyLoginState();
     showPublicView("landing", { updateHash: true });
     showClinicLoginStep({ skipPublicView: true });
+  });
+
+  $("#change-password-button")?.addEventListener("click", () => openChangePasswordDialog());
+  $("#change-password-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitPasswordChange(event.currentTarget);
   });
 
   $("#superadmin-filter-form")?.addEventListener("submit", (event) => {
