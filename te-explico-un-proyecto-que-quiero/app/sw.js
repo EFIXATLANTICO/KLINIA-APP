@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-login-support-20260523";
+const KLINIA_CACHE = "klinia-backend-source-20260524";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260523-login-support",
-  "./app.js?v=20260523-login-support",
+  "./styles.css?v=20260524-backend-source",
+  "./app.js?v=20260524-backend-source",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -1158,6 +1158,10 @@ function backendDataEnabled(account = currentClinicAccount()) {
   return Boolean(backendTokenForAccount(account)) && account?.key !== demoClinicKey;
 }
 
+function backendAuthoritativeMode(account = currentClinicAccount()) {
+  return backendRequiredForProduction() && account?.key !== demoClinicKey;
+}
+
 function parseBackendMetadata(value) {
   if (!value) return {};
   try {
@@ -1939,8 +1943,11 @@ async function ensureBackendLoginForAccount(account, password) {
       })
     });
     saveBackendSessionForAccount(account.key, session);
-  } catch {
-    // El acceso local se mantiene aunque el backend aun no este enlazado en este navegador.
+  } catch (error) {
+    if (backendRequiredForProduction()) {
+      throw error;
+    }
+    // En desarrollo local se permite seguir probando aunque el backend no este enlazado.
   }
 }
 
@@ -2041,13 +2048,6 @@ function looksLikeEmail(value) {
 function canFallbackToLocalLogin(error, identifier) {
   if (!error) return true;
   if (!backendRequiredForProduction()) return true;
-  const hasLocalIdentity = Boolean(
-    loginPrincipalByIdentifier(identifier)
-      || clinicAccountByClinicIdentifier(identifier)
-      || clinicAccountByLogin(identifier)
-  );
-  if (error.status === 401) return hasLocalIdentity;
-  if (error.status === 422) return hasLocalIdentity;
   return false;
 }
 
@@ -2424,7 +2424,12 @@ function uiAppointmentToApi(candidate) {
 }
 
 async function savePatientToBackend(patient, previousId = "") {
-  if (!backendDataEnabled()) return patient;
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar pacientes.");
+    }
+    return patient;
+  }
   const { method, path } = backendWriteTarget("/patients", previousId);
   const saved = await backendRequest(path, {
     method,
@@ -2434,12 +2439,23 @@ async function savePatientToBackend(patient, previousId = "") {
 }
 
 async function deletePatientFromBackend(patientId) {
-  if (!backendDataEnabled() || !looksLikeBackendId(patientId)) return;
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para eliminar pacientes.");
+    }
+    return;
+  }
+  if (!looksLikeBackendId(patientId)) return;
   await backendRequest(`/patients/${encodeURIComponent(patientId)}`, { method: "DELETE" });
 }
 
 async function savePractitionerToBackend(practitioner, previousId = "") {
-  if (!backendDataEnabled()) return practitioner;
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar trabajadores.");
+    }
+    return practitioner;
+  }
   const { method, path } = backendWriteTarget("/practitioners", previousId);
   const saved = await backendRequest(path, {
     method,
@@ -2449,7 +2465,13 @@ async function savePractitionerToBackend(practitioner, previousId = "") {
 }
 
 async function deletePractitionerFromBackend(practitionerId) {
-  if (!backendDataEnabled() || !looksLikeBackendId(practitionerId)) return;
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para eliminar trabajadores.");
+    }
+    return;
+  }
+  if (!looksLikeBackendId(practitionerId)) return;
   await backendRequest(`/practitioners/${encodeURIComponent(practitionerId)}`, { method: "DELETE" });
 }
 
@@ -2484,13 +2506,29 @@ async function deleteServiceFromBackend(serviceId) {
 }
 
 async function saveAppointmentToBackend(appointment, previousId = "") {
-  if (!backendDataEnabled()) return appointment;
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar citas.");
+    }
+    return appointment;
+  }
   const { method, path } = backendWriteTarget("/appointments", previousId);
   const saved = await backendRequest(path, {
     method,
     body: JSON.stringify(uiAppointmentToApi(appointment))
   });
   return apiAppointmentToUi(saved, appointment);
+}
+
+async function deleteAppointmentFromBackend(appointmentId) {
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para eliminar citas.");
+    }
+    return;
+  }
+  if (!looksLikeBackendId(appointmentId)) return;
+  await backendRequest(`/appointments/${encodeURIComponent(appointmentId)}`, { method: "DELETE" });
 }
 
 async function uploadLocalCollectionToBackend(localItems, saveItem) {
@@ -7382,6 +7420,49 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   hydrateFromApi();
 }
 
+function clearAuthenticatedSessionForBackend(message = "") {
+  isAuthenticated = false;
+  saveState("authenticated", false);
+  saveState("authenticated-at", 0);
+  applyLoginState();
+  showPublicView("login", { updateHash: true, resetLogin: true });
+  showClinicLoginStep({ skipPublicView: true, allowSavedCredentials: false });
+  if (message) {
+    showLoginError(message, $("#login-form")?.elements?.center || null);
+  }
+}
+
+async function restoreAuthenticatedSessionOnLoad() {
+  if (!isAuthenticated) {
+    setActiveSection("agenda", false);
+    return;
+  }
+
+  const account = currentClinicAccount();
+  if (backendAuthoritativeMode(account) && !backendTokenForAccount(account)) {
+    clearAuthenticatedSessionForBackend("La sesion guardada no esta enlazada al backend. Inicia sesion de nuevo.");
+    return;
+  }
+
+  setEntrySection(true);
+
+  if (!backendAuthoritativeMode(account)) {
+    hydrateFromApi();
+    return;
+  }
+
+  try {
+    await backendRequest("/me", { account });
+    await hydrateFromApi();
+  } catch (error) {
+    if ([401, 403].includes(error.status)) {
+      clearAuthenticatedSessionForBackend("Tu sesion ha caducado. Inicia sesion de nuevo para cargar los datos reales.");
+      return;
+    }
+    showToast(`No se pudo sincronizar con backend: ${error.message}`, "warning");
+  }
+}
+
 const registerSteps = ["account", "clinic", "operations", "confirm", "success"];
 let registerCreatedAccount = null;
 let registerDraftState = {};
@@ -7892,6 +7973,10 @@ function setupLogin() {
         showProfileLoginError(backendLoginMessage(backendProfileLogin.error), form.elements.password);
         return;
       }
+    }
+    if (backendAuthoritativeMode(account)) {
+      showProfileLoginError("Este perfil debe entrar con un usuario backend valido. Revisa el acceso desde Direccion o Superadmin.", form.elements.password);
+      return;
     }
     if (!identity.password) {
       showProfileLoginError(identity.email
@@ -10849,11 +10934,6 @@ applyLoginState();
 renderSession();
 setupPwaInstall();
 setupNavigation();
-if (isAuthenticated) {
-  setEntrySection(true);
-} else {
-  setActiveSection("agenda", false);
-}
 setupLogin();
 setupDialogCloseButtons();
 setupAutoCloseOptionMenus();
@@ -10889,6 +10969,7 @@ setupPatientConsentsAndPacks();
 setupFilters();
 setupCalendarControls();
 setupPerformance();
+restoreAuthenticatedSessionOnLoad();
 renderAll();
 
 
