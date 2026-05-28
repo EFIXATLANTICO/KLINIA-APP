@@ -25,6 +25,12 @@ services:
         value: https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
       - key: FRONTEND_URL
         value: https://www.kliniasolutions.com
+      - key: SUPERADMIN_EMAIL
+        sync: false
+      - key: SUPERADMIN_PASSWORD
+        sync: false
+      - key: SUPERADMIN_NAME
+        sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET

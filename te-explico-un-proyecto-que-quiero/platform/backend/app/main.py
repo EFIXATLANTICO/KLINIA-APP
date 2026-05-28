@@ -96,6 +96,7 @@ app.state.backend_setup_status = "pending"
 app.state.backend_setup_error = None
 app.state.backend_setup_started_at = None
 app.state.backend_setup_finished_at = None
+app.state.backend_security_status = "unchecked"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -103,6 +104,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+    if settings.app_env == "production":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 MAX_PASSWORD_BYTES = 72
 LOGIN_RATE_LIMIT_WINDOW_SECONDS = 10 * 60
@@ -129,6 +142,28 @@ def run_setup_step(name: str, callback, errors: list[str]) -> None:
         setup_log("%s completed in %.2fs", name, elapsed)
 
 
+def validate_production_security_config() -> None:
+    app.state.backend_security_status = "ok"
+    if settings.app_env != "production":
+        return
+    problems: list[str] = []
+    if not settings.jwt_secret or settings.jwt_secret == "dev-change-this-before-production":
+        problems.append("JWT_SECRET is missing or still using the development default")
+    elif len(settings.jwt_secret) < 32:
+        problems.append("JWT_SECRET should be at least 32 characters")
+    if "*" in settings.cors_origin_list:
+        problems.append("CORS_ORIGINS must not contain '*' in production")
+    if settings.stripe_secret_key and not settings.stripe_webhook_secret:
+        problems.append("STRIPE_WEBHOOK_SECRET is required when Stripe is enabled")
+    if not settings.superadmin_email or not settings.superadmin_password:
+        problems.append("SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD are required for production support")
+    if problems:
+        app.state.backend_security_status = "attention"
+        for problem in problems:
+            setup_log("security attention: %s", problem)
+        raise RuntimeError("Production security configuration requires attention")
+
+
 def run_backend_setup() -> None:
     errors: list[str] = []
     app.state.backend_setup_status = "running"
@@ -139,6 +174,7 @@ def run_backend_setup() -> None:
     try:
         run_setup_step("metadata", lambda: Base.metadata.create_all(bind=engine, checkfirst=True), errors)
         run_setup_step("runtime_schema", ensure_runtime_schema, errors)
+        run_setup_step("security_config", validate_production_security_config, errors)
         run_setup_step("superadmin", ensure_initial_superadmin, errors)
     except Exception as exc:
         logger.exception("Klinia backend setup crashed unexpectedly")
@@ -170,6 +206,7 @@ def health() -> dict:
         "stripe_configured": settings.stripe_enabled,
         "backend_setup_status": app.state.backend_setup_status,
         "backend_setup_finished_at": app.state.backend_setup_finished_at,
+        "security_status": app.state.backend_security_status,
     }
 
 
