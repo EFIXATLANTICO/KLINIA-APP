@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-sale-readiness-20260528";
+const KLINIA_CACHE = "klinia-worker-commissions-20260528";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260528-sale-readiness",
-  "./app.js?v=20260528-sale-readiness",
+  "./styles.css?v=20260528-worker-commissions",
+  "./app.js?v=20260528-worker-commissions",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -2385,7 +2385,7 @@ function uiPractitionerToApi(practitioner) {
     availability_start_2: practitioner.availabilityStart2 || null,
     availability_end_2: practitioner.availabilityEnd2 || null,
     active: practitioner.active !== false,
-    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "workerType", "accessRole", "serviceCommissions", "active"])
+    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "active"])
   };
 }
 
@@ -2646,15 +2646,23 @@ async function saveClinicSettingsToBackend(nextClinic) {
     }
     return nextClinic;
   }
-  const saved = await backendRequest("/clinic/settings", {
-    method: "PATCH",
-    body: JSON.stringify({
-      name: nextClinic.name,
-      email: nextClinic.email || undefined,
-      phone: nextClinic.phone || "",
-      working_days: normalizeWorkingDays(nextClinic.workingDays)
-    })
-  });
+  let saved;
+  try {
+    saved = await backendRequest("/clinic/settings", {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: nextClinic.name,
+        email: nextClinic.email || undefined,
+        phone: nextClinic.phone || "",
+        working_days: normalizeWorkingDays(nextClinic.workingDays)
+      })
+    });
+  } catch (error) {
+    if (error.status === 404) {
+      return { ...nextClinic, backendPending: true };
+    }
+    throw error;
+  }
   return {
     ...nextClinic,
     name: saved.name || nextClinic.name,
@@ -10061,12 +10069,17 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
   if (!container) return;
   const config = practitioner.serviceCommissions || {};
   container.innerHTML = services.length
-    ? services.map((service) => {
+    ? `
+      <div class="service-commission-head" aria-hidden="true">
+        <span>Servicio</span>
+        <span>Comision</span>
+      </div>
+      ${services.map((service) => {
         const item = config[service.id] || {};
         const enabled = item.enabled === true;
         const rate = Number.isFinite(Number(item.rate)) ? Math.round(Number(item.rate) * 10000) / 100 : "";
         return `
-          <article class="service-commission-row">
+          <article class="service-commission-row ${enabled ? "selected" : ""}">
             <label class="service-commission-check">
               <input type="checkbox" data-service-enabled="${service.id}" ${enabled ? "checked" : ""} />
               <span>
@@ -10076,17 +10089,24 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
             </label>
             <label class="service-commission-rate">
               <span>Comision</span>
-              <input type="number" min="0" max="100" step="0.1" data-service-commission="${service.id}" value="${rate}" placeholder="%" />
+              <input type="text" inputmode="decimal" data-service-commission="${service.id}" value="${rate}" placeholder="General" aria-label="Comision de ${escapeHtml(service.name)}" />
             </label>
           </article>
         `;
-      }).join("")
+      }).join("")}
+    `
     : `<p class="form-help">Crea servicios antes para asignarlos al trabajador.</p>`;
+  $$("[data-service-enabled]", container).forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      checkbox.closest(".service-commission-row")?.classList.toggle("selected", checkbox.checked);
+    });
+  });
   $$("[data-service-commission]", container).forEach((input) => {
     input.addEventListener("input", () => {
       const checkbox = $(`[data-service-enabled='${input.dataset.serviceCommission}']`);
       if (checkbox && String(input.value || "").trim()) {
         checkbox.checked = true;
+        checkbox.closest(".service-commission-row")?.classList.add("selected");
       }
     });
   });
@@ -10449,7 +10469,10 @@ function setupConfiguration() {
       $("#clinic-save-status").classList.add("error");
       return;
     }
-    $("#clinic-save-status").classList.remove("error");
+    const backendPending = Boolean(clinic.backendPending);
+    clinic = { ...clinic };
+    delete clinic.backendPending;
+    $("#clinic-save-status").classList.toggle("error", backendPending);
     saveClinicState("clinic", clinic);
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
       account.key === activeClinicKey
@@ -10458,7 +10481,9 @@ function setupConfiguration() {
     )));
     saveClinicAccounts();
     renderLoginClinics();
-    $("#clinic-save-status").textContent = "Configuracion guardada. Agenda actualizada.";
+    $("#clinic-save-status").textContent = backendPending
+      ? "Configuracion guardada en este navegador y Agenda actualizada. Falta desplegar el backend nuevo para sincronizarlo entre dispositivos."
+      : "Configuracion guardada. Agenda actualizada.";
     renderFilters();
     renderAppointmentFormOptions();
     renderAll();
