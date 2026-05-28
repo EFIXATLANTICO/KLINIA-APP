@@ -594,12 +594,11 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
     existing = db.scalar(
         select(Clinic).where(
             (func.lower(Clinic.email) == email)
-            | (func.lower(Clinic.name) == payload.clinic_name.strip().lower())
             | ((func.lower(Clinic.tax_id) == payload.tax_id.strip().lower()) if payload.tax_id else (func.lower(Clinic.email) == email))
         )
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Clinic name, tax id or email already exists")
+        raise HTTPException(status_code=409, detail="Clinic tax id or email already exists")
 
     plan = plan_by_id(payload.plan)
     trial_ends_at = datetime.now(UTC) + timedelta(days=30)
@@ -1647,6 +1646,14 @@ def list_practitioners(user: User = Depends(current_subscribed_user), db: Sessio
 
 @app.post("/practitioners", response_model=PractitionerOut, status_code=status.HTTP_201_CREATED)
 def create_practitioner(payload: PractitionerCreate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Practitioner:
+    existing = db.scalar(
+        select(Practitioner).where(
+            Practitioner.clinic_id == user.clinic_id,
+            func.lower(Practitioner.name) == payload.name.strip().lower(),
+        )
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Practitioner already exists in this clinic")
     practitioner = Practitioner(clinic_id=user.clinic_id, **payload.model_dump())
     db.add(practitioner)
     db.flush()
@@ -1659,6 +1666,16 @@ def create_practitioner(payload: PractitionerCreate, user: User = Depends(requir
 @app.patch("/practitioners/{practitioner_id}", response_model=PractitionerOut)
 def update_practitioner(practitioner_id: str, payload: PractitionerUpdate, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> Practitioner:
     practitioner = clinic_item_or_404(db, Practitioner, practitioner_id, user.clinic_id)
+    if payload.name:
+        existing = db.scalar(
+            select(Practitioner).where(
+                Practitioner.clinic_id == user.clinic_id,
+                Practitioner.id != practitioner_id,
+                func.lower(Practitioner.name) == payload.name.strip().lower(),
+            )
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="Practitioner already exists in this clinic")
     apply_update(practitioner, payload)
     audit_action(db, user, "update-practitioner", "practitioner", practitioner.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()

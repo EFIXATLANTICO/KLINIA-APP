@@ -112,6 +112,7 @@ const clinicScopedCollectionKeys = new Set([
   "patient-consents",
   "patient-packs",
   "reminder-actions",
+  "manual-billing-movements",
   "audit-log"
 ]);
 
@@ -634,6 +635,9 @@ function normalizePractitioners(savedPractitioners) {
       availabilityEnd2: "",
       email: "",
       password: "",
+      workerType: "autonomo",
+      serviceCommissions: {},
+      attendanceRecords: [],
       ...practitioner
     }))
     .filter((practitioner) => {
@@ -649,7 +653,12 @@ function normalizePractitioners(savedPractitioners) {
       const isDuplicateDefault = usedColors.has(color) && color === "#168776";
       const nextColor = isDuplicateDefault ? workerColorPalette[index % workerColorPalette.length] : color;
       usedColors.add(nextColor);
-      return { ...practitioner, color: nextColor };
+      return {
+        ...practitioner,
+        color: nextColor,
+        serviceCommissions: practitioner.serviceCommissions && typeof practitioner.serviceCommissions === "object" ? practitioner.serviceCommissions : {},
+        attendanceRecords: Array.isArray(practitioner.attendanceRecords) ? practitioner.attendanceRecords : []
+      };
     });
 }
 
@@ -690,6 +699,7 @@ let sessionPacks = normalizeSessionPacks(loadClinicState("session-packs", []));
 let clinicLogo = loadClinicState("clinic-logo", "");
 let patientConsents = loadClinicState("patient-consents", []);
 let patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
+let manualBillingMovements = loadClinicState("manual-billing-movements", []);
 let auditLog = loadClinicState("audit-log", []);
 let accessRecoveryRequests = loadState("access-recovery-requests", []);
 let backendAccessRecoveryRequests = [];
@@ -703,6 +713,15 @@ const groupWorkerInvoiceLocks = new Set();
 const appointmentDragMime = "application/x-klinia-appointment";
 let draggedAppointmentId = "";
 let suppressAppointmentClickUntil = 0;
+let billingFilterState = loadState("billing-filter-state", {
+  mode: "current-month",
+  day: todayIso(),
+  month: todayIso().slice(0, 7),
+  from: monthStartIso(todayIso()),
+  to: monthEndIso(todayIso()),
+  sort: "desc",
+  page: 1
+});
 let pendingImportSnapshot = null;
 let pendingImportAnalysis = null;
 
@@ -843,7 +862,7 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   activeClinicKey = account.key;
   saveState("active-clinic-key", activeClinicKey);
 
-  const customClinic = { name: account.name, email: account.email || "", phone: account.phone || "" };
+  const customClinic = { name: account.name, email: account.email || "", phone: account.phone || "", workingDays: account.workingDays || defaultWorkingDays };
   clinic = loadClinicState("clinic", isDemoClinic() ? defaultClinic : customClinic);
   patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
   appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
@@ -861,6 +880,7 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   sessionPacks = normalizeSessionPacks(loadClinicState("session-packs", []));
   patientConsents = loadClinicState("patient-consents", []);
   patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
+  manualBillingMovements = loadClinicState("manual-billing-movements", []);
   syncPatientPackUsageFromAppointments({ persist: true });
   clinicLogo = loadClinicState("clinic-logo", "");
   reminderActions = loadClinicState("reminder-actions", []);
@@ -897,6 +917,7 @@ function persistActiveClinicScope() {
   saveClinicState("session-packs", sessionPacks);
   saveClinicState("patient-consents", patientConsents);
   saveClinicState("patient-packs", patientPacks);
+  saveClinicState("manual-billing-movements", manualBillingMovements);
   saveClinicState("reminder-actions", reminderActions);
   saveClinicState("reminder-settings", reminderSettings);
 }
@@ -1008,7 +1029,7 @@ function showProfileLoginStep(clinicKey) {
 }
 
 function deleteClinicStorage(clinicKey) {
-  ["clinic", "patients", "appointments", "clinical-notes", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions", "reminder-actions", "reminder-settings", "patient-consents", "patient-packs", "consent-templates", "session-packs", "clinic-logo"].forEach((key) => {
+  ["clinic", "patients", "appointments", "clinical-notes", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions", "reminder-actions", "reminder-settings", "patient-consents", "patient-packs", "manual-billing-movements", "consent-templates", "session-packs", "clinic-logo"].forEach((key) => {
     localStorage.removeItem(`klinia:${clinicStateKeyFor(clinicKey, key)}`);
   });
 }
@@ -2295,6 +2316,9 @@ function apiPractitionerToUi(practitioner, previous = {}) {
     availabilityStart2: practitioner.availability_start_2 || meta.availabilityStart2 || "",
     availabilityEnd2: practitioner.availability_end_2 || meta.availabilityEnd2 || "",
     userId: practitioner.user_id || meta.userId || "",
+    workerType: meta.workerType || "autonomo",
+    serviceCommissions: meta.serviceCommissions || {},
+    attendanceRecords: Array.isArray(meta.attendanceRecords) ? meta.attendanceRecords : [],
     active: practitioner.active !== false
   };
 }
@@ -2311,7 +2335,7 @@ function uiPractitionerToApi(practitioner) {
     availability_start_2: practitioner.availabilityStart2 || null,
     availability_end_2: practitioner.availabilityEnd2 || null,
     active: practitioner.active !== false,
-    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "active"])
+    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "workerType", "serviceCommissions", "attendanceRecords", "active"])
   };
 }
 
@@ -2934,13 +2958,48 @@ function paymentStatusLabel(value) {
   }[value] || "No cobrada";
 }
 
+function appointmentIsCharged(appointment) {
+  if (normalizeAppointmentStatus(appointment?.status) !== "confirmed") {
+    return false;
+  }
+  if (appointment?.patientPackId) {
+    return true;
+  }
+  return ["cash", "card"].includes(appointmentPaymentStatus(appointment));
+}
+
+function practitionerServiceConfig(practitioner) {
+  const config = practitioner?.serviceCommissions;
+  return config && typeof config === "object" && Object.keys(config).length ? config : null;
+}
+
+function practitionerCanPerformService(practitioner, serviceId) {
+  const config = practitionerServiceConfig(practitioner);
+  if (!config) {
+    return true;
+  }
+  return Boolean(config[serviceId]?.enabled);
+}
+
+function practitionerCommissionRateForService(practitioner, service) {
+  const config = practitionerServiceConfig(practitioner);
+  const serviceConfig = service?.id ? config?.[service.id] : null;
+  if (serviceConfig?.enabled) {
+    return Math.max(0, Number(serviceConfig.rate || 0));
+  }
+  if (service?.type === "group") {
+    return 0;
+  }
+  return Math.max(0, Number(practitioner?.commissionRate || 0));
+}
+
 function serviceCommissionAmount(appointment, practitioner) {
   const service = byId(services, appointment.serviceId);
   const revenue = appointmentRevenueAmount(appointment);
-  if (service?.type === "group" && Number(service.commissionPerPatient || 0) > 0) {
-    return Math.round(revenue * (Number(service.commissionPerPatient) / 100));
+  if (!appointmentIsCharged(appointment) || !practitionerCanPerformService(practitioner, appointment.serviceId)) {
+    return 0;
   }
-  return Math.round(revenue * (practitioner?.commissionRate || 0));
+  return Math.round(revenue * practitionerCommissionRateForService(practitioner, service));
 }
 
 function serviceKindLabel(service) {
@@ -3282,6 +3341,8 @@ function groupPricing(group) {
 
 function groupSessionProduction(group, dateValue = selectedDate) {
   const pricing = groupPricing(group);
+  const service = groupService(group);
+  const practitioner = byId(practitioners, group.practitionerId);
   const fixedCount = groupFixedPatients(group).length;
   const dropinCount = groupDropInsFor(group, dateValue).length;
   const attendees = fixedCount + dropinCount;
@@ -3290,7 +3351,7 @@ function groupSessionProduction(group, dateValue = selectedDate) {
   const fixedSessionRevenue = Math.round(fixedMonthlyRevenue / expectedSessionsInMonth);
   const dropinRevenue = dropinCount * pricing.dropInPrice;
   const revenue = fixedSessionRevenue + dropinRevenue;
-  const payout = Math.round(revenue * (pricing.commissionPerPatient / 100));
+  const payout = Math.round(revenue * practitionerCommissionRateForService(practitioner, service));
   return { attendees, fixedCount, dropinCount, fixedMonthlyRevenue, fixedSessionRevenue, expectedSessionsInMonth, dropinRevenue, revenue, payout };
 }
 
@@ -4609,9 +4670,14 @@ function renderGroupSessionPanel(group, dateValue) {
 
 function renderNextList() {
   const list = $("#next-list");
+  $(".day-panel")?.classList.toggle("hidden", calendarMode !== "day");
+  if (calendarMode !== "day") {
+    updateTopbarChrome();
+    return;
+  }
   list.innerHTML = "";
   updateTopbarChrome();
-  $(".day-panel h2").textContent = calendarMode === "day" ? "Citas del dia" : (calendarMode === "week" ? "Citas de la semana" : "Planificador");
+  $(".day-panel h2").textContent = "Citas del dia";
   const range = calendarRange();
   const visibleGroups = [];
   for (let cursor = range.start; cursor <= range.end; cursor = addDaysIso(cursor, 1)) {
@@ -5212,8 +5278,16 @@ function renderSettings() {
         </label>
         <div>
           <strong>${practitioner.name}</strong>
-          <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - Comision ${Number(practitioner.commissionRate * 100).toLocaleString("es-ES")}%</span>
+          <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autonomo"}</span>
+          <span>${Object.values(practitioner.serviceCommissions || {}).filter((item) => item?.enabled).length || "Sin"} servicios configurados - Comision general ${Number(practitioner.commissionRate * 100).toLocaleString("es-ES")}%</span>
           <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.password ? "Clave configurada" : "Sin clave configurada"}</span>
+          ${practitioner.workerType === "asalariado" ? `
+            <div class="attendance-actions">
+              <small>${attendanceStatusForPractitioner(practitioner)}</small>
+              <button class="secondary-button" type="button" data-clock-in="${practitioner.id}">Fichar entrada</button>
+              <button class="secondary-button" type="button" data-clock-out="${practitioner.id}">Fichar salida</button>
+            </div>
+          ` : ""}
         </div>
         <details class="item-menu">
           <summary aria-label="Opciones de ${practitioner.name}">...</summary>
@@ -5244,6 +5318,8 @@ function renderSettings() {
   $$("[data-edit-practitioner]").forEach((button) => button.addEventListener("click", () => openPractitionerEditor(button.dataset.editPractitioner)));
   $$("[data-reset-practitioner-key]").forEach((button) => button.addEventListener("click", () => resetPractitionerAccessKey(button.dataset.resetPractitionerKey)));
   $$("[data-delete-practitioner]").forEach((button) => button.addEventListener("click", () => deletePractitionerById(button.dataset.deletePractitioner)));
+  $$("[data-clock-in]").forEach((button) => button.addEventListener("click", () => clockPractitioner(button.dataset.clockIn, "in")));
+  $$("[data-clock-out]").forEach((button) => button.addEventListener("click", () => clockPractitioner(button.dataset.clockOut, "out")));
 
   $("#settings-rooms").innerHTML = rooms.length ? rooms
     .map((room) => `
@@ -5298,7 +5374,7 @@ function renderSettings() {
           <strong>${service.name}</strong>
           <span>${serviceKindLabel(service)} - ${service.duration} min - ${service.active ? "Activo" : "Inactivo"}</span>
           ${service.type === "group" ? `
-            <span>Mensual ${service.monthlyPrice || 0} EUR - Sesion suelta ${service.dropInPrice || service.price || 0} EUR - Comision ${service.commissionPerPatient || 0}%</span>
+            <span>Mensual ${service.monthlyPrice || 0} EUR - Sesion suelta ${service.dropInPrice || service.price || 0} EUR - Comision por trabajador</span>
           ` : `
             <span>Precio ${service.price || 0} EUR</span>
           `}
@@ -5406,7 +5482,7 @@ function renderServices() {
         <td>${service.duration} min</td>
         <td>
           ${service.type === "group"
-            ? `Sesion grupal - ${service.dropInPrice || service.price || 0} EUR/sesion - ${service.monthlyPrice || 0} EUR/mes - ${service.commissionPerPatient || 0}% prof.`
+            ? `Sesion grupal - ${service.dropInPrice || service.price || 0} EUR/sesion - ${service.monthlyPrice || 0} EUR/mes - comision por trabajador`
             : `${service.price || 0} EUR`}
         </td>
         <td><span class="status-pill ${service.active ? "confirmed" : "cancelled"}">${service.active ? "Activo" : "Inactivo"}</span></td>
@@ -5428,7 +5504,55 @@ function renderStats() {
     .join("");
 }
 
+function billingFilterRange() {
+  const mode = billingFilterState.mode || "current-month";
+  if (mode === "day") {
+    const day = billingFilterState.day || selectedDate || todayIso();
+    return { start: day, end: day };
+  }
+  if (mode === "month") {
+    const month = billingFilterState.month || todayIso().slice(0, 7);
+    return { start: `${month}-01`, end: monthEndIso(`${month}-01`) };
+  }
+  if (mode === "range") {
+    const start = billingFilterState.from || monthStartIso(todayIso());
+    const end = billingFilterState.to || start;
+    return start <= end ? { start, end } : { start: end, end: start };
+  }
+  const current = todayIso();
+  return { start: monthStartIso(current), end: monthEndIso(current) };
+}
+
+function billingRowDate(row) {
+  return String(row.sortKey || row.date || todayIso()).slice(0, 10);
+}
+
+function billingRowInRange(row, range) {
+  const date = billingRowDate(row);
+  return date >= range.start && date <= range.end;
+}
+
+function signedManualBillingAmount(row) {
+  return row.type === "payment" ? -Math.abs(Number(row.amount || 0)) : Math.abs(Number(row.amount || 0));
+}
+
+function updateBillingFilterControls() {
+  const mode = billingFilterState.mode || "current-month";
+  $("#billing-filter-mode").value = mode;
+  $("#billing-filter-day").value = billingFilterState.day || selectedDate || todayIso();
+  $("#billing-filter-month").value = billingFilterState.month || todayIso().slice(0, 7);
+  $("#billing-filter-from").value = billingFilterState.from || monthStartIso(todayIso());
+  $("#billing-filter-to").value = billingFilterState.to || monthEndIso(todayIso());
+  $("#billing-sort-order").value = billingFilterState.sort || "desc";
+  $$("[data-billing-filter-field]").forEach((field) => {
+    field.classList.toggle("is-hidden", field.dataset.billingFilterField !== mode);
+  });
+}
+
 function renderBilling() {
+  updateBillingFilterControls();
+  const range = billingFilterRange();
+  const billingMonth = range.start.slice(0, 7);
   const appointmentRows = appointments
     .filter((appointment) => byId(services, appointment.serviceId)?.type !== "group")
     .filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed")
@@ -5447,36 +5571,54 @@ function renderBilling() {
       appointmentId: appointment.id,
       invoiceGenerated: Boolean(appointment.invoiceGenerated)
     }));
-  const groupRows = groupBillingRows();
+  const groupRows = groupBillingRows(billingMonth);
   const packRows = patientPacks
     .filter((pack) => pack.invoice)
-    .map((pack) => ({
-      id: pack.id,
-      sortKey: pack.createdAt || todayIso(),
-      concept: `Bono - ${pack.name} (${pack.sessions} sesiones)`,
-      patient: byId(patients, pack.patientId)?.name || "Paciente no encontrado",
-      practitioner: packServiceLabel(pack),
-      status: pack.invoiceGenerated ? "confirmed" : "pending",
-      statusText: pack.invoiceGenerated ? "Facturado" : "Pendiente",
-      amount: Number(pack.price || 0)
-    }));
-  const visible = [...appointmentRows, ...groupRows, ...packRows];
+    .map((pack) => {
+      const rawDate = String(pack.invoiceGeneratedAt || pack.createdAt || "");
+      const date = /^\d{4}-\d{2}-\d{2}/.test(rawDate) ? rawDate.slice(0, 10) : todayIso();
+      return {
+        id: pack.id,
+        sortKey: `${date} 00:00`,
+        concept: `Bono - ${pack.name} (${pack.sessions} sesiones)`,
+        patient: byId(patients, pack.patientId)?.name || "Paciente no encontrado",
+        practitioner: packServiceLabel(pack),
+        status: pack.invoiceGenerated ? "confirmed" : "pending",
+        statusText: pack.invoiceGenerated ? "Facturado" : "Pendiente",
+        amount: Number(pack.price || 0)
+      };
+    });
+  const manualRows = manualBillingMovements.map((movement) => ({
+    id: movement.id,
+    sortKey: `${movement.date || todayIso()} 23:59`,
+    concept: movement.concept || (movement.type === "payment" ? "Pago manual" : "Cobro manual"),
+    patient: "-",
+    practitioner: "Movimiento manual",
+    status: movement.type === "payment" ? "cancelled" : "confirmed",
+    statusText: movement.type === "payment" ? "Pago" : "Cobro",
+    amount: signedManualBillingAmount(movement),
+    paymentText: movement.type === "payment" ? "Resta" : "Suma",
+    manual: true
+  }));
+  const allRows = [...appointmentRows, ...groupRows, ...packRows, ...manualRows].filter((row) => billingRowInRange(row, range));
   const paidAppointments = appointmentRows.filter((appointment) => appointment.status === "confirmed" && ["cash", "card"].includes(appointment.paymentStatus));
   const paid = paidAppointments
+    .filter((row) => billingRowInRange(row, range))
     .reduce((total, appointment) => total + appointment.amount, 0)
-    + groupRows.filter((row) => row.status === "completed").reduce((total, row) => total + row.amount, 0)
-    + packRows.filter((row) => row.status === "confirmed").reduce((total, row) => total + row.amount, 0);
+    + groupRows.filter((row) => row.status === "completed" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0)
+    + packRows.filter((row) => row.status === "confirmed" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0)
+    + manualRows.filter((row) => billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0);
   const pending = appointmentRows
-    .filter((appointment) => appointment.status === "confirmed" && appointment.paymentStatus === "unpaid")
+    .filter((appointment) => appointment.status === "confirmed" && appointment.paymentStatus === "unpaid" && billingRowInRange(appointment, range))
     .reduce((total, appointment) => total + appointment.amount, 0)
-    + groupRows.filter((row) => row.status === "pending").reduce((total, row) => total + row.amount, 0)
-    + packRows.filter((row) => row.status === "pending").reduce((total, row) => total + row.amount, 0);
+    + groupRows.filter((row) => row.status === "pending" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0)
+    + packRows.filter((row) => row.status === "pending" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0);
   const lost = 0;
   const cash = paidAppointments
-    .filter((appointment) => appointment.paymentStatus === "cash")
+    .filter((appointment) => appointment.paymentStatus === "cash" && billingRowInRange(appointment, range))
     .reduce((total, appointment) => total + appointment.amount, 0);
   const card = paidAppointments
-    .filter((appointment) => appointment.paymentStatus === "card")
+    .filter((appointment) => appointment.paymentStatus === "card" && billingRowInRange(appointment, range))
     .reduce((total, appointment) => total + appointment.amount, 0);
 
   $("#billing-paid").textContent = `${paid} EUR`;
@@ -5484,9 +5626,15 @@ function renderBilling() {
   $("#billing-lost").textContent = `${lost} EUR`;
   $("#billing-cash").textContent = `${cash} EUR`;
   $("#billing-card").textContent = `${card} EUR`;
-  $("#billing-table").innerHTML = visible
+  const sortedRows = allRows
     .slice()
-    .sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+    .sort((a, b) => (billingFilterState.sort === "asc" ? 1 : -1) * a.sortKey.localeCompare(b.sortKey));
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  billingFilterState.page = Math.min(Math.max(1, Number(billingFilterState.page || 1)), totalPages);
+  saveState("billing-filter-state", billingFilterState);
+  const pageRows = sortedRows.slice((billingFilterState.page - 1) * pageSize, billingFilterState.page * pageSize);
+  $("#billing-table").innerHTML = pageRows
     .map((row) => `
       <tr>
         <td>${row.concept}</td>
@@ -5498,15 +5646,26 @@ function renderBilling() {
         <td>${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}</td>
       </tr>
     `)
-    .join("");
+    .join("") || `<tr><td colspan="7">No hay movimientos para el filtro seleccionado.</td></tr>`;
+
+  $("#billing-pagination").innerHTML = `
+    <span>${sortedRows.length} movimientos · pagina ${billingFilterState.page} de ${totalPages}</span>
+    <button class="secondary-button" type="button" data-billing-page="prev" ${billingFilterState.page <= 1 ? "disabled" : ""}>Anterior</button>
+    <button class="secondary-button" type="button" data-billing-page="next" ${billingFilterState.page >= totalPages ? "disabled" : ""}>Siguiente</button>
+  `;
+  $$("[data-billing-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      billingFilterState.page += button.dataset.billingPage === "next" ? 1 : -1;
+      renderBilling();
+    });
+  });
 
   $$(".row-action").forEach((button) => {
     button.addEventListener("click", () => openAppointmentDetail(button.dataset.appointmentId));
   });
 }
 
-function groupBillingRows() {
-  const currentMonth = selectedDate.slice(0, 7);
+function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
   const monthlyRows = groups.flatMap((group) => {
     const pricing = groupPricing(group);
     if (!pricing.monthlyPrice) {
@@ -5546,7 +5705,7 @@ function groupBillingRows() {
 }
 
 function billableAppointments() {
-  return appointments.filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed");
+  return appointments.filter(appointmentIsCharged);
 }
 
 function groupCompletedSessionsForPractitioner(practitioner) {
@@ -5612,7 +5771,7 @@ function practitionerReport(practitioner) {
     averageTicket,
     payout,
     occupancy,
-    targetProgress: Math.min(100, Math.round((revenue / practitioner.target) * 100))
+    targetProgress: Number(practitioner.target) > 0 ? Math.min(100, Math.round((revenue / practitioner.target) * 100)) : 0
   };
 }
 
@@ -5635,9 +5794,8 @@ function renderPerformance() {
       <div><span>Facturacion equipo</span><strong>0 EUR</strong></div>
       <div><span>Citas facturables</span><strong>0</strong></div>
       <div><span>Mayor facturacion</span><strong>-</strong></div>
-      <div><span>Ocupacion media</span><strong>0%</strong></div>
     `;
-    $("#owner-report-table").innerHTML = `<tr><td colspan="5">Sin trabajadores en esta clinica.</td></tr>`;
+    $("#owner-report-table").innerHTML = `<tr><td colspan="4">Sin trabajadores en esta clinica.</td></tr>`;
     return;
   }
   const workerReport = practitionerReport(selectedWorker);
@@ -5645,10 +5803,6 @@ function renderPerformance() {
   const totalRevenue = allReports.reduce((total, report) => total + report.revenue, 0);
   const totalAppointments = allReports.reduce((total, report) => total + report.appointments.length + (report.groupSessions?.length || 0), 0);
   const topReport = allReports[0];
-  const averageOccupancy = allReports.length
-    ? Math.round(allReports.reduce((total, report) => total + report.occupancy, 0) / allReports.length)
-    : 0;
-
   $$("#worker-performance .permission-note").forEach((note) => note.remove());
   if (!isOwner()) {
     $("#worker-performance").insertAdjacentHTML(
@@ -5681,7 +5835,6 @@ function renderPerformance() {
   $("#worker-billing").innerHTML = `
     <article><span>Sesiones facturables</span><strong>${workerReport.appointments.length + (workerReport.groupSessions?.length || 0)}</strong></article>
     <article><span>Ticket medio</span><strong>${workerReport.averageTicket} EUR</strong></article>
-    <article><span>Ocupacion</span><strong>${workerReport.occupancy}%</strong></article>
     <article><span>Comision</span><strong>${Number(selectedWorker.commissionRate * 100).toLocaleString("es-ES")}%</strong></article>
   `;
 
@@ -5717,7 +5870,6 @@ function renderPerformance() {
     <div><span>Facturacion equipo</span><strong>${totalRevenue} EUR</strong></div>
     <div><span>Citas facturables</span><strong>${totalAppointments}</strong></div>
     <div><span>Mayor facturacion</span><strong>${topReport ? topReport.practitioner.name : "-"}</strong></div>
-    <div><span>Ocupacion media</span><strong>${averageOccupancy}%</strong></div>
   `;
 
   $("#owner-report-table").innerHTML = allReports.length
@@ -5727,14 +5879,10 @@ function renderPerformance() {
         <td>${report.appointments.length + (report.groupSessions?.length || 0)}</td>
         <td>${report.revenue} EUR</td>
         <td>${report.averageTicket} EUR</td>
-        <td>
-          ${report.occupancy}%
-          <div class="progress-track"><div class="progress-fill" style="width:${report.occupancy}%"></div></div>
-        </td>
       </tr>
     `)
     .join("")
-    : `<tr><td colspan="5">Sin trabajadores en esta clinica.</td></tr>`;
+    : `<tr><td colspan="4">Sin trabajadores en esta clinica.</td></tr>`;
 }
 
 
@@ -6048,11 +6196,13 @@ function renderAutomations() {
 
 function renderMetrics() {
   const visible = visibleAppointments();
-  const revenueAppointments = visible.filter((item) => normalizeAppointmentStatus(item.status) === "confirmed");
+  const revenueAppointments = visible.filter(appointmentIsCharged);
   const revenue = revenueAppointments.reduce((total, item) => total + appointmentRevenueAmount(item), 0);
   const occupancy = occupancyReportForRange(calendarRange());
   $("#metric-appointments").textContent = visible.length;
-  $("#metric-occupancy").textContent = `${occupancy.percent}%`;
+  if ($("#metric-occupancy")) {
+    $("#metric-occupancy").textContent = `${occupancy.percent}%`;
+  }
   if ($("#metric-occupancy-detail")) {
     $("#metric-occupancy-detail").textContent = `${Math.round(occupancy.bookedMinutes / 60)}h ocupadas / ${Math.round(occupancy.availableMinutes / 60)}h disponibles`;
   }
@@ -6308,10 +6458,27 @@ throw new Error("Stripe no devolvio URL de checkout");
   });
 
   $("#cancel-subscription")?.addEventListener("click", async () => {
+    const account = currentClinicAccount();
+    if (backendTokenForAccount(account) && account.stripeCustomerId) {
+      try {
+        const session = await backendRequest("/billing/portal-session", {
+          method: "POST",
+          account,
+          body: JSON.stringify({})
+        });
+        if (session?.url && session.demo_mode === false) {
+          window.location.href = session.url;
+          return;
+        }
+      } catch (error) {
+        $("#saas-save-status").textContent = `No se pudo abrir el portal de pagos: ${error.message}`;
+        return;
+      }
+    }
     const confirmed = await showConfirm({
       title: "Cancelar suscripcion",
-      message: "Quieres marcar esta suscripcion como cancelada en Klinia local?",
-      detail: "Si la clinica tiene Stripe conectado, tambien debera cancelarse desde el portal de pagos.",
+      message: "Quieres marcar esta prueba o suscripcion local como cancelada?",
+      detail: "Las suscripciones reales con Stripe se cancelan desde el portal de pagos. Esta accion solo afecta a cuentas sin cliente Stripe conectado.",
       confirmLabel: "Cancelar suscripcion"
     });
     if (!confirmed) return;
@@ -7779,7 +7946,37 @@ function openDemoAccess() {
   showPublicView("demo", { updateHash: true });
 }
 
+function resetDemoClinicData() {
+  deleteClinicStorage(demoClinicKey);
+  activeClinicKey = demoClinicKey;
+  saveState("active-clinic-key", demoClinicKey);
+  const seed = Date.now();
+  const startOptions = ["08:00", "09:00", "10:00", "11:00", "12:00", "16:00", "17:00"];
+  const practitionerOptions = defaultPractitioners.map((item) => item.id);
+  const randomizedAppointments = defaultAppointments.map((appointment, index) => ({
+    ...appointment,
+    id: `demo-${seed}-${index + 1}`,
+    date: addDaysIso(todayIso(), (index + seed) % 5),
+    start: startOptions[(index + seed) % startOptions.length],
+    practitionerId: practitionerOptions[(index + seed) % practitionerOptions.length],
+    paymentStatus: index % 3 === 0 ? "cash" : (index % 3 === 1 ? "card" : "unpaid"),
+    paymentMethod: index % 3 === 0 ? "cash" : (index % 3 === 1 ? "card" : "unpaid")
+  }));
+  saveClinicState("clinic", { ...defaultClinic, demoSessionStartedAt: new Date().toISOString() });
+  saveClinicState("patients", defaultPatients);
+  saveClinicState("appointments", randomizedAppointments);
+  saveClinicState("clinical-notes", defaultClinicalNotes);
+  saveClinicState("services", defaultServices);
+  saveClinicState("practitioners", defaultPractitioners);
+  saveClinicState("rooms", defaultRooms);
+  saveClinicState("groups", defaultGroups);
+  saveClinicState("availability-blocks", defaultAvailabilityBlocks);
+  saveClinicState("manual-billing-movements", []);
+  saveClinicState("patient-packs", []);
+}
+
 function enterDemoClinic() {
+  resetDemoClinicData();
   activeSection = "agenda";
   saveState("active-section", activeSection);
   enterPlatform("owner", demoClinicKey);
@@ -7818,6 +8015,12 @@ function setupPublicAccessNavigation() {
   });
   $$("[data-billing-cycle]").forEach((button) => {
     button.addEventListener("click", () => updatePublicBillingCycle(button.dataset.billingCycle));
+  });
+  $$("[data-public-screen='landing'] .faq-grid details").forEach((item) => {
+    item.addEventListener("toggle", () => {
+      const y = window.scrollY;
+      window.requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
+    });
   });
   $$("[data-help-scroll-faq]").forEach((button) => {
     button.addEventListener("click", () => $("#help-faq")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -8041,26 +8244,34 @@ function setupLogin() {
       return;
     }
     const name = form.elements.name.value.trim();
-    const key = slugifyClinicName(name);
+    const baseKey = slugifyClinicName(name);
     const clinicEmail = form.elements.clinicEmail?.value.trim() || form.elements.email?.value.trim() || "";
     const taxId = form.elements.taxId?.value.trim() || "";
     const duplicateAccount = clinicAccounts.find((account) => {
-      const sameKey = account.key === key;
-      const sameName = String(account.name || "").trim().toLowerCase() === name.toLowerCase();
+      const sameClinicEmail = clinicEmail && String(account.email || account.billingProfile?.billingEmail || "").trim().toLowerCase() === clinicEmail.toLowerCase();
+      const sameOwnerEmail = form.elements.email?.value.trim() && String(account.ownerEmail || account.email || "").trim().toLowerCase() === form.elements.email.value.trim().toLowerCase();
       const sameTaxId = taxId && String(account.billingProfile?.taxId || account.taxId || "").trim().toLowerCase() === taxId.toLowerCase();
-      return sameKey || sameName || sameTaxId;
+      return sameTaxId || sameClinicEmail || sameOwnerEmail;
     });
     if (duplicateAccount) {
       const sameTaxId = taxId && String(duplicateAccount.billingProfile?.taxId || duplicateAccount.taxId || "").trim().toLowerCase() === taxId.toLowerCase();
+      const sameEmail = clinicEmail && String(duplicateAccount.email || duplicateAccount.billingProfile?.billingEmail || "").trim().toLowerCase() === clinicEmail.toLowerCase();
       $("#register-error").textContent = sameTaxId
         ? "Ya existe una clinica con ese NIF/CIF. Revisa el dato o entra desde el selector de clinicas."
-        : "Ya existe una clinica con ese nombre. Entra desde el selector de clinicas.";
+        : sameEmail
+          ? "Ya existe una clinica con ese email. Revisa el dato o entra desde Login."
+          : "Ya existe un usuario con ese email. Usa otro email o entra desde Login.";
       $("#register-error").classList.add("visible");
       return;
+    }
+    let key = baseKey;
+    if (clinicAccounts.some((account) => account.key === key)) {
+      key = `${baseKey}-${Date.now().toString(36)}`;
     }
 
     const paymentPlan = form.elements.paymentPlan?.value || "trial";
     const clinicPhone = form.elements.clinicPhone?.value.trim() || form.elements.phone?.value.trim() || "";
+    const registerWorkingDays = $$("#register-form input[name='days']:checked").map((item) => normalizeWorkingDayKey(item.value)).filter(Boolean);
     const logoFile = form.elements.clinicLogoFile?.files?.[0] || null;
     const nextClinicLogo = logoFile ? await readFileAsDataUrl(logoFile).catch(() => "") : "";
     const billingProfile = {
@@ -8088,7 +8299,8 @@ function setupLogin() {
       trialEndsAt: addDaysIso(todayIso(), 30),
       checkoutUrl: paymentPlan === "trial" ? "" : `https://checkout.stripe.com/demo/${key}?plan=${paymentPlan}`,
       billingHistory: [],
-      billingProfile
+      billingProfile,
+      workingDays: registerWorkingDays
     };
     let backendSession = null;
     try {
@@ -8116,7 +8328,7 @@ function setupLogin() {
     } catch (error) {
       if (error.status === 409 || backendRequiredForProduction()) {
         $("#register-error").textContent = error.status === 409
-          ? "Ya existe una clinica, email o NIF/CIF en el backend. Revisa los datos o entra desde Login."
+          ? "Ya existe una clinica con ese email o NIF/CIF en el backend. Revisa los datos o entra desde Login."
           : `No se ha podido crear la clinica en el backend: ${error.message}`;
         $("#register-error").classList.add("visible");
         return;
@@ -8147,7 +8359,7 @@ function setupLogin() {
       openingStart: form.elements.openingStart?.value || "09:00",
       openingEnd: form.elements.openingEnd?.value || "20:00",
       timezone: form.elements.timezone?.value || "(GMT+01:00) Madrid",
-      workingDays: $$("#register-form input[name='days']:checked").map((item) => normalizeWorkingDayKey(item.value)).filter(Boolean)
+      workingDays: registerWorkingDays
     });
     clinicLogo = nextClinicLogo;
     saveClinicState("clinic-logo", clinicLogo);
@@ -8165,6 +8377,7 @@ function setupLogin() {
     saveClinicState("group-session-overrides", []);
     saveClinicState("reminder-actions", []);
     saveClinicState("reminder-settings", { autoWhatsapp: false });
+    saveClinicState("manual-billing-movements", []);
     loadActiveClinicData(key);
 
     renderLoginClinics();
@@ -9721,6 +9934,80 @@ function setupGroupSessionDialog() {
   });
 }
 
+function renderPractitionerServiceCommissionControls(form = $("#practitioner-form"), practitioner = {}) {
+  const container = $("#practitioner-service-commissions");
+  if (!container) return;
+  const config = practitioner.serviceCommissions || {};
+  container.innerHTML = services.length
+    ? services.map((service) => {
+        const item = config[service.id] || {};
+        const enabled = item.enabled === true;
+        const rate = Number.isFinite(Number(item.rate)) ? Math.round(Number(item.rate) * 10000) / 100 : "";
+        return `
+          <article class="service-commission-row">
+            <label>
+              <input type="checkbox" data-service-enabled="${service.id}" ${enabled ? "checked" : ""} />
+              <span>${service.name}<small>${serviceKindLabel(service)}</small></span>
+            </label>
+            <input type="number" min="0" max="100" step="0.1" data-service-commission="${service.id}" value="${rate}" placeholder="%" />
+          </article>
+        `;
+      }).join("")
+    : `<p class="form-help">Crea servicios antes para asignarlos al trabajador.</p>`;
+}
+
+function collectPractitionerServiceCommissions() {
+  const config = {};
+  $$("[data-service-enabled]").forEach((checkbox) => {
+    const serviceId = checkbox.dataset.serviceEnabled;
+    const rateInput = $(`[data-service-commission='${serviceId}']`);
+    const rateValue = parseDecimal(rateInput?.value || "", NaN);
+    if (checkbox.checked) {
+      config[serviceId] = {
+        enabled: true,
+        rate: Number.isFinite(rateValue) ? Math.max(0, Math.min(100, rateValue)) / 100 : 0
+      };
+    }
+  });
+  return config;
+}
+
+function attendanceStatusForPractitioner(practitioner) {
+  const records = Array.isArray(practitioner.attendanceRecords) ? practitioner.attendanceRecords : [];
+  const open = records.find((record) => record.date === todayIso() && record.start && !record.end);
+  return open ? `Entrada ${open.start}` : "Sin fichaje abierto";
+}
+
+async function clockPractitioner(practitionerId, action) {
+  const now = new Date();
+  const time = now.toTimeString().slice(0, 5);
+  let updatedPractitioner = null;
+  practitioners = practitioners.map((practitioner) => {
+    if (practitioner.id !== practitionerId) return practitioner;
+    const records = Array.isArray(practitioner.attendanceRecords) ? [...practitioner.attendanceRecords] : [];
+    const openIndex = records.findIndex((record) => record.date === todayIso() && record.start && !record.end);
+    if (action === "in") {
+      if (openIndex >= 0) return practitioner;
+      records.push({ id: `attendance-${Date.now()}`, date: todayIso(), start: time, end: "", createdBy: currentSessionName() });
+    } else if (openIndex >= 0) {
+      records[openIndex] = { ...records[openIndex], end: time, closedBy: currentSessionName() };
+    }
+    updatedPractitioner = { ...practitioner, attendanceRecords: records };
+    return updatedPractitioner;
+  });
+  if (updatedPractitioner && backendDataEnabled()) {
+    try {
+      const saved = await savePractitionerToBackend(updatedPractitioner, updatedPractitioner.id);
+      practitioners = practitioners.map((item) => item.id === updatedPractitioner.id ? saved : item);
+    } catch (error) {
+      showToast(`Fichaje guardado localmente, no sincronizado: ${error.message}`, "warning");
+    }
+  }
+  saveClinicState("practitioners", practitioners);
+  renderSettings();
+  showToast(action === "in" ? "Entrada registrada." : "Salida registrada.");
+}
+
 function resetPractitionerForm(form = $("#practitioner-form")) {
   form.elements.commissionRate.type = "text";
   form.elements.commissionRate.inputMode = "decimal";
@@ -9736,6 +10023,8 @@ function resetPractitionerForm(form = $("#practitioner-form")) {
   form.elements.availabilityEnd.value = "14:00";
   form.elements.availabilityStart2.value = "15:00";
   form.elements.availabilityEnd2.value = "20:00";
+  if (form.elements.workerType) form.elements.workerType.value = "autonomo";
+  renderPractitionerServiceCommissionControls(form);
   $("#practitioner-key-status").textContent = "";
 }
 
@@ -9755,6 +10044,8 @@ function openPractitionerEditor(practitionerId) {
   form.elements.availabilityEnd.value = practitioner.availabilityEnd || "20:00";
   form.elements.availabilityStart2.value = practitioner.availabilityStart2 || "";
   form.elements.availabilityEnd2.value = practitioner.availabilityEnd2 || "";
+  if (form.elements.workerType) form.elements.workerType.value = practitioner.workerType || "autonomo";
+  renderPractitionerServiceCommissionControls(form, practitioner);
   form.elements.color.value = practitioner.color || "#168776";
   form.querySelector(".modal-header h2").textContent = "Editar trabajador";
   form.querySelector('button[type="submit"]').textContent = "Guardar cambios";
@@ -9973,7 +10264,9 @@ function setupConfiguration() {
   $("#clinic-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const workingDays = $$("input[name='workingDays']:checked", form).map((input) => input.value);
+    const workingDays = $$("input[name='workingDays']:checked", form)
+      .map((input) => normalizeWorkingDayKey(input.value))
+      .filter(Boolean);
     if (!workingDays.length) {
       $("#clinic-save-status").textContent = "Selecciona al menos un dia de atencion.";
       return;
@@ -9988,7 +10281,7 @@ function setupConfiguration() {
     saveClinicState("clinic", clinic);
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
       account.key === activeClinicKey
-        ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone }
+        ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, workingDays }
         : account
     )));
     saveClinicAccounts();
@@ -10082,8 +10375,27 @@ function setupConfiguration() {
       form.elements.availabilityStart2.setCustomValidity("");
       return;
     }
+    if (form.dataset.saving === "true") {
+      return;
+    }
+    const editingPractitionerId = form.dataset.editingPractitionerId || "";
+    const normalizedName = slugifyClinicName(form.elements.name.value.trim());
+    const normalizedEmail = String(form.elements.email?.value || "").trim().toLowerCase();
+    const duplicatePractitioner = practitioners.find((item) => (
+      item.id !== editingPractitionerId
+        && (
+          slugifyClinicName(item.name) === normalizedName
+          || (normalizedEmail && String(item.email || "").trim().toLowerCase() === normalizedEmail)
+        )
+    ));
+    if (duplicatePractitioner) {
+      $("#practitioner-key-status").textContent = `Ya existe un trabajador con esos datos: ${duplicatePractitioner.name}.`;
+      return;
+    }
+    form.dataset.saving = "true";
+    form.querySelector('button[type="submit"]').disabled = true;
     const practitioner = {
-      id: form.dataset.editingPractitionerId || `worker-${Date.now()}`,
+      id: editingPractitionerId || `worker-${Date.now()}`,
       name: form.elements.name.value.trim(),
       specialty: form.elements.specialty.value.trim(),
       email: form.elements.email?.value.trim() || "",
@@ -10094,7 +10406,10 @@ function setupConfiguration() {
       availabilityStart: form.elements.availabilityStart.value,
       availabilityEnd: form.elements.availabilityEnd.value,
       availabilityStart2: form.elements.availabilityStart2.value,
-      availabilityEnd2: form.elements.availabilityEnd2.value
+      availabilityEnd2: form.elements.availabilityEnd2.value,
+      workerType: form.elements.workerType?.value || "autonomo",
+      serviceCommissions: collectPractitionerServiceCommissions(),
+      attendanceRecords: byId(practitioners, editingPractitionerId)?.attendanceRecords || []
     };
     let savedPractitioner = practitioner;
     if (backendDataEnabled()) {
@@ -10102,11 +10417,13 @@ function setupConfiguration() {
         savedPractitioner = await savePractitionerToBackend(practitioner, form.dataset.editingPractitionerId || "");
       } catch (error) {
         $("#practitioner-key-status").textContent = `No se pudo guardar el trabajador en backend: ${error.message}`;
+        form.dataset.saving = "false";
+        form.querySelector('button[type="submit"]').disabled = false;
         return;
       }
     }
-    practitioners = form.dataset.editingPractitionerId
-      ? practitioners.map((item) => item.id === form.dataset.editingPractitionerId ? savedPractitioner : item)
+    practitioners = editingPractitionerId
+      ? practitioners.map((item) => item.id === editingPractitionerId ? savedPractitioner : item)
       : [...practitioners, savedPractitioner];
     if (savedPractitioner.email && practitioner.password) {
       try {
@@ -10136,6 +10453,8 @@ function setupConfiguration() {
     renderLoginProfiles();
     renderAppointmentFormOptions();
     renderAll();
+    form.dataset.saving = "false";
+    form.querySelector('button[type="submit"]').disabled = false;
   });
 
   $("#new-room").addEventListener("click", () => {
@@ -10896,6 +11215,61 @@ function setupPerformance() {
   });
 }
 
+function setupBillingControls() {
+  const sync = () => {
+    billingFilterState = {
+      ...billingFilterState,
+      mode: $("#billing-filter-mode")?.value || "current-month",
+      day: $("#billing-filter-day")?.value || todayIso(),
+      month: $("#billing-filter-month")?.value || todayIso().slice(0, 7),
+      from: $("#billing-filter-from")?.value || monthStartIso(todayIso()),
+      to: $("#billing-filter-to")?.value || monthEndIso(todayIso()),
+      sort: $("#billing-sort-order")?.value || "desc",
+      page: 1
+    };
+    saveState("billing-filter-state", billingFilterState);
+    renderBilling();
+  };
+  ["#billing-filter-mode", "#billing-filter-day", "#billing-filter-month", "#billing-filter-from", "#billing-filter-to", "#billing-sort-order"].forEach((selector) => {
+    $(selector)?.addEventListener("change", sync);
+  });
+  $("#add-manual-billing")?.addEventListener("click", () => {
+    const form = $("#manual-billing-form");
+    form.reset();
+    form.elements.date.value = todayIso();
+    $("#manual-billing-error").classList.remove("visible");
+    $("#manual-billing-error").textContent = "";
+    $("#manual-billing-dialog").showModal();
+  });
+  $("#manual-billing-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const amount = Number(form.elements.amount.value || 0);
+    const concept = form.elements.concept.value.trim();
+    if (!form.elements.date.value || !concept || amount <= 0) {
+      $("#manual-billing-error").textContent = "Indica fecha, concepto e importe mayor que cero.";
+      $("#manual-billing-error").classList.add("visible");
+      return;
+    }
+    manualBillingMovements = [
+      ...manualBillingMovements,
+      {
+        id: `manual-billing-${Date.now()}`,
+        type: form.elements.type.value,
+        date: form.elements.date.value,
+        amount,
+        concept,
+        createdAt: new Date().toISOString(),
+        createdBy: currentSessionName()
+      }
+    ];
+    saveClinicState("manual-billing-movements", manualBillingMovements);
+    $("#manual-billing-dialog").close();
+    renderBilling();
+    showToast("Movimiento de facturacion guardado.");
+  });
+}
+
 
 function setupPwaInstall() {
   const installButton = $("#install-app");
@@ -10949,6 +11323,7 @@ setupFormErrorClearing("#session-pack-form", "#session-pack-error");
 setupFormErrorClearing("#patient-pack-form", "#patient-pack-error");
 setupFormErrorClearing("#appointment-detail-form", "#appointment-detail-error");
 setupFormErrorClearing("#group-exception-form", "#group-exception-error");
+setupFormErrorClearing("#manual-billing-form", "#manual-billing-error");
 setupSession();
 setupDialog();
 setupAppointmentDetail();
@@ -10968,6 +11343,7 @@ setupPatientTabs();
 setupPatientConsentsAndPacks();
 setupFilters();
 setupCalendarControls();
+setupBillingControls();
 setupPerformance();
 restoreAuthenticatedSessionOnLoad();
 renderAll();
