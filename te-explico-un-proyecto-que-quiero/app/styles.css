@@ -1286,7 +1286,7 @@ h2 {
   border-radius: 10px;
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin-top: 12px;
   padding: 12px;
 }
@@ -2551,27 +2551,41 @@ th {
 
 .service-commission-grid {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  grid-template-columns: 1fr;
+  max-height: 260px;
+  overflow: auto;
 }
 
 .service-commission-row {
   align-items: center;
-  background: #f8fbfa;
+  background: #fbfcfb;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 92px;
-  padding: 10px;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  padding: 8px 10px;
 }
 
-.service-commission-row label {
+.service-commission-check {
   align-items: center;
   color: var(--ink);
   display: flex;
   font-weight: 800;
   gap: 8px;
+  min-width: 0;
+}
+
+.service-commission-check input {
+  flex: 0 0 auto;
+}
+
+.service-commission-check strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-commission-row small {
@@ -2581,8 +2595,22 @@ th {
   margin-top: 3px;
 }
 
-.service-commission-row input[type="number"] {
+.service-commission-rate {
+  align-items: center;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr;
+}
+
+.service-commission-rate span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.service-commission-rate input[type="number"] {
   min-width: 0;
+  width: 100%;
 }
 
 .attendance-actions {
@@ -2613,6 +2641,27 @@ th {
 input[type="color"] {
   min-height: 44px;
   padding: 4px;
+}
+
+#practitioner-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+
+#practitioner-form {
+  overflow-x: hidden;
+}
+
+#practitioner-form .form-row {
+  flex-wrap: wrap;
+}
+
+#practitioner-form .form-row > label {
+  min-width: min(210px, 100%);
+}
+
+#practitioner-form #generate-practitioner-key {
+  align-self: end;
+  min-height: 44px;
 }
 
 .bar-chart {
@@ -4651,6 +4700,10 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 
   .billing-filters,
   .service-commission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-commission-row {
     grid-template-columns: 1fr;
   }
 }

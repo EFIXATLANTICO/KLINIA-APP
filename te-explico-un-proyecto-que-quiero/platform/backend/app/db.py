@@ -53,6 +53,7 @@ def ensure_runtime_schema() -> None:
             "stripe_price_id": "VARCHAR(120)",
             "trial_ends_at": "TIMESTAMP",
             "current_period_end": "TIMESTAMP",
+            "working_days": "VARCHAR(40) DEFAULT 'mon,tue,wed,thu,fri'",
         }
         if engine.dialect.name == "postgresql":
             connection.execute(text("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'superadmin'"))

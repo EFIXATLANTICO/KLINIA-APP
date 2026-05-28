@@ -113,6 +113,7 @@ const clinicScopedCollectionKeys = new Set([
   "patient-packs",
   "reminder-actions",
   "manual-billing-movements",
+  "attendance-records",
   "audit-log"
 ]);
 
@@ -636,6 +637,7 @@ function normalizePractitioners(savedPractitioners) {
       email: "",
       password: "",
       workerType: "autonomo",
+      accessRole: "practitioner",
       serviceCommissions: {},
       attendanceRecords: [],
       ...practitioner
@@ -656,6 +658,7 @@ function normalizePractitioners(savedPractitioners) {
       return {
         ...practitioner,
         color: nextColor,
+        accessRole: practitioner.accessRole || "practitioner",
         serviceCommissions: practitioner.serviceCommissions && typeof practitioner.serviceCommissions === "object" ? practitioner.serviceCommissions : {},
         attendanceRecords: Array.isArray(practitioner.attendanceRecords) ? practitioner.attendanceRecords : []
       };
@@ -700,6 +703,7 @@ let clinicLogo = loadClinicState("clinic-logo", "");
 let patientConsents = loadClinicState("patient-consents", []);
 let patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
 let manualBillingMovements = loadClinicState("manual-billing-movements", []);
+let attendanceRecords = loadClinicState("attendance-records", []);
 let auditLog = loadClinicState("audit-log", []);
 let accessRecoveryRequests = loadState("access-recovery-requests", []);
 let backendAccessRecoveryRequests = [];
@@ -862,8 +866,12 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   activeClinicKey = account.key;
   saveState("active-clinic-key", activeClinicKey);
 
-  const customClinic = { name: account.name, email: account.email || "", phone: account.phone || "", workingDays: account.workingDays || defaultWorkingDays };
-  clinic = loadClinicState("clinic", isDemoClinic() ? defaultClinic : customClinic);
+  const customClinic = { name: account.name, email: account.email || "", phone: account.phone || "", workingDays: normalizeWorkingDays(account.workingDays || defaultWorkingDays) };
+  const storedClinic = loadClinicState("clinic", isDemoClinic() ? defaultClinic : customClinic);
+  clinic = {
+    ...storedClinic,
+    workingDays: normalizeWorkingDays(storedClinic.workingDays || customClinic.workingDays)
+  };
   patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
   appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
   clinicalNotes = loadClinicState("clinical-notes", isDemoClinic() ? defaultClinicalNotes : []);
@@ -881,6 +889,7 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   patientConsents = loadClinicState("patient-consents", []);
   patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
   manualBillingMovements = loadClinicState("manual-billing-movements", []);
+  attendanceRecords = loadClinicState("attendance-records", []);
   syncPatientPackUsageFromAppointments({ persist: true });
   clinicLogo = loadClinicState("clinic-logo", "");
   reminderActions = loadClinicState("reminder-actions", []);
@@ -918,6 +927,7 @@ function persistActiveClinicScope() {
   saveClinicState("patient-consents", patientConsents);
   saveClinicState("patient-packs", patientPacks);
   saveClinicState("manual-billing-movements", manualBillingMovements);
+  saveClinicState("attendance-records", attendanceRecords);
   saveClinicState("reminder-actions", reminderActions);
   saveClinicState("reminder-settings", reminderSettings);
 }
@@ -950,10 +960,13 @@ function renderLoginProfiles() {
     return;
   }
   const selectedKey = pendingClinicKey || clinicAccountByClinicIdentifier(clinicInput.value)?.key || "";
+  const account = clinicAccountByKey(selectedKey);
   const loginPractitioners = normalizePractitioners(loadClinicStateFor(selectedKey, "practitioners", selectedKey === demoClinicKey ? defaultPractitioners : []));
   profileSelect.innerHTML = "";
   profileSelect.append(new Option("Direccion", "owner"));
-  profileSelect.append(new Option("Recepcion / empleado", "staff"));
+  if (account?.staffEmail) {
+    profileSelect.append(new Option("Recepcion / empleado", "staff"));
+  }
   loginPractitioners.forEach((practitioner) => profileSelect.append(new Option(practitioner.name, practitioner.id)));
 }
 
@@ -1029,7 +1042,7 @@ function showProfileLoginStep(clinicKey) {
 }
 
 function deleteClinicStorage(clinicKey) {
-  ["clinic", "patients", "appointments", "clinical-notes", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions", "reminder-actions", "reminder-settings", "patient-consents", "patient-packs", "manual-billing-movements", "consent-templates", "session-packs", "clinic-logo"].forEach((key) => {
+  ["clinic", "patients", "appointments", "clinical-notes", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions", "reminder-actions", "reminder-settings", "patient-consents", "patient-packs", "manual-billing-movements", "attendance-records", "consent-templates", "session-packs", "clinic-logo"].forEach((key) => {
     localStorage.removeItem(`klinia:${clinicStateKeyFor(clinicKey, key)}`);
   });
 }
@@ -2253,6 +2266,7 @@ async function tryBackendLogin(identifier, password, options = {}) {
       trialEndsAt: (me?.clinic?.trial_ends_at || options.account?.trialEndsAt || "").slice(0, 10) || addDaysIso(todayIso(), 30),
       backendToken: session.access_token,
       backendClinicId: session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "",
+      workingDays: normalizeWorkingDays(me?.clinic?.working_days || options.account?.workingDays),
       billingProfile: {
         ...(options.account?.billingProfile || {}),
         billingName: me?.clinic?.billing_name || me?.clinic?.name || options.account?.billingProfile?.billingName || "",
@@ -2317,6 +2331,7 @@ function apiPractitionerToUi(practitioner, previous = {}) {
     availabilityEnd2: practitioner.availability_end_2 || meta.availabilityEnd2 || "",
     userId: practitioner.user_id || meta.userId || "",
     workerType: meta.workerType || "autonomo",
+    accessRole: meta.accessRole || (meta.role === "staff" ? "staff" : "practitioner"),
     serviceCommissions: meta.serviceCommissions || {},
     attendanceRecords: Array.isArray(meta.attendanceRecords) ? meta.attendanceRecords : [],
     active: practitioner.active !== false
@@ -2335,7 +2350,7 @@ function uiPractitionerToApi(practitioner) {
     availability_start_2: practitioner.availabilityStart2 || null,
     availability_end_2: practitioner.availabilityEnd2 || null,
     active: practitioner.active !== false,
-    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "workerType", "serviceCommissions", "attendanceRecords", "active"])
+    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "workerType", "accessRole", "serviceCommissions", "active"])
   };
 }
 
@@ -2447,6 +2462,51 @@ function uiAppointmentToApi(candidate) {
   };
 }
 
+function apiManualBillingMovementToUi(item) {
+  return {
+    id: item.id,
+    type: item.type,
+    date: item.date,
+    amount: Number(item.amount_cents || 0) / 100,
+    concept: item.concept || "",
+    createdAt: item.created_at || "",
+    createdBy: item.created_by_name || ""
+  };
+}
+
+function uiManualBillingMovementToApi(item) {
+  return {
+    type: item.type,
+    date: item.date,
+    amount_cents: Math.round(Number(item.amount || 0) * 100),
+    concept: item.concept,
+    created_by_name: item.createdBy || currentSessionName()
+  };
+}
+
+function apiAttendanceRecordToUi(item) {
+  return {
+    id: item.id,
+    practitionerId: item.practitioner_id,
+    date: item.date,
+    start: isoTimeLabel(item.clock_in_at),
+    end: isoTimeLabel(item.clock_out_at),
+    clockInAt: item.clock_in_at || "",
+    clockOutAt: item.clock_out_at || "",
+    createdAt: item.created_at || "",
+    updatedAt: item.updated_at || ""
+  };
+}
+
+function isoTimeLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value).slice(11, 16);
+  }
+  return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+
 async function savePatientToBackend(patient, previousId = "") {
   if (!backendDataEnabled()) {
     if (backendAuthoritativeMode()) {
@@ -2542,6 +2602,45 @@ async function saveAppointmentToBackend(appointment, previousId = "") {
     body: JSON.stringify(uiAppointmentToApi(appointment))
   });
   return apiAppointmentToUi(saved, appointment);
+}
+
+async function saveClinicSettingsToBackend(nextClinic) {
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar configuracion.");
+    }
+    return nextClinic;
+  }
+  const saved = await backendRequest("/clinic/settings", {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: nextClinic.name,
+      email: nextClinic.email || undefined,
+      phone: nextClinic.phone || "",
+      working_days: normalizeWorkingDays(nextClinic.workingDays)
+    })
+  });
+  return {
+    ...nextClinic,
+    name: saved.name || nextClinic.name,
+    email: saved.email || nextClinic.email,
+    phone: saved.phone || nextClinic.phone,
+    workingDays: normalizeWorkingDays(saved.working_days || nextClinic.workingDays)
+  };
+}
+
+async function saveManualBillingMovementToBackend(movement) {
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar movimientos.");
+    }
+    return movement;
+  }
+  const saved = await backendRequest("/manual-billing-movements", {
+    method: "POST",
+    body: JSON.stringify(uiManualBillingMovementToApi(movement))
+  });
+  return apiManualBillingMovementToUi(saved);
 }
 
 async function deleteAppointmentFromBackend(appointmentId) {
@@ -3232,11 +3331,14 @@ function normalizeWorkingDayKey(value) {
   return registerDayKeyMap[key] || (weekDayLabels[key] ? key : "");
 }
 
-function clinicWorkingDays() {
-  const normalized = (Array.isArray(clinic?.workingDays) ? clinic.workingDays : defaultWorkingDays)
-    .map(normalizeWorkingDayKey)
-    .filter(Boolean);
+function normalizeWorkingDays(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(",");
+  const normalized = source.map(normalizeWorkingDayKey).filter(Boolean);
   return normalized.length ? [...new Set(normalized)] : [...defaultWorkingDays];
+}
+
+function clinicWorkingDays() {
+  return normalizeWorkingDays(clinic?.workingDays);
 }
 
 function clinicWorksOnDate(dateValue) {
@@ -5261,12 +5363,6 @@ function renderSettings() {
   $$("input[name='workingDays']", clinicForm).forEach((input) => {
     input.checked = workingDays.has(input.value);
   });
-  const staffForm = $("#staff-access-form");
-  if (staffForm && !staffForm.contains(document.activeElement)) {
-    const account = currentClinicAccount();
-    staffForm.elements.staffEmail.value = account.staffEmail || "";
-    staffForm.elements.staffPassword.value = account.staffPassword || "";
-  }
   renderAccessRecoveryRequests();
 
   $("#settings-practitioners").innerHTML = practitioners.length ? practitioners
@@ -5279,6 +5375,7 @@ function renderSettings() {
         <div>
           <strong>${practitioner.name}</strong>
           <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autonomo"}</span>
+          <span>${practitioner.accessRole === "staff" ? "Acceso recepcion / administracion" : "Acceso trabajador sanitario"}</span>
           <span>${Object.values(practitioner.serviceCommissions || {}).filter((item) => item?.enabled).length || "Sin"} servicios configurados - Comision general ${Number(practitioner.commissionRate * 100).toLocaleString("es-ES")}%</span>
           <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.password ? "Clave configurada" : "Sin clave configurada"}</span>
           ${practitioner.workerType === "asalariado" ? `
@@ -5544,6 +5641,10 @@ function updateBillingFilterControls() {
   $("#billing-filter-from").value = billingFilterState.from || monthStartIso(todayIso());
   $("#billing-filter-to").value = billingFilterState.to || monthEndIso(todayIso());
   $("#billing-sort-order").value = billingFilterState.sort || "desc";
+  updateBillingFilterFieldVisibility(mode);
+}
+
+function updateBillingFilterFieldVisibility(mode = $("#billing-filter-mode")?.value || "current-month") {
   $$("[data-billing-filter-field]").forEach((field) => {
     field.classList.toggle("is-hidden", field.dataset.billingFilterField !== mode);
   });
@@ -7256,14 +7357,8 @@ function renderPermissions() {
   if (!list) {
     return;
   }
-  const staffForm = $("#staff-access-form");
-  if (staffForm && !staffForm.contains(document.activeElement)) {
-    const account = currentClinicAccount();
-    staffForm.elements.staffEmail.value = account.staffEmail || "";
-    staffForm.elements.staffPassword.value = account.staffPassword || "";
-  }
   list.innerHTML = [
-    permissionRowHtml("staff", "Utilidades / recepcion", permissionSettings.staff),
+    permissionRowHtml("staff", "Recepcion / administracion", permissionSettings.staff),
     ...practitioners.map((practitioner) => permissionRowHtml(
       `practitioner:${practitioner.id}`,
       practitioner.name,
@@ -7292,68 +7387,6 @@ function renderPermissions() {
 }
 
 function setupAccessManagement() {
-  $("#generate-staff-key")?.addEventListener("click", () => {
-    const form = $("#staff-access-form");
-    if (!form) {
-      return;
-    }
-    const nextKey = generateAccessKey();
-    form.elements.staffPassword.value = nextKey;
-    $("#staff-access-status").textContent = `Clave generada: ${nextKey}. Pulsa Guardar recepcion para activarla.`;
-  });
-
-  $("#staff-access-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const staffEmail = form.elements.staffEmail.value.trim();
-    const staffPassword = form.elements.staffPassword.value;
-    if (staffEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(staffEmail)) {
-      form.elements.staffEmail.setCustomValidity("Escribe un email valido.");
-      form.reportValidity();
-      form.elements.staffEmail.setCustomValidity("");
-      return;
-    }
-    if (staffEmail && staffPassword.length < 4) {
-      form.elements.staffPassword.setCustomValidity("La contrasena debe tener al menos 4 caracteres.");
-      form.reportValidity();
-      form.elements.staffPassword.setCustomValidity("");
-      return;
-    }
-    if (!staffEmail && staffPassword) {
-      form.elements.staffEmail.setCustomValidity("Indica el email del usuario de recepcion.");
-      form.reportValidity();
-      form.elements.staffEmail.setCustomValidity("");
-      return;
-    }
-    clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
-      account.key === activeClinicKey ? { ...account, staffEmail, staffPassword: staffEmail ? staffPassword : "" } : account
-    )));
-    saveClinicAccounts();
-    let backendText = "";
-    if (staffEmail) {
-      try {
-        await createBackendUserIfAvailable({
-          name: "Recepcion",
-          email: staffEmail,
-          password: staffPassword,
-          role: "staff",
-          active: true
-        });
-        backendText = " Usuario backend creado.";
-      } catch (error) {
-        backendText = backendTokenForAccount(currentClinicAccount())
-          ? ` No se pudo crear/actualizar el usuario backend: ${error.message}.`
-          : " Sin sesion backend: acceso guardado localmente.";
-      }
-    }
-    renderLoginProfiles();
-    $("#staff-access-status").textContent = staffEmail
-      ? `Acceso de recepcion guardado para esta clinica.${backendText}`
-      : "Acceso de recepcion desactivado.";
-    renderPermissions();
-    renderSettings();
-  });
-
   $("#generate-practitioner-key")?.addEventListener("click", () => {
     const form = $("#practitioner-form");
     if (!form) {
@@ -7371,12 +7404,14 @@ async function hydrateFromApi() {
   }
 
   try {
-    let [apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments] = await Promise.all([
+    let [apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
       backendRequest("/patients"),
       backendRequest("/practitioners"),
       backendRequest("/rooms"),
       backendRequest("/services"),
-      backendRequest("/appointments")
+      backendRequest("/appointments"),
+      backendRequest("/manual-billing-movements"),
+      backendRequest("/attendance-records")
     ]);
     ({ apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = await bootstrapBackendDataIfNeeded({
       apiPatients,
@@ -7385,17 +7420,24 @@ async function hydrateFromApi() {
       apiServices,
       apiAppointments
     }));
+    if (!apiManualMovements.length && manualBillingMovements.length) {
+      apiManualMovements = await Promise.all(manualBillingMovements.map((item) => saveManualBillingMovementToBackend(item)));
+    }
     patients = apiPatients.map((patient) => apiPatientToUi(patient, byId(patients, patient.id)));
     practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
     rooms = apiRooms.map((room) => apiRoomToUi(room));
     services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
+    manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
+    attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
     selectedPatientId = patients[0]?.id || null;
     saveClinicState("patients", patients);
     saveClinicState("practitioners", practitioners);
     saveClinicState("rooms", rooms);
     saveClinicState("services", services);
     saveClinicState("appointments", appointments);
+    saveClinicState("manual-billing-movements", manualBillingMovements);
+    saveClinicState("attendance-records", attendanceRecords);
     renderAppointmentFormOptions();
     renderLoginProfiles();
     renderAll();
@@ -7972,10 +8014,41 @@ function resetDemoClinicData() {
   saveClinicState("groups", defaultGroups);
   saveClinicState("availability-blocks", defaultAvailabilityBlocks);
   saveClinicState("manual-billing-movements", []);
+  saveClinicState("attendance-records", []);
   saveClinicState("patient-packs", []);
 }
 
-function enterDemoClinic() {
+async function requestDemoSession() {
+  const clientId = loadState("demo-client-id", "");
+  try {
+    const session = await backendRequest("/demo/session", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ client_id: clientId || undefined })
+    });
+    if (session?.client_id) {
+      saveState("demo-client-id", session.client_id);
+      saveState("demo-expires-at", session.expires_at || "");
+    }
+    return session;
+  } catch (error) {
+    if (backendRequiredForProduction()) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+async function enterDemoClinic() {
+  try {
+    await requestDemoSession();
+  } catch (error) {
+    setInlineError("#demo-login-error", error.status === 429
+      ? "Has usado la demo varias veces hoy. Para seguir, crea una prueba gratuita o accede con tu clinica."
+      : `No se pudo iniciar la demo: ${error.message}`);
+    return;
+  }
+  setInlineError("#demo-login-error");
   resetDemoClinicData();
   activeSection = "agenda";
   saveState("active-section", activeSection);
@@ -8009,9 +8082,9 @@ function setupPublicAccessNavigation() {
   $$("[data-open-demo]").forEach((button) => {
     button.addEventListener("click", openDemoAccess);
   });
-  $("#demo-login-form")?.addEventListener("submit", (event) => {
+  $("#demo-login-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    enterDemoClinic();
+    await enterDemoClinic();
   });
   $$("[data-billing-cycle]").forEach((button) => {
     button.addEventListener("click", () => updatePublicBillingCycle(button.dataset.billingCycle));
@@ -8317,7 +8390,8 @@ function setupLogin() {
           billing_name: billingProfile.billingName,
           billing_email: billingProfile.billingEmail || clinicEmail,
           tax_id: taxId || undefined,
-          billing_address: billingProfile.billingAddress
+          billing_address: billingProfile.billingAddress,
+          working_days: registerWorkingDays
         })
       });
       account.backendToken = backendSession.access_token || "";
@@ -9945,11 +10019,17 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
         const rate = Number.isFinite(Number(item.rate)) ? Math.round(Number(item.rate) * 10000) / 100 : "";
         return `
           <article class="service-commission-row">
-            <label>
+            <label class="service-commission-check">
               <input type="checkbox" data-service-enabled="${service.id}" ${enabled ? "checked" : ""} />
-              <span>${service.name}<small>${serviceKindLabel(service)}</small></span>
+              <span>
+                <strong>${service.name}</strong>
+                <small>${serviceKindLabel(service)}</small>
+              </span>
             </label>
-            <input type="number" min="0" max="100" step="0.1" data-service-commission="${service.id}" value="${rate}" placeholder="%" />
+            <label class="service-commission-rate">
+              <span>Comision</span>
+              <input type="number" min="0" max="100" step="0.1" data-service-commission="${service.id}" value="${rate}" placeholder="%" />
+            </label>
           </article>
         `;
       }).join("")
@@ -9972,38 +10052,62 @@ function collectPractitionerServiceCommissions() {
   return config;
 }
 
+function attendanceRecordsForPractitioner(practitionerId) {
+  const practitioner = byId(practitioners, practitionerId);
+  const legacy = Array.isArray(practitioner?.attendanceRecords) ? practitioner.attendanceRecords : [];
+  return [
+    ...attendanceRecords.filter((record) => record.practitionerId === practitionerId),
+    ...legacy.filter((record) => !attendanceRecords.some((item) => item.id === record.id))
+  ];
+}
+
 function attendanceStatusForPractitioner(practitioner) {
-  const records = Array.isArray(practitioner.attendanceRecords) ? practitioner.attendanceRecords : [];
+  const records = attendanceRecordsForPractitioner(practitioner.id);
   const open = records.find((record) => record.date === todayIso() && record.start && !record.end);
   return open ? `Entrada ${open.start}` : "Sin fichaje abierto";
 }
 
 async function clockPractitioner(practitionerId, action) {
-  const now = new Date();
-  const time = now.toTimeString().slice(0, 5);
-  let updatedPractitioner = null;
-  practitioners = practitioners.map((practitioner) => {
-    if (practitioner.id !== practitionerId) return practitioner;
-    const records = Array.isArray(practitioner.attendanceRecords) ? [...practitioner.attendanceRecords] : [];
-    const openIndex = records.findIndex((record) => record.date === todayIso() && record.start && !record.end);
-    if (action === "in") {
-      if (openIndex >= 0) return practitioner;
-      records.push({ id: `attendance-${Date.now()}`, date: todayIso(), start: time, end: "", createdBy: currentSessionName() });
-    } else if (openIndex >= 0) {
-      records[openIndex] = { ...records[openIndex], end: time, closedBy: currentSessionName() };
-    }
-    updatedPractitioner = { ...practitioner, attendanceRecords: records };
-    return updatedPractitioner;
-  });
-  if (updatedPractitioner && backendDataEnabled()) {
+  if (backendDataEnabled()) {
     try {
-      const saved = await savePractitionerToBackend(updatedPractitioner, updatedPractitioner.id);
-      practitioners = practitioners.map((item) => item.id === updatedPractitioner.id ? saved : item);
+      const saved = await backendRequest("/attendance-records/clock", {
+        method: "POST",
+        body: JSON.stringify({ practitioner_id: practitionerId, action })
+      });
+      const record = apiAttendanceRecordToUi(saved);
+      attendanceRecords = [
+        record,
+        ...attendanceRecords.filter((item) => item.id !== record.id)
+      ];
+      saveClinicState("attendance-records", attendanceRecords);
+      renderSettings();
+      showToast(action === "in" ? "Entrada registrada." : "Salida registrada.");
+      return;
     } catch (error) {
-      showToast(`Fichaje guardado localmente, no sincronizado: ${error.message}`, "warning");
+      showToast(`No se pudo registrar fichaje en backend: ${error.message}`, "error");
+      return;
     }
   }
-  saveClinicState("practitioners", practitioners);
+  if (backendAuthoritativeMode()) {
+    showToast("Inicia sesion de nuevo para fichar con backend activo.", "error");
+    return;
+  }
+  const now = new Date();
+  const time = now.toTimeString().slice(0, 5);
+  const openIndex = attendanceRecords.findIndex((record) => record.practitionerId === practitionerId && record.date === todayIso() && record.start && !record.end);
+  if (action === "in") {
+    if (openIndex >= 0) {
+      showToast("Ya hay un fichaje abierto.", "warning");
+      return;
+    }
+    attendanceRecords = [{ id: `attendance-${Date.now()}`, practitionerId, date: todayIso(), start: time, end: "", createdBy: currentSessionName() }, ...attendanceRecords];
+  } else if (openIndex >= 0) {
+    attendanceRecords = attendanceRecords.map((record, index) => index === openIndex ? { ...record, end: time, closedBy: currentSessionName() } : record);
+  } else {
+    showToast("No hay una entrada abierta para cerrar.", "warning");
+    return;
+  }
+  saveClinicState("attendance-records", attendanceRecords);
   renderSettings();
   showToast(action === "in" ? "Entrada registrada." : "Salida registrada.");
 }
@@ -10024,6 +10128,7 @@ function resetPractitionerForm(form = $("#practitioner-form")) {
   form.elements.availabilityStart2.value = "15:00";
   form.elements.availabilityEnd2.value = "20:00";
   if (form.elements.workerType) form.elements.workerType.value = "autonomo";
+  if (form.elements.accessRole) form.elements.accessRole.value = "practitioner";
   renderPractitionerServiceCommissionControls(form);
   $("#practitioner-key-status").textContent = "";
 }
@@ -10045,6 +10150,7 @@ function openPractitionerEditor(practitionerId) {
   form.elements.availabilityStart2.value = practitioner.availabilityStart2 || "";
   form.elements.availabilityEnd2.value = practitioner.availabilityEnd2 || "";
   if (form.elements.workerType) form.elements.workerType.value = practitioner.workerType || "autonomo";
+  if (form.elements.accessRole) form.elements.accessRole.value = practitioner.accessRole || "practitioner";
   renderPractitionerServiceCommissionControls(form, practitioner);
   form.elements.color.value = practitioner.color || "#168776";
   form.querySelector(".modal-header h2").textContent = "Editar trabajador";
@@ -10261,7 +10367,7 @@ function setupUnavailabilityDialog() {
 }
 
 function setupConfiguration() {
-  $("#clinic-form").addEventListener("submit", (event) => {
+  $("#clinic-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const workingDays = $$("input[name='workingDays']:checked", form)
@@ -10271,22 +10377,31 @@ function setupConfiguration() {
       $("#clinic-save-status").textContent = "Selecciona al menos un dia de atencion.";
       return;
     }
-    clinic = {
+    const nextClinic = {
       ...clinic,
       name: form.elements.name.value.trim() || defaultClinic.name,
       email: form.elements.email?.value.trim() || "",
       phone: form.elements.phone.value.trim(),
       workingDays
     };
+    $("#clinic-save-status").textContent = "Guardando configuracion...";
+    try {
+      clinic = await saveClinicSettingsToBackend(nextClinic);
+    } catch (error) {
+      $("#clinic-save-status").textContent = `No se pudo guardar configuracion: ${error.message}`;
+      $("#clinic-save-status").classList.add("error");
+      return;
+    }
+    $("#clinic-save-status").classList.remove("error");
     saveClinicState("clinic", clinic);
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
       account.key === activeClinicKey
-        ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, workingDays }
+        ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, workingDays: clinic.workingDays }
         : account
     )));
     saveClinicAccounts();
     renderLoginClinics();
-    $("#clinic-save-status").textContent = "Clinica guardada.";
+    $("#clinic-save-status").textContent = "Configuracion guardada. Agenda actualizada.";
     renderFilters();
     renderAppointmentFormOptions();
     renderAll();
@@ -10408,6 +10523,7 @@ function setupConfiguration() {
       availabilityStart2: form.elements.availabilityStart2.value,
       availabilityEnd2: form.elements.availabilityEnd2.value,
       workerType: form.elements.workerType?.value || "autonomo",
+      accessRole: form.elements.accessRole?.value || "practitioner",
       serviceCommissions: collectPractitionerServiceCommissions(),
       attendanceRecords: byId(practitioners, editingPractitionerId)?.attendanceRecords || []
     };
@@ -10427,13 +10543,14 @@ function setupConfiguration() {
       : [...practitioners, savedPractitioner];
     if (savedPractitioner.email && practitioner.password) {
       try {
+        const accessRole = savedPractitioner.accessRole === "staff" ? "staff" : "practitioner";
         const backendUser = await createBackendUserIfAvailable({
           name: savedPractitioner.name,
           email: savedPractitioner.email,
           password: practitioner.password,
-          role: "practitioner",
+          role: accessRole,
           active: true,
-          practitioner_id: savedPractitioner.id
+          practitioner_id: accessRole === "practitioner" ? savedPractitioner.id : undefined
         });
         if (backendUser?.id) {
           practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? { ...item, backendUserId: backendUser.id } : item);
@@ -11230,9 +11347,8 @@ function setupBillingControls() {
     saveState("billing-filter-state", billingFilterState);
     renderBilling();
   };
-  ["#billing-filter-mode", "#billing-filter-day", "#billing-filter-month", "#billing-filter-from", "#billing-filter-to", "#billing-sort-order"].forEach((selector) => {
-    $(selector)?.addEventListener("change", sync);
-  });
+  $("#billing-filter-mode")?.addEventListener("change", () => updateBillingFilterFieldVisibility());
+  $("#apply-billing-filters")?.addEventListener("click", sync);
   $("#add-manual-billing")?.addEventListener("click", () => {
     const form = $("#manual-billing-form");
     form.reset();
@@ -11241,7 +11357,7 @@ function setupBillingControls() {
     $("#manual-billing-error").textContent = "";
     $("#manual-billing-dialog").showModal();
   });
-  $("#manual-billing-form")?.addEventListener("submit", (event) => {
+  $("#manual-billing-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const amount = Number(form.elements.amount.value || 0);
@@ -11251,18 +11367,23 @@ function setupBillingControls() {
       $("#manual-billing-error").classList.add("visible");
       return;
     }
-    manualBillingMovements = [
-      ...manualBillingMovements,
-      {
-        id: `manual-billing-${Date.now()}`,
-        type: form.elements.type.value,
-        date: form.elements.date.value,
-        amount,
-        concept,
-        createdAt: new Date().toISOString(),
-        createdBy: currentSessionName()
-      }
-    ];
+    let movement = {
+      id: `manual-billing-${Date.now()}`,
+      type: form.elements.type.value,
+      date: form.elements.date.value,
+      amount,
+      concept,
+      createdAt: new Date().toISOString(),
+      createdBy: currentSessionName()
+    };
+    try {
+      movement = await saveManualBillingMovementToBackend(movement);
+    } catch (error) {
+      $("#manual-billing-error").textContent = `No se pudo guardar en backend: ${error.message}`;
+      $("#manual-billing-error").classList.add("visible");
+      return;
+    }
+    manualBillingMovements = [movement, ...manualBillingMovements.filter((item) => item.id !== movement.id)];
     saveClinicState("manual-billing-movements", manualBillingMovements);
     $("#manual-billing-dialog").close();
     renderBilling();

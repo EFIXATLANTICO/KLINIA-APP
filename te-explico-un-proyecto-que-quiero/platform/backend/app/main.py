@@ -18,20 +18,41 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import Base, engine, ensure_runtime_schema, get_db
 from .deps import current_subscribed_user, current_user, require_roles, require_subscribed_roles, require_superadmin
-from .models import Appointment, AppointmentStatus, AuditLog, Clinic, Patient, Practitioner, Room, Service, User, UserRole
+from .models import (
+    Appointment,
+    AppointmentStatus,
+    AttendanceRecord,
+    AuditLog,
+    Clinic,
+    DemoAccessSession,
+    ManualBillingMovement,
+    Patient,
+    Practitioner,
+    Room,
+    Service,
+    User,
+    UserRole,
+)
 from .schemas import (
     AccessRecoveryRequestIn,
     AccessRecoveryRequestOut,
     AppointmentCreate,
     AppointmentOut,
     AppointmentUpdate,
+    AttendanceClockIn,
+    AttendanceRecordOut,
     AuditLogOut,
     BillingProfileUpdate,
     BillingSessionOut,
     BillingStatusOut,
     CheckoutSessionCreate,
     ClinicRegisterIn,
+    ClinicSettingsUpdate,
+    DemoAccessCreate,
+    DemoAccessOut,
     LoginIn,
+    ManualBillingMovementCreate,
+    ManualBillingMovementOut,
     MeOut,
     PasswordChangeIn,
     PatientCreate,
@@ -249,6 +270,14 @@ def user_access_status(user: User, last_access_at: datetime | None = None, last_
     if last_failed_login_at and (not last_access_at or last_failed_login_at > last_access_at):
         return "recent_failed_login"
     return "ok"
+
+
+def normalized_working_days(days: list[str] | None) -> str:
+    allowed = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    if not days:
+        return "mon,tue,wed,thu,fri"
+    cleaned = [day for day in allowed if day in set(days)]
+    return ",".join(cleaned or allowed[:5])
 
 
 def request_ip(request: Request | None) -> str | None:
@@ -614,6 +643,7 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
         subscription_status="trialing",
         stripe_price_id=plan.get("price_id"),
         trial_ends_at=trial_ends_at,
+        working_days=normalized_working_days(payload.working_days),
     )
     db.add(clinic)
     db.flush()
@@ -1566,6 +1596,33 @@ def billing_status(user: User = Depends(current_user)) -> BillingStatusOut:
     return billing_status_for_clinic(user.clinic)
 
 
+@app.patch("/clinic/settings", response_model=ClinicOut)
+def update_clinic_settings(
+    payload: ClinicSettingsUpdate,
+    user: User = Depends(require_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> Clinic:
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"]:
+        user.clinic.name = data["name"].strip()
+        user.clinic.billing_name = user.clinic.billing_name or user.clinic.name
+    if "email" in data and data["email"]:
+        email = str(data["email"]).lower()
+        existing = db.scalar(select(Clinic).where(func.lower(Clinic.email) == email, Clinic.id != user.clinic_id))
+        if existing:
+            raise HTTPException(status_code=409, detail="Clinic email already exists")
+        user.clinic.email = email
+        user.clinic.billing_email = user.clinic.billing_email or email
+    if "phone" in data:
+        user.clinic.phone = data["phone"]
+    if "working_days" in data:
+        user.clinic.working_days = normalized_working_days(data["working_days"])
+    audit_action(db, user, "update-clinic-settings", "clinic", user.clinic_id, {"fields": sorted(data.keys())})
+    db.commit()
+    db.refresh(user.clinic)
+    return user.clinic
+
+
 @app.patch("/billing/profile", response_model=BillingStatusOut)
 def update_billing_profile(payload: BillingProfileUpdate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> BillingStatusOut:
     apply_update(user.clinic, payload)
@@ -1603,6 +1660,45 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dic
         raise HTTPException(status_code=400, detail="Invalid JSON payload") from exc
     handle_stripe_event(db, event)
     return {"received": True}
+
+
+@app.post("/demo/session", response_model=DemoAccessOut)
+def start_demo_session(payload: DemoAccessCreate, request: Request, db: Session = Depends(get_db)) -> DemoAccessOut:
+    now = datetime.now(UTC)
+    client_id = (payload.client_id or "").strip()[:80] or secrets.token_urlsafe(24)
+    item = db.scalar(select(DemoAccessSession).where(DemoAccessSession.client_id == client_id))
+    max_sessions = 5
+    window_start = now - timedelta(hours=24)
+    if not item:
+        item = DemoAccessSession(
+            client_id=client_id,
+            first_seen_at=now,
+            last_started_at=now,
+            expires_at=now + timedelta(minutes=45),
+            sessions_started=1,
+        )
+        db.add(item)
+    else:
+        first_seen = item.first_seen_at.replace(tzinfo=UTC) if item.first_seen_at and item.first_seen_at.tzinfo is None else item.first_seen_at
+        if not first_seen or first_seen < window_start:
+            item.first_seen_at = now
+            item.sessions_started = 0
+        if item.sessions_started >= max_sessions:
+            audit_action(db, None, "demo-access-blocked", "demo", item.id, {"client_id": client_id}, result="blocked", request=request)
+            db.commit()
+            raise HTTPException(status_code=429, detail="Demo limit reached for this browser today")
+        item.sessions_started += 1
+        item.last_started_at = now
+        item.expires_at = now + timedelta(minutes=45)
+    audit_action(db, None, "demo-session-start", "demo", item.id, {"client_id": client_id}, request=request)
+    db.commit()
+    db.refresh(item)
+    return DemoAccessOut(
+        client_id=item.client_id,
+        expires_at=item.expires_at or (now + timedelta(minutes=45)),
+        sessions_used=item.sessions_started,
+        max_sessions_per_day=max_sessions,
+    )
 
 
 @app.get("/patients", response_model=list[PatientOut])
@@ -1691,6 +1787,68 @@ def delete_practitioner(practitioner_id: str, user: User = Depends(require_subsc
     db.commit()
 
 
+@app.get("/attendance-records", response_model=list[AttendanceRecordOut])
+def list_attendance_records(
+    practitioner_id: str | None = None,
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[AttendanceRecord]:
+    query = select(AttendanceRecord).where(AttendanceRecord.clinic_id == user.clinic_id)
+    if user.role == UserRole.practitioner:
+        if not user.practitioner:
+            return []
+        query = query.where(AttendanceRecord.practitioner_id == user.practitioner.id)
+    elif practitioner_id:
+        clinic_item_or_404(db, Practitioner, practitioner_id, user.clinic_id)
+        query = query.where(AttendanceRecord.practitioner_id == practitioner_id)
+    return list(db.scalars(query.order_by(AttendanceRecord.date.desc(), AttendanceRecord.updated_at.desc()).limit(500)))
+
+
+@app.post("/attendance-records/clock", response_model=AttendanceRecordOut)
+def clock_attendance(
+    payload: AttendanceClockIn,
+    user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)),
+    db: Session = Depends(get_db),
+) -> AttendanceRecord:
+    practitioner = clinic_item_or_404(db, Practitioner, payload.practitioner_id, user.clinic_id)
+    if user.role == UserRole.practitioner:
+        if not user.practitioner or user.practitioner.id != practitioner.id:
+            raise HTTPException(status_code=403, detail="Practitioners can only clock their own attendance")
+    now = datetime.now(UTC)
+    today = now.date().isoformat()
+    record = db.scalar(
+        select(AttendanceRecord).where(
+            AttendanceRecord.clinic_id == user.clinic_id,
+            AttendanceRecord.practitioner_id == practitioner.id,
+            AttendanceRecord.date == today,
+        )
+    )
+    if payload.action == "in":
+        if record and record.clock_in_at and not record.clock_out_at:
+            raise HTTPException(status_code=409, detail="Attendance is already open")
+        if not record:
+            record = AttendanceRecord(
+                clinic_id=user.clinic_id,
+                practitioner_id=practitioner.id,
+                user_id=user.id,
+                date=today,
+            )
+            db.add(record)
+        record.clock_in_at = now
+        record.clock_out_at = None
+    else:
+        if not record or not record.clock_in_at:
+            raise HTTPException(status_code=409, detail="No open attendance to close")
+        if record.clock_out_at:
+            raise HTTPException(status_code=409, detail="Attendance is already closed")
+        record.clock_out_at = now
+    db.flush()
+    audit_action(db, user, f"attendance-clock-{payload.action}", "attendance", record.id, {"practitioner_id": practitioner.id})
+    db.commit()
+    db.refresh(record)
+    return record
+
+
 @app.get("/rooms", response_model=list[RoomOut])
 def list_rooms(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Room]:
     return list(db.scalars(select(Room).where(Room.clinic_id == user.clinic_id).order_by(Room.name)))
@@ -1756,6 +1914,57 @@ def delete_service(service_id: str, user: User = Depends(require_subscribed_role
     service = clinic_item_or_404(db, Service, service_id, user.clinic_id)
     audit_action(db, user, "delete-service", "service", service.id)
     db.delete(service)
+    db.commit()
+
+
+@app.get("/manual-billing-movements", response_model=list[ManualBillingMovementOut])
+def list_manual_billing_movements(
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[ManualBillingMovement]:
+    return list(
+        db.scalars(
+            select(ManualBillingMovement)
+            .where(ManualBillingMovement.clinic_id == user.clinic_id)
+            .order_by(ManualBillingMovement.date.desc(), ManualBillingMovement.created_at.desc())
+            .limit(1000)
+        )
+    )
+
+
+@app.post("/manual-billing-movements", response_model=ManualBillingMovementOut, status_code=status.HTTP_201_CREATED)
+def create_manual_billing_movement(
+    payload: ManualBillingMovementCreate,
+    user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)),
+    db: Session = Depends(get_db),
+) -> ManualBillingMovement:
+    movement = ManualBillingMovement(
+        clinic_id=user.clinic_id,
+        user_id=user.id,
+        type=payload.type,
+        date=payload.date,
+        amount_cents=payload.amount_cents,
+        concept=payload.concept.strip(),
+        created_by_name=payload.created_by_name or user.name,
+        metadata_json=payload.metadata_json,
+    )
+    db.add(movement)
+    db.flush()
+    audit_action(db, user, "create-manual-billing-movement", "manual-billing-movement", movement.id, {"type": movement.type, "amount_cents": movement.amount_cents})
+    db.commit()
+    db.refresh(movement)
+    return movement
+
+
+@app.delete("/manual-billing-movements/{movement_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_manual_billing_movement(
+    movement_id: str,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> None:
+    movement = clinic_item_or_404(db, ManualBillingMovement, movement_id, user.clinic_id)
+    audit_action(db, user, "delete-manual-billing-movement", "manual-billing-movement", movement.id)
+    db.delete(movement)
     db.commit()
 
 

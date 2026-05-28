@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from .models import AppointmentStatus, UserRole
 
@@ -25,6 +25,7 @@ class ClinicRegisterIn(BaseModel):
     billing_email: EmailStr | None = None
     tax_id: str | None = None
     billing_address: str | None = None
+    working_days: list[str] | None = None
 
 
 class LoginIn(BaseModel):
@@ -69,8 +70,32 @@ class ClinicOut(BaseModel):
     subscription_status: str = "trialing"
     current_period_end: datetime | None = None
     trial_ends_at: datetime | None = None
+    working_days: str | None = "mon,tue,wed,thu,fri"
 
     model_config = {"from_attributes": True}
+
+
+class ClinicSettingsUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=180)
+    email: EmailStr | None = None
+    phone: str | None = None
+    working_days: list[str] | None = None
+
+    @field_validator("working_days")
+    @classmethod
+    def validate_working_days(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        allowed = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+        cleaned = []
+        for item in value:
+            if item not in allowed:
+                raise ValueError("Invalid working day")
+            if item not in cleaned:
+                cleaned.append(item)
+        if not cleaned:
+            raise ValueError("At least one working day is required")
+        return cleaned
 
 
 class UserOut(BaseModel):
@@ -423,3 +448,55 @@ class AppointmentOut(AppointmentBase):
     id: str
 
     model_config = {"from_attributes": True}
+
+
+class ManualBillingMovementBase(BaseModel):
+    type: str = Field(pattern="^(charge|payment)$")
+    date: str = Field(min_length=10, max_length=10)
+    amount_cents: int = Field(gt=0)
+    concept: str = Field(min_length=1, max_length=240)
+    created_by_name: str | None = Field(default=None, max_length=160)
+    metadata_json: str | None = None
+
+
+class ManualBillingMovementCreate(ManualBillingMovementBase):
+    pass
+
+
+class ManualBillingMovementOut(ManualBillingMovementBase):
+    id: str
+    user_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AttendanceRecordOut(BaseModel):
+    id: str
+    practitioner_id: str
+    user_id: str | None = None
+    date: str
+    clock_in_at: datetime | None = None
+    clock_out_at: datetime | None = None
+    metadata_json: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AttendanceClockIn(BaseModel):
+    practitioner_id: str
+    action: str = Field(pattern="^(in|out)$")
+
+
+class DemoAccessCreate(BaseModel):
+    client_id: str | None = Field(default=None, max_length=80)
+
+
+class DemoAccessOut(BaseModel):
+    client_id: str
+    expires_at: datetime
+    sessions_used: int
+    max_sessions_per_day: int

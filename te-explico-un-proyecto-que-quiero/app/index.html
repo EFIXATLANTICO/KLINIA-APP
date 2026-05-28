@@ -15,7 +15,7 @@
       body.login-mode .app-shell { display: none !important; }
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
-    <link rel="stylesheet" href="./styles.css?v=20260528-functional-billing-workers" />
+    <link rel="stylesheet" href="./styles.css?v=20260528-config-workers-backend-ledger" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -256,6 +256,7 @@
                 <strong>demo</strong>
               </div>
               <p class="form-help">Este acceso abre solo la clinica demo. Para entrar a una clinica real usa el boton Entrar.</p>
+              <p class="form-error" id="demo-login-error" role="alert"></p>
               <button class="primary-button login-submit" type="submit">Entrar en demo</button>
               <button class="secondary-button" type="button" data-public-view-target="login">Ir al acceso real</button>
             </form>
@@ -835,6 +836,7 @@
                 <option value="asc">Mas antiguos</option>
               </select>
             </label>
+            <button class="primary-button" type="button" id="apply-billing-filters">Aplicar filtros</button>
           </div>
           <div class="billing-board">
             <article>
@@ -1124,6 +1126,7 @@
                   <label><input type="checkbox" name="workingDays" value="sat" /> Sab</label>
                   <label><input type="checkbox" name="workingDays" value="sun" /> Dom</label>
                 </fieldset>
+                <button class="primary-button" type="submit">Guardar configuracion</button>
                 <button class="danger-button" type="button" id="delete-clinic">Resetear datos de esta clinica</button>
                 <p class="save-status" id="clinic-save-status"></p>
               </form>
@@ -1133,28 +1136,10 @@
               <div class="section-header">
                 <div>
                   <h2>Trabajadores y accesos</h2>
-                  <p>Genera claves para recepcion y trabajadores desde un unico lugar.</p>
+                  <p>Recepcion se registra como un trabajador mas, con su propio perfil de acceso.</p>
                 </div>
                 <button class="secondary-button" type="button" id="new-practitioner">Nuevo trabajador</button>
               </div>
-              <form class="settings-form worker-access-form" id="staff-access-form">
-                <div class="form-row">
-                  <label>
-                    Email de recepcion
-                    <input name="staffEmail" type="email" autocomplete="username" placeholder="recepcion@clinica.com" />
-                  </label>
-                  <label>
-                    Clave de recepcion
-                    <input name="staffPassword" type="password" autocomplete="new-password" minlength="4" placeholder="Clave propia de recepcion" />
-                  </label>
-                </div>
-                <div class="compact-actions">
-                  <button class="secondary-button" type="button" id="generate-staff-key">Generar clave</button>
-                  <button class="primary-button" type="submit">Guardar recepcion</button>
-                </div>
-                <p class="form-help">Recepcion usara este email y clave desde la pantalla de entrada. Sus permisos se ajustan en Permisos.</p>
-                <p class="save-status" id="staff-access-status"></p>
-              </form>
               <div class="compact-list access-recovery-list" id="access-recovery-requests"></div>
               <div class="compact-list" id="settings-practitioners"></div>
             </article>
@@ -1955,9 +1940,18 @@
             </select>
           </label>
           <label>
+            Perfil de acceso
+            <select name="accessRole">
+              <option value="practitioner">Trabajador sanitario</option>
+              <option value="staff">Recepcion / administracion</option>
+            </select>
+          </label>
+          <label>
             Comision %
             <input name="commissionRate" type="text" inputmode="decimal" value="40" placeholder="30,5" />
           </label>
+        </div>
+        <div class="form-row">
           <label>
             Objetivo mensual EUR
             <input name="target" type="number" min="0" value="2500" />
@@ -2470,7 +2464,7 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260528-functional-billing-workers"></script>
+    <script src="./app.js?v=20260528-config-workers-backend-ledger"></script>
   </body>
 </html>
 

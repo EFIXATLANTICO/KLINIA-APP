@@ -54,6 +54,7 @@ class Clinic(TimestampMixin, Base):
     stripe_price_id: Mapped[str | None] = mapped_column(String(120))
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    working_days: Mapped[str] = mapped_column(String(40), default="mon,tue,wed,thu,fri")
 
     users: Mapped[list["User"]] = relationship(back_populates="clinic")
 
@@ -155,6 +156,45 @@ class Appointment(TimestampMixin, Base):
     status: Mapped[AppointmentStatus] = mapped_column(Enum(AppointmentStatus), default=AppointmentStatus.confirmed)
     internal_notes: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str | None] = mapped_column(Text)
+
+
+class ManualBillingMovement(TimestampMixin, Base):
+    __tablename__ = "manual_billing_movements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
+    date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    concept: Mapped[str] = mapped_column(String(240), nullable=False)
+    created_by_name: Mapped[str | None] = mapped_column(String(160))
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+
+
+class AttendanceRecord(TimestampMixin, Base):
+    __tablename__ = "attendance_records"
+    __table_args__ = (UniqueConstraint("clinic_id", "practitioner_id", "date", name="uq_attendance_practitioner_date"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    practitioner_id: Mapped[str] = mapped_column(ForeignKey("practitioners.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    clock_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    clock_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+
+
+class DemoAccessSession(TimestampMixin, Base):
+    __tablename__ = "demo_access_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    client_id: Mapped[str] = mapped_column(String(80), unique=True, index=True, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sessions_started: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class AuditLog(Base):
