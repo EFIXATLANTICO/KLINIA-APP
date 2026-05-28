@@ -17,7 +17,7 @@ class TokenOut(BaseModel):
 class ClinicRegisterIn(BaseModel):
     clinic_name: str = Field(min_length=2, max_length=180)
     email: EmailStr
-    password: str = Field(min_length=4)
+    password: str = Field(min_length=8, max_length=160)
     phone: str | None = None
     owner_name: str = Field(min_length=2, max_length=160)
     plan: str = "trial"
@@ -119,7 +119,7 @@ class MeOut(BaseModel):
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     email: EmailStr
-    password: str = Field(min_length=4)
+    password: str = Field(min_length=8, max_length=160)
     role: UserRole = UserRole.staff
     active: bool = True
     practitioner_id: str | None = None
@@ -128,7 +128,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     email: EmailStr | None = None
-    password: str | None = Field(default=None, min_length=4)
+    password: str | None = Field(default=None, min_length=8, max_length=160)
     role: UserRole | None = None
     active: bool | None = None
     practitioner_id: str | None = None

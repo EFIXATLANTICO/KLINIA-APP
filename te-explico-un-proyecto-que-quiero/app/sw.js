@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-config-workers-backend-ledger-20260528";
+const KLINIA_CACHE = "klinia-security-hardening-20260528";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260528-config-workers-backend-ledger",
-  "./app.js?v=20260528-config-workers-backend-ledger",
+  "./styles.css?v=20260528-security-hardening",
+  "./app.js?v=20260528-security-hardening",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

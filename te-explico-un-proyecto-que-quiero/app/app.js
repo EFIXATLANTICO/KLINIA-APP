@@ -1115,10 +1115,19 @@ async function backendRequest(path, options = {}) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const response = await fetch(`${backendApiBaseUrl()}${path}`, {
-    ...options,
-    headers
-  });
+  let response;
+  try {
+    response = await fetch(`${backendApiBaseUrl()}${path}`, {
+      ...options,
+      headers
+    });
+  } catch (fetchError) {
+    const error = new Error("No se puede conectar con la API de Klinia. Revisa la conexion, actualiza la pagina y confirma que el backend esta desplegado.");
+    error.status = 0;
+    error.network = true;
+    error.cause = fetchError;
+    throw error;
+  }
   const text = await response.text();
   let payload = null;
   if (text) {
@@ -1265,7 +1274,8 @@ let superadminData = {
   audit: [],
   accessIssues: [],
   plans: [],
-  health: null
+  health: null,
+  loadErrors: []
 };
 
 function superadminStatusClass(value) {
@@ -1658,8 +1668,9 @@ function renderSuperadminPreparedPanels() {
   `;
   $("#superadmin-communications-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Comunicaciones</h2><span>Modulo preparado</span></div><p>Preparado para campanas, emails transaccionales, aperturas e historico cuando se conecte proveedor de email.</p></section>`;
   $("#superadmin-reports-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Informe operativo</h2><span>Datos backend</span></div><dl class="superadmin-definition-list"><dt>Clinicas</dt><dd>${superadminData.backendClinics.length}</dd><dt>Usuarios</dt><dd>${superadminData.users.length}</dd><dt>Eventos auditoria</dt><dd>${superadminData.audit.length}</dd></dl></section>`;
-  $("#superadmin-settings-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Seguridad</h2><span>Produccion</span></div><p>Superadmin protegido por rol backend. Queda pendiente MFA, rotacion de sesiones e impersonacion auditada.</p></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>API y webhooks</h2><span>Configurado</span></div><p>Stripe webhook y API publica se supervisan desde backend. No se exponen secretos en UI.</p></section>`;
-  $("#superadmin-system-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Estado del sistema</h2><span>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</span></div><dl class="superadmin-definition-list"><dt>App</dt><dd>${escapeHtml(superadminData.health?.app || "Klinia")}</dd><dt>Entorno</dt><dd>${escapeHtml(superadminData.health?.env || "-")}</dd><dt>Stripe</dt><dd>${superadminData.health?.stripe_configured ? "Configurado" : "No configurado"}</dd><dt>Setup</dt><dd>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</dd></dl></section>`;
+  $("#superadmin-settings-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Seguridad</h2><span>Produccion</span></div><p>Superadmin protegido por rol backend, claves hasheadas, claves temporales con cambio obligatorio y freno de intentos de login activo. Pendiente MFA para elevar el nivel.</p></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>API y webhooks</h2><span>Configurado</span></div><p>Stripe webhook y API publica se supervisan desde backend. No se exponen secretos en UI.</p></section>`;
+  const loadErrors = superadminData.loadErrors || [];
+  $("#superadmin-system-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Estado del sistema</h2><span>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</span></div><dl class="superadmin-definition-list"><dt>App</dt><dd>${escapeHtml(superadminData.health?.app || "Klinia")}</dd><dt>Entorno</dt><dd>${escapeHtml(superadminData.health?.env || "-")}</dd><dt>Stripe</dt><dd>${superadminData.health?.stripe_configured ? "Configurado" : "No configurado"}</dd><dt>Setup</dt><dd>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</dd><dt>Carga del panel</dt><dd>${loadErrors.length ? escapeHtml(`${loadErrors.length} aviso(s)`) : "Completa"}</dd></dl>${loadErrors.length ? `<p class="superadmin-sync-note">${escapeHtml(loadErrors.join(" | "))}</p>` : ""}</section>`;
 }
 
 function renderSuperadminViews() {
@@ -1908,24 +1919,39 @@ async function loadSuperadminPanel() {
   if (dateTo) params.set("date_to", `${dateTo}T23:59:59`);
 
   try {
+    const loadErrors = [];
+    const safeSuperadminRequest = async (label, requestPromise, fallback) => {
+      try {
+        return await requestPromise;
+      } catch (error) {
+        if ([401, 403].includes(error.status)) {
+          throw error;
+        }
+        loadErrors.push(`${label}: ${error.message}`);
+        return fallback;
+      }
+    };
     const [overview, backendClinics, users, audit, accessIssues, plans, health] = await Promise.all([
-      backendRequest("/superadmin/overview", { token, auth: false }),
-      backendRequest("/superadmin/clinics", { token, auth: false }),
-      backendRequest(`/superadmin/users${clinicId ? `?clinic_id=${encodeURIComponent(clinicId)}` : ""}`, { token, auth: false }),
-      backendRequest(`/superadmin/audit-log${params.toString() ? `?${params.toString()}` : ""}`, { token, auth: false }),
-      backendRequest("/superadmin/access-issues", { token, auth: false }).catch(() => []),
-      backendRequest("/billing/plans", { auth: false }).catch(() => []),
-      backendRequest("/health", { auth: false }).catch(() => null)
+      safeSuperadminRequest("Resumen", backendRequest("/superadmin/overview", { token, auth: false }), {}),
+      safeSuperadminRequest("Clinicas", backendRequest("/superadmin/clinics", { token, auth: false }), []),
+      safeSuperadminRequest("Usuarios", backendRequest(`/superadmin/users${clinicId ? `?clinic_id=${encodeURIComponent(clinicId)}` : ""}`, { token, auth: false }), []),
+      safeSuperadminRequest("Auditoria", backendRequest(`/superadmin/audit-log${params.toString() ? `?${params.toString()}` : ""}`, { token, auth: false }), []),
+      safeSuperadminRequest("Incidencias", backendRequest("/superadmin/access-issues", { token, auth: false }), []),
+      safeSuperadminRequest("Planes", backendRequest("/billing/plans", { auth: false }), []),
+      safeSuperadminRequest("Health", backendRequest("/health", { auth: false }), null)
     ]);
     const clinics = mergeSuperadminClinics(backendClinics);
     const localClinics = clinics.filter((clinic) => clinic.source === "local");
-    superadminData = { overview, clinics, backendClinics, users, audit, accessIssues, plans, health };
+    superadminData = { overview, clinics, backendClinics, users, audit, accessIssues, plans, health, loadErrors };
     if (!selectedSuperadminClinicId || !clinics.some((clinic) => String(clinic.id) === String(selectedSuperadminClinicId))) {
       selectedSuperadminClinicId = clinics[0]?.id || "";
     }
     const localSyncNote = $("#superadmin-local-sync-note");
     if (localSyncNote) {
-      if (localClinics.length) {
+      if (loadErrors.length) {
+        localSyncNote.textContent = `Panel cargado parcialmente. Revisa: ${loadErrors.join(" | ")}`;
+        localSyncNote.classList.remove("hidden");
+      } else if (localClinics.length) {
         localSyncNote.textContent = `${localClinics.length} clinica${localClinics.length === 1 ? "" : "s"} aparece${localClinics.length === 1 ? "" : "n"} solo en este navegador porque se creo antes de quedar enlazada al backend. Se muestra${localClinics.length === 1 ? "" : "n"} como pendiente${localClinics.length === 1 ? "" : "s"} para no perder visibilidad, pero no tendra${localClinics.length === 1 ? "" : "n"} auditoria completa hasta migrarla${localClinics.length === 1 ? "" : "s"} a PostgreSQL.`;
         localSyncNote.classList.remove("hidden");
       } else {
@@ -1942,6 +1968,12 @@ async function loadSuperadminPanel() {
     }
     renderSuperadminViews();
   } catch (error) {
+    if ([401, 403].includes(error.status)) {
+      clearSuperadminSession();
+      showPublicView("login", { updateHash: true, resetLogin: true });
+      showLoginError("La sesion de superadmin ha caducado o no tiene permisos. Vuelve a iniciar sesion.", $("#login-form")?.elements?.center);
+      return;
+    }
     showToast(`No se pudo cargar el panel superadmin: ${error.message}`, "error");
   }
 }
@@ -2069,7 +2101,10 @@ function backendLoginMessage(error) {
   if (error?.status === 422) {
     return "Faltan usuario o contraseña, o la app esta usando una version antigua. Actualiza la pagina y vuelve a intentarlo.";
   }
-  if (String(error?.message || "").toLowerCase().includes("failed to fetch")) {
+  if (error?.status === 429) {
+    return "Se han hecho demasiados intentos de acceso. Espera unos minutos y vuelve a intentarlo.";
+  }
+  if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
     return "No se pudo conectar con el servidor de Klinia. Revisa la conexion y actualiza la pagina.";
   }
   return error?.message || "No se pudo comprobar el acceso con el backend.";
@@ -2641,6 +2676,18 @@ async function saveManualBillingMovementToBackend(movement) {
     body: JSON.stringify(uiManualBillingMovementToApi(movement))
   });
   return apiManualBillingMovementToUi(saved);
+}
+
+async function backendOptionalCollection(path) {
+  try {
+    const items = await backendRequest(path);
+    return Array.isArray(items) ? items : [];
+  } catch (error) {
+    if (error.status === 404) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function deleteAppointmentFromBackend(appointmentId) {
@@ -7410,8 +7457,8 @@ async function hydrateFromApi() {
       backendRequest("/rooms"),
       backendRequest("/services"),
       backendRequest("/appointments"),
-      backendRequest("/manual-billing-movements"),
-      backendRequest("/attendance-records")
+      backendOptionalCollection("/manual-billing-movements"),
+      backendOptionalCollection("/attendance-records")
     ]);
     ({ apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = await bootstrapBackendDataIfNeeded({
       apiPatients,
@@ -8401,9 +8448,10 @@ function setupLogin() {
       account.checkoutUrl = backendSession.checkout_url || account.checkoutUrl;
     } catch (error) {
       if (error.status === 409 || backendRequiredForProduction()) {
+        setRegisterStep("confirm");
         $("#register-error").textContent = error.status === 409
           ? "Ya existe una clinica con ese email o NIF/CIF en el backend. Revisa los datos o entra desde Login."
-          : `No se ha podido crear la clinica en el backend: ${error.message}`;
+          : `No se ha podido crear la clinica en el backend. Comprueba conexion/API y vuelve a intentarlo. Detalle: ${error.message}`;
         $("#register-error").classList.add("visible");
         return;
       }
@@ -10034,6 +10082,14 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
         `;
       }).join("")
     : `<p class="form-help">Crea servicios antes para asignarlos al trabajador.</p>`;
+  $$("[data-service-commission]", container).forEach((input) => {
+    input.addEventListener("input", () => {
+      const checkbox = $(`[data-service-enabled='${input.dataset.serviceCommission}']`);
+      if (checkbox && String(input.value || "").trim()) {
+        checkbox.checked = true;
+      }
+    });
+  });
 }
 
 function collectPractitionerServiceCommissions() {
@@ -10042,7 +10098,8 @@ function collectPractitionerServiceCommissions() {
     const serviceId = checkbox.dataset.serviceEnabled;
     const rateInput = $(`[data-service-commission='${serviceId}']`);
     const rateValue = parseDecimal(rateInput?.value || "", NaN);
-    if (checkbox.checked) {
+    const hasRate = Number.isFinite(rateValue) && rateValue > 0;
+    if (checkbox.checked || hasRate) {
       config[serviceId] = {
         enabled: true,
         rate: Number.isFinite(rateValue) ? Math.max(0, Math.min(100, rateValue)) / 100 : 0

@@ -2551,21 +2551,28 @@ th {
 
 .service-commission-grid {
   display: grid;
-  gap: 6px;
+  gap: 0;
   grid-template-columns: 1fr;
-  max-height: 260px;
+  max-height: 220px;
   overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .service-commission-row {
   align-items: center;
-  background: #fbfcfb;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
   display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(0, 1fr) 130px;
-  padding: 8px 10px;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  padding: 7px 10px;
+}
+
+.service-commission-row:last-child {
+  border-bottom: 0;
 }
 
 .service-commission-check {
@@ -2603,9 +2610,7 @@ th {
 }
 
 .service-commission-rate span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
+  display: none;
 }
 
 .service-commission-rate input[type="number"] {

@@ -4,6 +4,7 @@ import json
 import logging
 import secrets
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
@@ -103,6 +104,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+MAX_PASSWORD_BYTES = 72
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = 10 * 60
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 8
+login_attempts_lock = threading.Lock()
+login_attempts: dict[str, list[float]] = {}
+
 
 def setup_log(message: str, *args) -> None:
     logger.warning("Klinia backend setup: " + message, *args)
@@ -130,10 +137,7 @@ def run_backend_setup() -> None:
     app.state.backend_setup_finished_at = None
     setup_log("started env=%s", settings.app_env)
     try:
-        if settings.app_env == "production" and engine.dialect.name == "postgresql":
-            setup_log("metadata skipped in production to avoid blocking port readiness")
-        else:
-            run_setup_step("metadata", lambda: Base.metadata.create_all(bind=engine), errors)
+        run_setup_step("metadata", lambda: Base.metadata.create_all(bind=engine, checkfirst=True), errors)
         run_setup_step("runtime_schema", ensure_runtime_schema, errors)
         run_setup_step("superadmin", ensure_initial_superadmin, errors)
     except Exception as exc:
@@ -242,6 +246,15 @@ def generate_temporary_password(length: int = 14) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def validate_new_password(password: str | None) -> str:
+    password = str(password or "").strip()
+    if len(password) < 8:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must have at least 8 characters")
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password is too long")
+    return password
+
+
 def normalized_identifier(value: str | None) -> str:
     return str(value or "").strip().lower()
 
@@ -289,6 +302,42 @@ def request_ip(request: Request | None) -> str | None:
     return request.client.host if request.client else None
 
 
+def login_rate_limit_key(request: Request, identifier: str) -> str:
+    return f"{request_ip(request) or 'unknown'}:{identifier}"
+
+
+def prune_login_attempts(now: float) -> None:
+    cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    for key in list(login_attempts):
+        attempts = [item for item in login_attempts[key] if item >= cutoff]
+        if attempts:
+            login_attempts[key] = attempts
+        else:
+            login_attempts.pop(key, None)
+
+
+def login_is_rate_limited(request: Request, identifier: str) -> bool:
+    now = time.monotonic()
+    key = login_rate_limit_key(request, identifier)
+    with login_attempts_lock:
+        prune_login_attempts(now)
+        return len(login_attempts.get(key, [])) >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+
+
+def record_login_failure(request: Request, identifier: str) -> None:
+    now = time.monotonic()
+    key = login_rate_limit_key(request, identifier)
+    with login_attempts_lock:
+        prune_login_attempts(now)
+        login_attempts.setdefault(key, []).append(now)
+
+
+def clear_login_failures(request: Request, identifier: str) -> None:
+    key = login_rate_limit_key(request, identifier)
+    with login_attempts_lock:
+        login_attempts.pop(key, None)
+
+
 def audit_action(
     db: Session,
     user: User | None,
@@ -326,6 +375,8 @@ def ensure_initial_superadmin() -> None:
     superadmin_password = settings.superadmin_password.strip()
     if not superadmin_password:
         raise ValueError("SUPERADMIN_PASSWORD is empty after trimming whitespace")
+    if len(superadmin_password) < 8:
+        raise ValueError("SUPERADMIN_PASSWORD must have at least 8 characters")
     if len(superadmin_password.encode("utf-8")) > 72:
         raise ValueError("SUPERADMIN_PASSWORD exceeds bcrypt 72 byte limit")
     setup_log("superadmin bootstrap for %s", email)
@@ -617,9 +668,7 @@ def frontend_asset(asset_name: str) -> FileResponse:
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
     email = str(payload.email).lower()
-    password = payload.password.strip()
-    if not password:
-        raise HTTPException(status_code=422, detail="Password is required")
+    password = validate_new_password(payload.password)
     existing = db.scalar(
         select(Clinic).where(
             (func.lower(Clinic.email) == email)
@@ -674,10 +723,23 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
     identifier = normalized_identifier(payload.email)
     if not identifier:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Login identifier is required")
+    if login_is_rate_limited(request, identifier):
+        audit_action(
+            db,
+            None,
+            "login-throttled",
+            "auth",
+            metadata={"identifier": identifier, "reason": "too_many_attempts"},
+            result="failure",
+            request=request,
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts. Try again in a few minutes")
 
     if not payload.clinic_id and not payload.clinic_email and looks_like_email(identifier):
         superadmin = db.scalar(select(User).where(func.lower(User.email) == identifier, User.role == UserRole.superadmin, User.active.is_(True)))
         if superadmin and verify_login_password(payload.password, superadmin.password_hash):
+            clear_login_failures(request, identifier)
             audit_action(db, superadmin, "login-success", "auth", superadmin.id, {"role": superadmin.role.value}, request=request)
             db.commit()
             token = create_access_token(subject=superadmin.id, clinic_id=None, role=superadmin.role.value)
@@ -694,10 +756,12 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
                 )
             )
             if owner and verify_login_password(payload.password, owner.password_hash):
+                clear_login_failures(request, identifier)
                 audit_action(db, owner, "login-success", "auth", owner.id, {"role": owner.role.value, "identifier": "clinic"}, request=request)
                 db.commit()
                 token = create_access_token(subject=owner.id, clinic_id=owner.clinic_id, role=owner.role.value)
                 return TokenOut(access_token=token, clinic_id=owner.clinic_id, subscription_status=clinic.subscription_status, force_password_change=owner.force_password_change)
+            record_login_failure(request, identifier)
             audit_action(
                 db,
                 owner,
@@ -740,6 +804,7 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
         raise HTTPException(status_code=409, detail="Clinic identifier required for this email")
     user = users[0] if users else None
     if not user or not verify_login_password(payload.password, user.password_hash):
+        record_login_failure(request, identifier)
         audit_action(
             db,
             user,
@@ -752,6 +817,7 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
         )
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    clear_login_failures(request, identifier)
     audit_action(db, user, "login-success", "auth", user.id, {"role": user.role.value}, request=request)
     db.commit()
     token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)
@@ -776,7 +842,7 @@ def change_password(payload: PasswordChangeIn, request: Request, user: User = De
         audit_action(db, user, "change-password", "user", user.id, {"reason": "invalid_current_password"}, result="failure", request=request)
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid current password")
-    user.password_hash = hash_password(payload.new_password)
+    user.password_hash = hash_password(validate_new_password(payload.new_password))
     user.force_password_change = False
     audit_action(db, user, "change-password", "user", user.id, {"role": user.role.value}, request=request)
     db.commit()
@@ -851,9 +917,7 @@ def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole
     existing = db.scalar(select(User).where(User.clinic_id == user.clinic_id, func.lower(User.email) == email))
     if existing:
         raise HTTPException(status_code=409, detail="User email already exists in this clinic")
-    password = payload.password.strip()
-    if not password:
-        raise HTTPException(status_code=422, detail="Password is required")
+    password = validate_new_password(payload.password)
     next_user = User(
         clinic_id=user.clinic_id,
         name=payload.name,
@@ -884,9 +948,7 @@ def update_user(user_id: str, payload: UserUpdate, user: User = Depends(require_
             raise HTTPException(status_code=409, detail="User email already exists in this clinic")
         target.email = email
     if "password" in data and data["password"]:
-        password = str(data["password"]).strip()
-        if not password:
-            raise HTTPException(status_code=422, detail="Password is required")
+        password = validate_new_password(data["password"])
         target.password_hash = hash_password(password)
         target.force_password_change = False
     if "name" in data:
