@@ -47,6 +47,7 @@ from .schemas import (
     BillingSessionOut,
     BillingStatusOut,
     CheckoutSessionCreate,
+    ClinicOut,
     ClinicRegisterIn,
     ClinicSettingsUpdate,
     DemoAccessCreate,
