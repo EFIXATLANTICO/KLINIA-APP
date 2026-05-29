@@ -5438,7 +5438,9 @@ body.superadmin-mode .public-nav-actions {
 .superadmin-console {
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
+  height: 100dvh;
   min-height: 100dvh;
+  overflow: hidden;
   background: #f4f8f7;
 }
 
@@ -5485,6 +5487,8 @@ body.superadmin-mode .public-nav-actions {
 .superadmin-nav {
   display: grid;
   gap: 4px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .superadmin-nav button {
@@ -5520,11 +5524,15 @@ body.superadmin-mode .public-nav-actions {
 }
 
 .superadmin-main {
+  height: 100dvh;
   min-width: 0;
+  overflow: auto;
   padding: 24px;
+  scroll-behavior: auto;
 }
 
 .superadmin-topbar {
+  min-height: 118px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -5568,11 +5576,16 @@ body.superadmin-mode .public-nav-actions {
 }
 
 .superadmin-panel {
-  display: none;
+  height: 0;
+  min-height: calc(100dvh - 250px);
+  overflow: hidden;
+  visibility: hidden;
 }
 
 .superadmin-panel.active {
-  display: block;
+  height: auto;
+  overflow: visible;
+  visibility: visible;
 }
 
 .superadmin-kpis {
@@ -5580,6 +5593,7 @@ body.superadmin-mode .public-nav-actions {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+  min-height: 236px;
 }
 
 .superadmin-kpis article,
@@ -5633,6 +5647,7 @@ body.superadmin-mode .public-nav-actions {
 
 .superadmin-grid {
   display: grid;
+  align-items: start;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
@@ -5641,6 +5656,10 @@ body.superadmin-mode .public-nav-actions {
 .superadmin-detail-header {
   min-width: 0;
   padding: 18px;
+}
+
+.superadmin-card {
+  min-height: 132px;
 }
 
 .superadmin-card-wide {
@@ -5710,9 +5729,21 @@ body.superadmin-mode .public-nav-actions {
   cursor: pointer;
 }
 
+.superadmin-row-actions button:disabled,
+.superadmin-action-grid button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
 .superadmin-table-wrap {
   width: 100%;
+  max-height: min(58dvh, 620px);
   overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.superadmin-table-wrap.compact {
+  max-height: 300px;
 }
 
 .superadmin-table-wrap.compact table {
@@ -5844,6 +5875,19 @@ body.superadmin-mode .public-nav-actions {
   background: #f9fcfb;
 }
 
+.superadmin-alert[role="button"] {
+  cursor: pointer;
+}
+
+.superadmin-alert[role="button"]:hover {
+  border-color: #9ad8d1;
+}
+
+.superadmin-alert[role="button"]:focus-visible {
+  outline: 3px solid rgba(0, 154, 141, 0.22);
+  outline-offset: 2px;
+}
+
 .superadmin-alert strong,
 .superadmin-alert span,
 .superadmin-mini-list strong,
@@ -5919,6 +5963,8 @@ body.superadmin-mode .public-nav-actions {
 @media (max-width: 1100px) {
   .superadmin-console {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .superadmin-sidebar {
@@ -5930,6 +5976,11 @@ body.superadmin-mode .public-nav-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .superadmin-main {
+    height: auto;
+    overflow: visible;
+  }
+
   .superadmin-topbar,
   .superadmin-detail-header {
     flex-direction: column;
@@ -5939,6 +5990,12 @@ body.superadmin-mode .public-nav-actions {
   .superadmin-grid,
   .superadmin-filters {
     grid-template-columns: 1fr;
+  }
+
+  .superadmin-topbar,
+  .superadmin-kpis,
+  .superadmin-panel {
+    min-height: 0;
   }
 
   .superadmin-topbar-actions,

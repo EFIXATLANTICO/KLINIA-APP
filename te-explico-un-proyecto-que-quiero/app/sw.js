@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-worker-commissions-20260528";
+const KLINIA_CACHE = "klinia-superadmin-ops-20260529";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260528-worker-commissions",
-  "./app.js?v=20260528-worker-commissions",
+  "./styles.css?v=20260529-superadmin-ops",
+  "./app.js?v=20260529-superadmin-ops",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
