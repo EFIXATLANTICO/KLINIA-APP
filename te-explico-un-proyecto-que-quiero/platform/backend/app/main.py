@@ -280,14 +280,32 @@ def parse_metadata_json(value: str | None) -> dict:
 
 
 def generate_temporary_password(length: int = 14) -> str:
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+    uppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    lowercase = "abcdefghijkmnopqrstuvwxyz"
+    digits = "23456789"
+    symbols = "!@#$%*"
+    alphabet = uppercase + lowercase + digits + symbols
+    chars = [
+        secrets.choice(uppercase),
+        secrets.choice(lowercase),
+        secrets.choice(digits),
+        secrets.choice(symbols),
+    ]
+    chars.extend(secrets.choice(alphabet) for _ in range(max(length, 8) - len(chars)))
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 
 def validate_new_password(password: str | None) -> str:
     password = str(password or "").strip()
     if len(password) < 8:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must have at least 8 characters")
+    if not any(char.isupper() for char in password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must include at least one uppercase letter")
+    if not any(char.islower() for char in password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must include at least one lowercase letter")
+    if not any(char.isdigit() or not char.isalnum() for char in password):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must include at least one number or symbol")
     if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password is too long")
     return password

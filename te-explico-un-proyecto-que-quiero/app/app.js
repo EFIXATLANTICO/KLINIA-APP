@@ -7207,8 +7207,9 @@ function permissionRowHtml(id, title, selectedSections) {
 }
 
 function generateAccessKey() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint8Array(10);
+  const groups = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%*"];
+  const alphabet = groups.join("");
+  const bytes = new Uint8Array(12);
   if (window.crypto?.getRandomValues) {
     window.crypto.getRandomValues(bytes);
   } else {
@@ -7216,8 +7217,10 @@ function generateAccessKey() {
       bytes[index] = Math.floor(Math.random() * 255);
     });
   }
-  const raw = [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
-  return `${raw.slice(0, 5)}-${raw.slice(5)}`;
+  const required = groups.map((group, index) => group[bytes[index] % group.length]);
+  const rest = [...bytes.slice(required.length)].map((byte) => alphabet[byte % alphabet.length]);
+  const raw = [...required, ...rest].sort(() => Math.random() - 0.5).join("");
+  return `${raw.slice(0, 6)}-${raw.slice(6)}`;
 }
 
 function saveAccessRecoveryRequests() {
@@ -7834,6 +7837,37 @@ function registerFieldLabel(field) {
   return ownText || field.name || "Campo";
 }
 
+function registerPasswordPolicyMessage(password) {
+  const value = String(password || "");
+  if (value.length < 8) {
+    return "La contrasena debe tener al menos 8 caracteres.";
+  }
+  if (!/[A-ZÁÉÍÓÚÜÑ]/.test(value)) {
+    return "La contrasena debe incluir al menos una mayuscula.";
+  }
+  if (!/[a-záéíóúüñ]/.test(value)) {
+    return "La contrasena debe incluir al menos una minuscula.";
+  }
+  if (!/[0-9\W_]/.test(value)) {
+    return "La contrasena debe incluir al menos un numero o simbolo.";
+  }
+  return "";
+}
+
+function registerBackendErrorMessage(error) {
+  const detail = String(error?.message || "").toLowerCase();
+  if (error?.status === 409) {
+    return "Ya existe una clinica con ese email o NIF/CIF en el backend. Si acabas de crearla, entra con el email y contrasena que has elegido.";
+  }
+  if (detail.includes("password")) {
+    return "La contrasena debe tener al menos 8 caracteres e incluir mayuscula, minuscula y un numero o simbolo.";
+  }
+  if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
+    return "No se ha podido crear la clinica en el backend: no hay conexion con la API de Klinia. Revisa la conexion y vuelve a intentarlo.";
+  }
+  return `No se ha podido crear la clinica en el backend. Comprueba conexion/API y vuelve a intentarlo. Detalle: ${error?.message || "error desconocido"}`;
+}
+
 function clearRegisterError() {
   const error = $("#register-error");
   if (error) {
@@ -7987,6 +8021,8 @@ function resetRegisterFlow(planId = "trial") {
   registerCreatedAccount = null;
   registerDraftState = {};
   registerLogoPreview = "";
+  delete form.dataset.registerSubmitting;
+  setRegisterSubmitting(false);
   form.dataset.registerFlow = normalizeSaasPlanId(planId);
   form.elements.ownerName.value = "";
   form.elements.ownerRole.value = "Direccion";
@@ -8011,11 +8047,14 @@ function validateRegisterStep(step = registerCurrentStep()) {
   clearRegisterError();
   for (const field of fields) {
     field.setCustomValidity("");
+    if (step === "account" && field.name === "password" && field.value) {
+      field.setCustomValidity(registerPasswordPolicyMessage(field.value));
+    }
     if (!field.checkValidity()) {
       const label = registerFieldLabel(field);
       const message = field.validity.valueMissing
         ? `Completa "${label}" antes de continuar.`
-        : `Revisa "${label}" antes de continuar.`;
+        : (field.validity.customError ? field.validationMessage : `Revisa "${label}" antes de continuar.`);
       showRegisterError(message, field);
       return false;
     }
@@ -8035,6 +8074,72 @@ function validateRegisterStep(step = registerCurrentStep()) {
   syncRegisterDraftFromForm();
   clearRegisterError();
   return true;
+}
+
+function setRegisterSubmitting(isSubmitting) {
+  const submitButton = $("#register-submit-button");
+  const backButton = $("#register-back-button");
+  if (submitButton) {
+    submitButton.disabled = isSubmitting;
+    submitButton.textContent = isSubmitting ? "Creando clinica..." : "Confirmar y crear clinica";
+  }
+  if (backButton) {
+    backButton.disabled = isSubmitting;
+  }
+}
+
+async function recoverRegisterSessionAfterDuplicate(form, account) {
+  const ownerEmail = form.elements.email?.value.trim() || "";
+  const password = form.elements.password?.value || "";
+  if (!ownerEmail || !password) {
+    return null;
+  }
+  try {
+    const session = await backendRequest("/auth/login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({
+        email: ownerEmail,
+        password,
+        clinic_email: form.elements.clinicEmail?.value.trim() || account.email || ownerEmail
+      })
+    });
+    const me = await backendRequest("/me", { token: session.access_token, auth: false });
+    if (!me?.clinic || !me?.user || me.user.role === "superadmin") {
+      return null;
+    }
+    const backendClinicId = session.clinic_id || me.clinic.id || "";
+    const existingLocal = clinicAccounts.find((item) => (
+      (backendClinicId && item.backendClinicId === backendClinicId)
+      || (ownerEmail && String(item.ownerEmail || item.email || "").trim().toLowerCase() === ownerEmail.toLowerCase())
+    ));
+    const key = existingLocal?.key || account.key || slugifyClinicName(me.clinic.name || backendClinicId || account.name);
+    return {
+      session,
+      me,
+      account: {
+        ...(existingLocal || {}),
+        ...account,
+        key,
+        name: me.clinic.name || account.name,
+        email: me.clinic.email || account.email,
+        backendToken: session.access_token,
+        backendClinicId,
+        subscriptionStatus: session.subscription_status || me.clinic.subscription_status || account.subscriptionStatus,
+        billingStatus: session.subscription_status || me.clinic.subscription_status || account.billingStatus,
+        workingDays: normalizeWorkingDays(me.clinic.working_days || account.workingDays),
+        billingProfile: {
+          ...(existingLocal?.billingProfile || account.billingProfile || {}),
+          billingName: me.clinic.billing_name || account.billingProfile?.billingName || me.clinic.name || account.name,
+          billingEmail: me.clinic.billing_email || account.billingProfile?.billingEmail || me.clinic.email || account.email,
+          taxId: me.clinic.tax_id || account.billingProfile?.taxId || "",
+          billingAddress: me.clinic.billing_address || account.billingProfile?.billingAddress || ""
+        }
+      }
+    };
+  } catch {
+    return null;
+  }
 }
 
 function moveRegisterStep(amount) {
@@ -8441,6 +8546,11 @@ function setupLogin() {
     if (!validateRegisterStep("confirm")) {
       return;
     }
+    if (form.dataset.registerSubmitting === "true") {
+      return;
+    }
+    form.dataset.registerSubmitting = "true";
+    setRegisterSubmitting(true);
     const name = form.elements.name.value.trim();
     const baseKey = slugifyClinicName(name);
     const clinicEmail = form.elements.clinicEmail?.value.trim() || form.elements.email?.value.trim() || "";
@@ -8451,7 +8561,7 @@ function setupLogin() {
       const sameTaxId = taxId && String(account.billingProfile?.taxId || account.taxId || "").trim().toLowerCase() === taxId.toLowerCase();
       return sameTaxId || sameClinicEmail || sameOwnerEmail;
     });
-    if (duplicateAccount) {
+    if (duplicateAccount && !backendRequiredForProduction()) {
       const sameTaxId = taxId && String(duplicateAccount.billingProfile?.taxId || duplicateAccount.taxId || "").trim().toLowerCase() === taxId.toLowerCase();
       const sameEmail = clinicEmail && String(duplicateAccount.email || duplicateAccount.billingProfile?.billingEmail || "").trim().toLowerCase() === clinicEmail.toLowerCase();
       $("#register-error").textContent = sameTaxId
@@ -8460,6 +8570,8 @@ function setupLogin() {
           ? "Ya existe una clinica con ese email. Revisa el dato o entra desde Login."
           : "Ya existe un usuario con ese email. Usa otro email o entra desde Login.";
       $("#register-error").classList.add("visible");
+      delete form.dataset.registerSubmitting;
+      setRegisterSubmitting(false);
       return;
     }
     let key = baseKey;
@@ -8525,20 +8637,26 @@ function setupLogin() {
       account.billingStatus = backendSession.subscription_status || account.billingStatus;
       account.checkoutUrl = backendSession.checkout_url || account.checkoutUrl;
     } catch (error) {
-      if (error.status === 409 || backendRequiredForProduction()) {
+      const recovered = error.status === 409
+        ? await recoverRegisterSessionAfterDuplicate(form, account)
+        : null;
+      if (recovered?.account) {
+        Object.assign(account, recovered.account);
+        backendSession = recovered.session;
+      } else if (error.status === 409 || backendRequiredForProduction()) {
         setRegisterStep("confirm");
-        $("#register-error").textContent = error.status === 409
-          ? "Ya existe una clinica con ese email o NIF/CIF en el backend. Revisa los datos o entra desde Login."
-          : `No se ha podido crear la clinica en el backend. Comprueba conexion/API y vuelve a intentarlo. Detalle: ${error.message}`;
+        $("#register-error").textContent = registerBackendErrorMessage(error);
         $("#register-error").classList.add("visible");
+        delete form.dataset.registerSubmitting;
+        setRegisterSubmitting(false);
         return;
       }
     }
     clinicAccounts = normalizeClinicAccounts([...clinicAccounts, account]);
     saveClinicAccounts();
-    const createdAccount = clinicAccountByKey(key);
+    const createdAccount = clinicAccountByKey(account.key);
 
-    activeClinicKey = key;
+    activeClinicKey = account.key;
     saveClinicState("clinic", {
       name: account.name,
       email: clinicEmail,
@@ -8578,7 +8696,7 @@ function setupLogin() {
     saveClinicState("reminder-actions", []);
     saveClinicState("reminder-settings", { autoWhatsapp: false });
     saveClinicState("manual-billing-movements", []);
-    loadActiveClinicData(key);
+    loadActiveClinicData(account.key);
 
     renderLoginClinics();
     $("#login-clinic-select").value = account.name;
@@ -8589,6 +8707,8 @@ function setupLogin() {
     updateRegisterPlanChoice();
     setRegisterStep("success");
     showToast("Clinica creada. Ya puedes iniciar sesion.");
+    delete form.dataset.registerSubmitting;
+    setRegisterSubmitting(false);
   });
 
   $("#logout-button").addEventListener("click", () => {
