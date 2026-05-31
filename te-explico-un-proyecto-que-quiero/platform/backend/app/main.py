@@ -25,6 +25,7 @@ from .models import (
     AttendanceRecord,
     AuditLog,
     Clinic,
+    ClinicDataBlob,
     DemoAccessSession,
     ManualBillingMovement,
     Patient,
@@ -47,6 +48,8 @@ from .schemas import (
     BillingSessionOut,
     BillingStatusOut,
     CheckoutSessionCreate,
+    ClinicDataBlobIn,
+    ClinicDataBlobOut,
     ClinicOut,
     ClinicRegisterIn,
     ClinicSettingsUpdate,
@@ -364,6 +367,49 @@ def validate_opening_range(start: str | None, end: str | None) -> tuple[str, str
     if start_minutes >= end_minutes:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Opening start must be before opening end")
     return start_value, end_value
+
+
+CLINIC_DATA_DEFAULTS = {
+    "groups": "[]",
+    "group-dropins": "[]",
+    "group-completions": "[]",
+    "group-session-overrides": "[]",
+    "session-packs": "[]",
+    "patient-packs": "[]",
+    "consent-templates": "[]",
+    "patient-consents": "[]",
+    "reminder-actions": "[]",
+    "reminder-settings": "{}",
+    "availability-blocks": "[]",
+    "permissions": "{}",
+}
+PRACTITIONER_WRITABLE_CLINIC_DATA_KEYS = {"group-completions", "group-dropins", "reminder-actions"}
+
+
+def clinic_data_default(key: str) -> str:
+    if key not in CLINIC_DATA_DEFAULTS:
+        raise HTTPException(status_code=404, detail="Clinic data collection not supported")
+    return CLINIC_DATA_DEFAULTS[key]
+
+
+def validate_clinic_data_payload(key: str, data_json: str) -> str:
+    clinic_data_default(key)
+    value = data_json if data_json not in (None, "") else CLINIC_DATA_DEFAULTS[key]
+    try:
+        json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="Invalid clinic data JSON") from exc
+    if len(value.encode("utf-8")) > 2_000_000:
+        raise HTTPException(status_code=413, detail="Clinic data payload is too large")
+    return value
+
+
+def ensure_clinic_data_write_allowed(user: User, key: str) -> None:
+    if user.role in {UserRole.owner, UserRole.staff, UserRole.support}:
+        return
+    if user.role == UserRole.practitioner and key in PRACTITIONER_WRITABLE_CLINIC_DATA_KEYS:
+        return
+    raise HTTPException(status_code=403, detail="Insufficient permissions for this clinic data collection")
 
 
 def request_ip(request: Request | None) -> str | None:
@@ -1590,6 +1636,57 @@ def superadmin_update_clinic(
     )
 
 
+@app.post("/superadmin/clinics/{clinic_id}/archive-test", response_model=SuperAdminClinicOut)
+def superadmin_archive_test_clinic(
+    clinic_id: str,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminClinicOut:
+    clinic = db.get(Clinic, clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    patient_count = db.scalar(select(func.count()).select_from(Patient).where(Patient.clinic_id == clinic.id)) or 0
+    appointment_count = db.scalar(select(func.count()).select_from(Appointment).where(Appointment.clinic_id == clinic.id)) or 0
+    clinic.subscription_status = "archived"
+    clinic.subscription_plan = clinic.subscription_plan or "trial"
+    users = list(db.scalars(select(User).where(User.clinic_id == clinic.id)))
+    for item in users:
+        item.active = False
+    audit_action(
+        db,
+        admin,
+        "superadmin-archive-test-clinic",
+        "clinic",
+        clinic.id,
+        {
+            "clinic_name": clinic.name,
+            "users_disabled": len(users),
+            "patient_count": patient_count,
+            "appointment_count": appointment_count,
+            "safe_archive": True,
+        },
+        clinic_id=clinic.id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(clinic)
+    last_activity_at = db.scalar(select(func.max(AuditLog.created_at)).where(AuditLog.clinic_id == clinic.id))
+    return SuperAdminClinicOut(
+        id=clinic.id,
+        name=clinic.name,
+        email=clinic.email,
+        phone=clinic.phone,
+        subscription_plan=clinic.subscription_plan,
+        subscription_status=clinic.subscription_status,
+        trial_ends_at=clinic.trial_ends_at,
+        current_period_end=clinic.current_period_end,
+        created_at=clinic.created_at,
+        users_count=len(users),
+        last_activity_at=last_activity_at,
+    )
+
+
 @app.post("/superadmin/clinics/{clinic_id}/impersonation-token", response_model=TokenOut)
 def superadmin_impersonation_token(
     clinic_id: str,
@@ -1805,6 +1902,42 @@ def update_clinic_settings(
     db.commit()
     db.refresh(user.clinic)
     return user.clinic
+
+
+@app.get("/clinic-data/{key}", response_model=ClinicDataBlobOut)
+def get_clinic_data_blob(
+    key: str,
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> ClinicDataBlobOut:
+    default_value = clinic_data_default(key)
+    blob = db.scalar(select(ClinicDataBlob).where(ClinicDataBlob.clinic_id == user.clinic_id, ClinicDataBlob.key == key))
+    if not blob:
+        return ClinicDataBlobOut(key=key, data_json=default_value, updated_at=None)
+    return ClinicDataBlobOut(key=blob.key, data_json=blob.data_json or default_value, updated_at=blob.updated_at)
+
+
+@app.put("/clinic-data/{key}", response_model=ClinicDataBlobOut)
+def put_clinic_data_blob(
+    key: str,
+    payload: ClinicDataBlobIn,
+    request: Request,
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> ClinicDataBlobOut:
+    ensure_clinic_data_write_allowed(user, key)
+    data_json = validate_clinic_data_payload(key, payload.data_json)
+    blob = db.scalar(select(ClinicDataBlob).where(ClinicDataBlob.clinic_id == user.clinic_id, ClinicDataBlob.key == key))
+    if not blob:
+        blob = ClinicDataBlob(clinic_id=user.clinic_id, key=key, data_json=data_json)
+        db.add(blob)
+    else:
+        blob.data_json = data_json
+    db.flush()
+    audit_action(db, user, "update-clinic-data", "clinic-data", key, {"key": key}, request=request)
+    db.commit()
+    db.refresh(blob)
+    return ClinicDataBlobOut(key=blob.key, data_json=blob.data_json, updated_at=blob.updated_at)
 
 
 @app.patch("/billing/profile", response_model=BillingStatusOut)

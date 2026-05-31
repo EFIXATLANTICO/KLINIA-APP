@@ -242,6 +242,32 @@ function saveClinicState(key, value) {
   );
 }
 
+const backendSyncedClinicDataKeys = new Set([
+  "groups",
+  "group-dropins",
+  "group-completions",
+  "group-session-overrides",
+  "session-packs",
+  "patient-packs",
+  "consent-templates",
+  "patient-consents",
+  "reminder-actions",
+  "reminder-settings",
+  "availability-blocks",
+  "permissions"
+]);
+
+function saveSyncedClinicState(key, value) {
+  saveClinicState(key, value);
+  if (!backendSyncedClinicDataKeys.has(key) || !backendDataEnabled()) {
+    return;
+  }
+  saveClinicDataToBackend(key, value).catch((error) => {
+    console.warn(`Klinia backend sync failed for ${key}`, error);
+    showToast(`No se pudo sincronizar ${key} con backend: ${error.message}`, "warning");
+  });
+}
+
 function appendAuditLog(action, detail = {}) {
   auditLog = [
     {
@@ -668,6 +694,12 @@ function normalizePractitioners(savedPractitioners) {
     });
 }
 
+function defaultReminderSettings() {
+  return {
+    reminderMessageTemplate: "Hola {{paciente}}, te recordamos tu cita en {{clinica}} el {{fecha}} a las {{hora}} con {{profesional}}. Si necesitas cambiarla, contacta con la clínica."
+  };
+}
+
 let patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
 let appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
 let clinicalNotes = loadClinicState("clinical-notes", isDemoClinic() ? defaultClinicalNotes : []);
@@ -696,7 +728,7 @@ if (!visibleSectionIds.includes(activeSection)) {
 }
 let reminderActions = loadClinicState("reminder-actions", []);
 let deferredInstallPrompt = null;
-let reminderSettings = loadClinicState("reminder-settings", { autoWhatsapp: false });
+let reminderSettings = { ...defaultReminderSettings(), ...loadClinicState("reminder-settings", defaultReminderSettings()) };
 let groupDropIns = loadClinicState("group-dropins", []);
 let groupCompletions = loadClinicState("group-completions", []);
 let groupSessionOverrides = normalizeGroupSessionOverrides(loadClinicState("group-session-overrides", []));
@@ -747,7 +779,7 @@ const sectionTitles = {
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const apiEnabled = false;
+const apiEnabled = true;
 let superadminSession = null;
 
 function escapeHtml(value) {
@@ -902,10 +934,11 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
   manualBillingMovements = loadClinicState("manual-billing-movements", []);
   attendanceRecords = loadClinicState("attendance-records", []);
-  syncPatientPackUsageFromAppointments({ persist: true });
+  syncPatientPackUsageFromAppointments({ persist: false });
+  saveClinicState("patient-packs", patientPacks);
   clinicLogo = loadClinicState("clinic-logo", "");
   reminderActions = loadClinicState("reminder-actions", []);
-  reminderSettings = loadClinicState("reminder-settings", { autoWhatsapp: false });
+  reminderSettings = { ...defaultReminderSettings(), ...loadClinicState("reminder-settings", defaultReminderSettings()) };
   auditLog = loadClinicState("audit-log", []);
   selectedPatientId = patients[0]?.id || null;
   patientProfileOpen = false;
@@ -1470,6 +1503,7 @@ function superadminStatusLabel(value) {
     past_due: "Impagada",
     incomplete: "Incompleta",
     canceled: "Cancelada",
+    archived: "Archivada",
     local_pending_backend: "Pendiente backend"
   }[value] || value || "-";
 }
@@ -1578,7 +1612,7 @@ function renderSuperadminClinicsTable() {
       <td><span class="superadmin-status ${superadminStatusClass(clinic.subscription_status)}">${escapeHtml(superadminStatusLabel(clinic.subscription_status))}</span><span>${escapeHtml(clinic.subscription_plan || "-")}</span></td>
       <td>${Number(clinic.users_count || 0)}</td>
       <td>${escapeHtml(formatSuperadminDate(clinic.last_activity_at || clinic.created_at))}</td>
-      <td><div class="superadmin-row-actions"><button type="button" data-superadmin-open-clinic="${escapeHtml(clinic.id)}">Detalle</button><button type="button" data-superadmin-impersonate="${escapeHtml(clinic.id)}" ${clinic.source === "backend" ? "" : "disabled title=\"Disponible cuando la clinica este sincronizada en backend\""}>Impersonar</button></div></td>
+      <td><div class="superadmin-row-actions"><button type="button" data-superadmin-open-clinic="${escapeHtml(clinic.id)}">Detalle</button><button type="button" data-superadmin-impersonate="${escapeHtml(clinic.id)}" ${clinic.source === "backend" ? "" : "disabled title=\"Disponible cuando la clinica este sincronizada en backend\""}>Impersonar</button><button type="button" data-superadmin-archive-test-clinic="${escapeHtml(clinic.id)}" ${clinic.source === "backend" ? "" : "disabled title=\"Solo disponible para clinicas backend\""}>Archivar prueba</button></div></td>
     </tr>
   `).join("");
 }
@@ -1664,6 +1698,7 @@ function renderSuperadminClinicDetail() {
     ["Impersonar clinica", "Genera un token temporal de 30 minutos y registra la accion.", `data-superadmin-action="impersonate-clinic" ${backendActionDisabled}`],
     [clinic.subscription_status === "canceled" ? "Reactivar clinica" : "Bloquear clinica", "Cambia el estado de suscripcion para permitir o bloquear uso.", `data-superadmin-action="toggle-clinic-status" ${backendActionDisabled}`],
     ["Resetear acceso direccion", "Genera una clave temporal para el usuario direccion activo.", `data-superadmin-action="reset-owner" ${backendActionDisabled}`],
+    ["Archivar prueba", "Desactiva una clinica de simulacion sin borrar fisicamente sus datos.", `data-superadmin-action="archive-test-clinic" ${backendActionDisabled}`],
     ["Exportar auditoria", "Descarga eventos filtrados en CSV.", `data-superadmin-action="export-audit"`]
   ].map(([title, text, action]) => `<article><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span><button class="secondary-button compact-inline-button" type="button" ${action}>Ejecutar</button></article>`).join("");
 }
@@ -1884,6 +1919,40 @@ async function superadminUpdateClinicStatus(clinicId, statusValue) {
     showToast("Clinica actualizada.", "success");
   } catch (error) {
     showToast(`No se pudo actualizar la clinica: ${error.message}`, "error");
+  }
+}
+
+async function superadminArchiveTestClinic(clinicId) {
+  const clinic = clinicBySuperadminId(clinicId) || superadminData.clinics.find((item) => String(item.id) === String(clinicId));
+  if (!clinic || clinic.source !== "backend") {
+    showToast("Solo se pueden archivar clinicas persistidas en backend.", "warning");
+    return;
+  }
+  const hasRealSignals = Number(clinic.users_count || 0) > 1
+    || ["active", "trialing", "past_due"].includes(String(clinic.subscription_status || "").toLowerCase());
+  const confirmed = await showConfirm({
+    eyebrow: "Accion sensible",
+    title: "Archivar clinica de prueba",
+    message: `Archivar ${clinic.name}.`,
+    detail: hasRealSignals
+      ? "Esta clinica tiene usuarios o estado comercial activo. No se borraran datos fisicos, pero sus usuarios quedaran desactivados. Confirma solo si es una simulacion."
+      : "Se desactivaran sus usuarios y la clinica quedara marcada como archivada. La accion quedara auditada.",
+    confirmLabel: "Archivar prueba",
+    variant: "danger"
+  });
+  if (!confirmed) return;
+  try {
+    const updatedClinic = await backendRequest(`/superadmin/clinics/${encodeURIComponent(clinic.id)}/archive-test`, {
+      method: "POST",
+      token: superadminToken(),
+      auth: false
+    });
+    superadminData.backendClinics = superadminData.backendClinics.map((item) => String(item.id) === String(updatedClinic.id) ? updatedClinic : item);
+    superadminData.clinics = mergeSuperadminClinics(superadminData.backendClinics);
+    selectedSuperadminClinicId = updatedClinic.id;
+    await loadSuperadminPanel({ feedback: "Clinica archivada.", loadingLabel: "Actualizando..." });
+  } catch (error) {
+    showToast(`No se pudo archivar la clinica: ${error.message}`, "error");
   }
 }
 
@@ -2505,14 +2574,14 @@ function uiPractitionerToApi(practitioner) {
     name: practitioner.name,
     specialty: practitioner.specialty || null,
     color: practitioner.color || "#168776",
-    commission_rate: Number(practitioner.commissionRate || 0),
+    commission_rate: 0,
     monthly_target_cents: Math.round(Number(practitioner.target || 0) * 100),
     availability_start: practitioner.availabilityStart || "08:00",
     availability_end: practitioner.availabilityEnd || "14:00",
     availability_start_2: practitioner.availabilityStart2 || null,
     availability_end_2: practitioner.availabilityEnd2 || null,
     active: practitioner.active !== false,
-    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "active"])
+    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "active", "password"])
   };
 }
 
@@ -2625,14 +2694,17 @@ function uiAppointmentToApi(candidate) {
 }
 
 function apiManualBillingMovementToUi(item) {
+  const meta = parseBackendMetadata(item.metadata_json);
   return {
+    ...meta,
     id: item.id,
     type: item.type,
     date: item.date,
     amount: Number(item.amount_cents || 0) / 100,
     concept: item.concept || "",
     createdAt: item.created_at || "",
-    createdBy: item.created_by_name || ""
+    createdBy: item.created_by_name || "",
+    paymentMethod: meta.paymentMethod || "cash"
   };
 }
 
@@ -2642,7 +2714,12 @@ function uiManualBillingMovementToApi(item) {
     date: item.date,
     amount_cents: Math.round(Number(item.amount || 0) * 100),
     concept: item.concept,
-    created_by_name: item.createdBy || currentSessionName()
+    created_by_name: item.createdBy || currentSessionName(),
+    metadata_json: JSON.stringify({
+      paymentMethod: item.paymentMethod || "cash",
+      source: item.source || "",
+      groupMonthlyKey: item.groupMonthlyKey || ""
+    })
   };
 }
 
@@ -2774,24 +2851,17 @@ async function saveClinicSettingsToBackend(nextClinic) {
     return nextClinic;
   }
   let saved;
-  try {
-    saved = await backendRequest("/clinic/settings", {
-      method: "PATCH",
-      body: JSON.stringify({
-        name: nextClinic.name,
-        email: nextClinic.email || undefined,
-        phone: nextClinic.phone || "",
-        working_days: normalizeWorkingDays(nextClinic.workingDays),
-        opening_start: nextClinic.openingStart || "09:00",
-        opening_end: nextClinic.openingEnd || "20:00"
-      })
-    });
-  } catch (error) {
-    if (error.status === 404) {
-      return { ...nextClinic, backendPending: true };
-    }
-    throw error;
-  }
+  saved = await backendRequest("/clinic/settings", {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: nextClinic.name,
+      email: nextClinic.email || undefined,
+      phone: nextClinic.phone || "",
+      working_days: normalizeWorkingDays(nextClinic.workingDays),
+      opening_start: nextClinic.openingStart || "09:00",
+      opening_end: nextClinic.openingEnd || "20:00"
+    })
+  });
   return {
     ...nextClinic,
     name: saved.name || nextClinic.name,
@@ -2827,6 +2897,57 @@ async function backendOptionalCollection(path) {
     }
     throw error;
   }
+}
+
+function isEmptySyncedClinicData(value) {
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).length === 0;
+  }
+  return value === null || value === undefined || value === "";
+}
+
+async function loadClinicDataFromBackend(key, fallback) {
+  try {
+    const payload = await backendRequest(`/clinic-data/${encodeURIComponent(key)}`);
+    if (!payload || typeof payload.data_json !== "string") {
+      return fallback;
+    }
+    const parsed = JSON.parse(payload.data_json);
+    return parsed ?? fallback;
+  } catch (error) {
+    if (error.status === 404) {
+      return fallback;
+    }
+    throw error;
+  }
+}
+
+async function saveClinicDataToBackend(key, value) {
+  if (!backendDataEnabled()) {
+    return value;
+  }
+  await backendRequest(`/clinic-data/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: JSON.stringify({ data_json: JSON.stringify(value ?? null) })
+  });
+  return value;
+}
+
+async function syncClinicDataCollection(key, localValue, fallback, normalizer = (value) => value) {
+  const backendValue = await loadClinicDataFromBackend(key, fallback);
+  const normalizedBackend = normalizer(backendValue ?? fallback);
+  const normalizedLocal = normalizer(localValue ?? fallback);
+  if (!isEmptySyncedClinicData(normalizedBackend)) {
+    return normalizedBackend;
+  }
+  if (!isEmptySyncedClinicData(normalizedLocal)) {
+    await saveClinicDataToBackend(key, normalizedLocal);
+    return normalizedLocal;
+  }
+  return normalizer(fallback);
 }
 
 async function deleteAppointmentFromBackend(appointmentId) {
@@ -2916,7 +3037,7 @@ function remapBackendReferences(maps) {
   saveClinicState("patient-consents", patientConsents);
   saveClinicState("patient-packs", patientPacks);
   saveClinicState("availability-blocks", availabilityBlocks);
-  saveClinicState("group-session-overrides", groupSessionOverrides);
+  saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
 }
 
 function appointmentWithBackendReferences(appointment, maps) {
@@ -3294,10 +3415,7 @@ function practitionerCommissionRateForService(practitioner, service) {
   if (serviceConfig?.enabled) {
     return Math.max(0, Number(serviceConfig.rate || 0));
   }
-  if (service?.type === "group") {
-    return 0;
-  }
-  return Math.max(0, Number(practitioner?.commissionRate || 0));
+  return 0;
 }
 
 function serviceCommissionAmount(appointment, practitioner) {
@@ -3377,7 +3495,7 @@ function syncPatientPackUsageFromAppointments(options = {}) {
     return { ...pack, used: actualUsed, updatedAt: new Date().toISOString(), usageSource: "appointments" };
   });
   if (changed && options.persist) {
-    saveClinicState("patient-packs", patientPacks);
+    saveSyncedClinicState("patient-packs", patientPacks);
   }
   return changed;
 }
@@ -3484,7 +3602,7 @@ function consumePatientPackTransaction(packId, context = {}) {
       lastAppointmentId: context.appointmentId || pack.lastAppointmentId || ""
     };
     patientPacks = patientPacks.map((item) => item.id === packId ? updatedPack : item);
-    saveClinicState("patient-packs", patientPacks);
+    saveSyncedClinicState("patient-packs", patientPacks);
     return {
       ok: true,
       pack: updatedPack,
@@ -3526,7 +3644,7 @@ function restorePatientPackUse(packId) {
     ? { ...item, used: Math.max(0, Number(item.used || 0) - 1), updatedAt: new Date().toISOString() }
     : item
   );
-  saveClinicState("patient-packs", patientPacks);
+  saveSyncedClinicState("patient-packs", patientPacks);
 }
 
 const weekDayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -3690,7 +3808,7 @@ function syncGroupCompletionForSession(group, dateValue = selectedDate) {
         }
       : entry
   ));
-  saveClinicState("group-completions", groupCompletions);
+  saveSyncedClinicState("group-completions", groupCompletions);
 }
 
 function groupFixedPatients(group) {
@@ -3871,12 +3989,12 @@ function saveGroupSessionOverride(groupId, dateValue, values) {
   groupSessionOverrides = existing
     ? groupSessionOverrides.map((item) => item.id === existing.id ? next : item)
     : [...groupSessionOverrides, next];
-  saveClinicState("group-session-overrides", groupSessionOverrides);
+  saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
 }
 
 function clearGroupSessionOverride(groupId, dateValue) {
   groupSessionOverrides = groupSessionOverrides.filter((item) => !(item.groupId === groupId && item.date === dateValue));
-  saveClinicState("group-session-overrides", groupSessionOverrides);
+  saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
 }
 
 function hexToRgba(hex, alpha = 0.13) {
@@ -4928,14 +5046,9 @@ function renderGroupSessionPanel(group, dateValue) {
   const completed = isGroupCompleted(group, dateValue);
   const completion = groupCompletionFor(group, dateValue);
   const completedButton = $("#complete-group-session");
-  const workerInvoiceButton = $("#invoice-group-worker");
   if (completedButton) {
     completedButton.disabled = completed;
     completedButton.textContent = completed ? "Sesion completada" : "Marcar sesion completada";
-  }
-  if (workerInvoiceButton) {
-    workerInvoiceButton.disabled = !completed;
-    workerInvoiceButton.textContent = completion?.workerInvoiceGenerated ? "Reimprimir liquidacion trabajador" : "Generar liquidacion trabajador";
   }
   const completedLabel = $("#group-session-completed-label");
   if (completedLabel) {
@@ -4954,7 +5067,7 @@ function renderGroupSessionPanel(group, dateValue) {
         ? { ...item, patientIds: (item.patientIds || []).filter((id) => id !== patientId) }
         : item
       );
-      saveClinicState("groups", groups);
+      saveSyncedClinicState("groups", groups);
       const baseGroup = groupBaseById(group.id) || group;
       const updatedGroup = groupInstanceForDate(baseGroup, dateValue);
       syncGroupCompletionForSession(updatedGroup, dateValue);
@@ -4967,7 +5080,7 @@ function renderGroupSessionPanel(group, dateValue) {
   $$('[data-dropin-remove]').forEach((button) => {
     button.addEventListener('click', () => {
       groupDropIns = groupDropIns.filter((entry) => entry.id !== button.dataset.dropinRemove);
-      saveClinicState("group-dropins", groupDropIns);
+      saveSyncedClinicState("group-dropins", groupDropIns);
       const baseGroup = groupBaseById(group.id) || group;
       const updatedGroup = groupInstanceForDate(baseGroup, dateValue);
       syncGroupCompletionForSession(updatedGroup, dateValue);
@@ -5510,7 +5623,7 @@ function generateGroupWorkerInvoiceForSession(groupId, dateValue) {
         ? { ...entry, workerInvoiceGenerated: true, workerInvoiceNumber: invoiceNumber, workerInvoiceGeneratedAt: new Date().toISOString() }
         : entry
     ));
-    saveClinicState("group-completions", groupCompletions);
+    saveSyncedClinicState("group-completions", groupCompletions);
     renderGroupSessionPanel(group, dateValue);
     renderPerformance();
   } finally {
@@ -5581,6 +5694,9 @@ function renderSettings() {
   $$("input[name='workingDays']", clinicForm).forEach((input) => {
     input.checked = workingDays.has(input.value);
   });
+  if (clinicForm.elements.reminderMessageTemplate) {
+    clinicForm.elements.reminderMessageTemplate.value = reminderSettings.reminderMessageTemplate || defaultReminderSettings().reminderMessageTemplate;
+  }
   renderAccessRecoveryRequests();
 
   $("#settings-practitioners").innerHTML = practitioners.length ? practitioners
@@ -5594,7 +5710,7 @@ function renderSettings() {
           <strong>${practitioner.name}</strong>
           <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autonomo"}</span>
           <span>${practitioner.accessRole === "staff" ? "Acceso recepcion / administracion" : "Acceso trabajador sanitario"}</span>
-          <span>${Object.values(practitioner.serviceCommissions || {}).filter((item) => item?.enabled).length || "Sin"} servicios configurados - Comision general ${Number(practitioner.commissionRate * 100).toLocaleString("es-ES")}%</span>
+          <span>${Object.values(practitioner.serviceCommissions || {}).filter((item) => item?.enabled).length || "Sin"} servicios con comisión configurada</span>
           <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.password ? "Clave configurada" : "Sin clave configurada"}</span>
           ${practitioner.workerType === "asalariado" ? `
             <div class="attendance-actions">
@@ -5775,7 +5891,7 @@ function renderSettings() {
           return;
         }
         groups = groups.map((item) => item.id === groupId ? { ...item, patientIds: [...(item.patientIds || []), patient.id] } : item);
-        saveClinicState("groups", groups);
+        saveSyncedClinicState("groups", groups);
         renderAll();
       });
     });
@@ -5783,7 +5899,7 @@ function renderSettings() {
       button.addEventListener("click", () => {
         const [groupId, patientId] = button.dataset.configRemoveFixed.split(":");
         groups = groups.map((item) => item.id === groupId ? { ...item, patientIds: (item.patientIds || []).filter((id) => id !== patientId) } : item);
-        saveClinicState("groups", groups);
+        saveSyncedClinicState("groups", groups);
         renderAll();
       });
     });
@@ -5907,7 +6023,9 @@ function renderBilling() {
         amount: Number(pack.price || 0)
       };
     });
-  const manualRows = manualBillingMovements.map((movement) => ({
+  const manualRows = manualBillingMovements
+    .filter((movement) => movement.source !== "group-monthly-fee")
+    .map((movement) => ({
     id: movement.id,
     sortKey: `${movement.date || todayIso()} 23:59`,
     concept: movement.concept || (movement.type === "payment" ? "Pago manual" : "Cobro manual"),
@@ -5916,7 +6034,8 @@ function renderBilling() {
     status: movement.type === "payment" ? "cancelled" : "confirmed",
     statusText: movement.type === "payment" ? "Pago" : "Cobro",
     amount: signedManualBillingAmount(movement),
-    paymentText: movement.type === "payment" ? "Resta" : "Suma",
+    paymentStatus: movement.paymentMethod || "cash",
+    paymentText: `${paymentStatusLabel(movement.paymentMethod || "cash")} - ${movement.type === "payment" ? "Resta" : "Suma"}`,
     manual: true
   }));
   const allRows = [...appointmentRows, ...groupRows, ...packRows, ...manualRows].filter((row) => billingRowInRange(row, range));
@@ -5935,10 +6054,22 @@ function renderBilling() {
   const lost = 0;
   const cash = paidAppointments
     .filter((appointment) => appointment.paymentStatus === "cash" && billingRowInRange(appointment, range))
-    .reduce((total, appointment) => total + appointment.amount, 0);
+    .reduce((total, appointment) => total + appointment.amount, 0)
+    + manualRows
+      .filter((row) => row.paymentStatus === "cash" && billingRowInRange(row, range))
+      .reduce((total, row) => total + row.amount, 0)
+    + groupRows
+      .filter((row) => row.status === "completed" && row.paymentStatus === "cash" && billingRowInRange(row, range))
+      .reduce((total, row) => total + row.amount, 0);
   const card = paidAppointments
     .filter((appointment) => appointment.paymentStatus === "card" && billingRowInRange(appointment, range))
-    .reduce((total, appointment) => total + appointment.amount, 0);
+    .reduce((total, appointment) => total + appointment.amount, 0)
+    + manualRows
+      .filter((row) => row.paymentStatus === "card" && billingRowInRange(row, range))
+      .reduce((total, row) => total + row.amount, 0)
+    + groupRows
+      .filter((row) => row.status === "completed" && row.paymentStatus === "card" && billingRowInRange(row, range))
+      .reduce((total, row) => total + row.amount, 0);
 
   $("#billing-paid").textContent = `${paid} EUR`;
   $("#billing-pending").textContent = `${pending} EUR`;
@@ -5962,7 +6093,10 @@ function renderBilling() {
         <td><span class="status-pill ${row.status}">${row.statusText}</span></td>
         <td>${row.paymentText || (row.invoiceGenerated ? "Facturado" : "Pendiente")}</td>
         <td>${row.amount} EUR</td>
-        <td>${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}</td>
+        <td>
+          ${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}
+          ${row.groupMonthlyKey && !row.collected ? `<button class="secondary-button row-action" type="button" data-collect-group-monthly="${row.groupMonthlyKey}">Cobrar</button>` : ""}
+        </td>
       </tr>
     `)
     .join("") || `<tr><td colspan="7">No hay movimientos para el filtro seleccionado.</td></tr>`;
@@ -5980,7 +6114,12 @@ function renderBilling() {
   });
 
   $$(".row-action").forEach((button) => {
-    button.addEventListener("click", () => openAppointmentDetail(button.dataset.appointmentId));
+    if (button.dataset.appointmentId) {
+      button.addEventListener("click", () => openAppointmentDetail(button.dataset.appointmentId));
+    }
+    if (button.dataset.collectGroupMonthly) {
+      button.addEventListener("click", () => openGroupMonthlyPaymentDialog(button.dataset.collectGroupMonthly));
+    }
   });
 }
 
@@ -5991,16 +6130,27 @@ function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
       return [];
     }
     const practitioner = byId(practitioners, group.practitionerId)?.name || "Profesional";
-    return groupFixedPatients(group).map((patient) => ({
-      id: `group-monthly-${group.id}-${patient.id}-${currentMonth}`,
-      sortKey: `${currentMonth}-01 ${group.start || "00:00"}`,
-      concept: `Cuota mensual - ${group.name}`,
-      patient: patient.name,
-      practitioner,
-      status: "pending",
-      statusText: "Cuota mensual",
-      amount: pricing.monthlyPrice
-    }));
+    return groupFixedPatients(group).map((patient) => {
+      const key = `group-monthly-${group.id}-${patient.id}-${currentMonth}`;
+      const movement = manualBillingMovements.find((item) => item.groupMonthlyKey === key && item.type === "charge");
+      return {
+        id: key,
+        sortKey: `${currentMonth}-01 ${group.start || "00:00"}`,
+        concept: `Cuota mensual - ${group.name}`,
+        patient: patient.name,
+        practitioner,
+        status: movement ? "completed" : "pending",
+        statusText: movement ? "Cobrada" : "Cuota mensual",
+        amount: pricing.monthlyPrice,
+        paymentStatus: movement?.paymentMethod || "",
+        paymentText: movement ? paymentStatusLabel(movement.paymentMethod || "cash") : "Pendiente",
+        groupMonthlyKey: key,
+        groupId: group.id,
+        patientId: patient.id,
+        month: currentMonth,
+        collected: Boolean(movement)
+      };
+    });
   });
   const dropinRows = groupCompletions
     .filter((entry) => String(entry.date || "").slice(0, 7) === currentMonth)
@@ -6021,6 +6171,29 @@ function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
     })
     .filter((row) => row.amount > 0);
   return [...monthlyRows, ...dropinRows];
+}
+
+function openGroupMonthlyPaymentDialog(groupMonthlyKey) {
+  const month = String(groupMonthlyKey || "").slice(-7);
+  const row = groupBillingRows(/^\d{4}-\d{2}$/.test(month) ? month : billingFilterRange().start.slice(0, 7))
+    .find((item) => item.groupMonthlyKey === groupMonthlyKey);
+  if (!row || row.collected) {
+    showToast("La cuota ya está cobrada o no se ha encontrado.", "warning");
+    return;
+  }
+  const form = $("#manual-billing-form");
+  if (!form) return;
+  form.reset();
+  form.dataset.groupMonthlyKey = groupMonthlyKey;
+  form.dataset.source = "group-monthly-fee";
+  form.elements.type.value = "charge";
+  form.elements.type.disabled = true;
+  form.elements.date.value = todayIso();
+  form.elements.amount.value = Number(row.amount || 0);
+  form.elements.concept.value = `${row.concept} - ${row.patient}`;
+  $("#manual-billing-error").classList.remove("visible");
+  $("#manual-billing-error").textContent = "";
+  $("#manual-billing-dialog").showModal();
 }
 
 function billableAppointments() {
@@ -6154,7 +6327,7 @@ function renderPerformance() {
   $("#worker-billing").innerHTML = `
     <article><span>Sesiones facturables</span><strong>${workerReport.appointments.length + (workerReport.groupSessions?.length || 0)}</strong></article>
     <article><span>Ticket medio</span><strong>${workerReport.averageTicket} EUR</strong></article>
-    <article><span>Comision</span><strong>${Number(selectedWorker.commissionRate * 100).toLocaleString("es-ES")}%</strong></article>
+    <article><span>Servicios con comisión</span><strong>${Object.values(selectedWorker.serviceCommissions || {}).filter((item) => item?.enabled).length}</strong></article>
   `;
 
   const activityItems = [
@@ -6230,8 +6403,15 @@ function reminderMessage(reminder) {
   const patient = byId(patients, reminder.patientId);
   const practitioner = byId(practitioners, reminder.practitionerId);
   const service = byId(services, reminder.serviceId);
-  const clinicName = clinic?.name || "la clinica";
-  return `Hola ${patient?.name || "paciente"}, te recordamos tu cita en ${clinicName} el ${reminder.date} a las ${reminder.start} con ${practitioner?.name || "tu profesional"}${service ? ` para ${service.name}` : ""}. Si necesitas cambiarla, responde a este mensaje.`;
+  const template = String(reminderSettings?.reminderMessageTemplate || defaultReminderSettings().reminderMessageTemplate);
+  return template
+    .replaceAll("{{paciente}}", patient?.name || "paciente")
+    .replaceAll("{{nombre_paciente}}", patient?.name || "paciente")
+    .replaceAll("{{fecha}}", reminder.date || "")
+    .replaceAll("{{hora}}", reminder.start || "")
+    .replaceAll("{{clinica}}", clinic?.name || "la clínica")
+    .replaceAll("{{profesional}}", practitioner?.name || "tu profesional")
+    .replaceAll("{{servicio}}", service?.name || "servicio");
 }
 
 function reminderSlotsForAppointment(appointment) {
@@ -6341,7 +6521,7 @@ function saveReminderAction(reminder, status) {
     .filter((item) => item.id !== reminder.id);
 
   reminderActions = dedupeReminderActions([next, ...reminderActions]);
-  saveClinicState("reminder-actions", reminderActions);
+  saveSyncedClinicState("reminder-actions", reminderActions);
   renderAll();
 }
 
@@ -6456,7 +6636,7 @@ function renderReminderCard(reminder, mode = "pending") {
     reopen.textContent = "Reabrir";
     reopen.addEventListener("click", () => {
       reminderActions = reminderActions.filter((item) => item.id !== reminder.id);
-      saveClinicState("reminder-actions", reminderActions);
+      saveSyncedClinicState("reminder-actions", reminderActions);
       renderAll();
     });
     article.append(reopen);
@@ -6487,11 +6667,9 @@ function renderAutomations() {
 
   $("#reminders-today").textContent = todayCount;
   $("#reminders-pending-total").textContent = queue.length;
-  $("#reminders-mode-label").textContent = reminderSettings.autoWhatsapp ? "Automatico" : "Manual";
-  $("#auto-whatsapp-reminders").checked = Boolean(reminderSettings.autoWhatsapp);
+  $("#reminders-mode-label").textContent = "Manual";
   $("#metric-reminders").textContent = metricCount;
   $("#metric-reminders-label").textContent = metricLabel;
-  $("#prepare-due-whatsapp").disabled = !dueCount;
   $("#automation-status").textContent = dueCount
     ? `${dueCount} recordatorio(s) vencido(s) pendientes de preparar por WhatsApp.`
     : "Los mensajes se abren en WhatsApp con el texto preparado para confirmar el envio.";
@@ -6508,9 +6686,6 @@ function renderAutomations() {
     historyList.innerHTML = `<article class="compact-item"><span>Sin historial de recordatorios todavia.</span></article>`;
   }
 
-  if (reminderSettings.autoWhatsapp && dueCount) {
-    window.setTimeout(() => runDueWhatsAppReminders(true), 0);
-  }
 }
 
 function renderMetrics() {
@@ -7651,6 +7826,22 @@ async function hydrateFromApi() {
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
     manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
     attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
+    groups = normalizeGroups(await syncClinicDataCollection("groups", groups, [], normalizeGroups));
+    groupDropIns = await syncClinicDataCollection("group-dropins", groupDropIns, [], (value) => Array.isArray(value) ? value : []);
+    groupCompletions = await syncClinicDataCollection("group-completions", groupCompletions, [], (value) => Array.isArray(value) ? value : []);
+    groupSessionOverrides = await syncClinicDataCollection("group-session-overrides", groupSessionOverrides, [], normalizeGroupSessionOverrides);
+    sessionPacks = normalizeSessionPacks(await syncClinicDataCollection("session-packs", sessionPacks, [], normalizeSessionPacks));
+    patientPacks = normalizePatientPacks(await syncClinicDataCollection("patient-packs", patientPacks, [], normalizePatientPacks));
+    consentTemplates = await syncClinicDataCollection("consent-templates", consentTemplates, [], (value) => Array.isArray(value) ? value : []);
+    patientConsents = await syncClinicDataCollection("patient-consents", patientConsents, [], (value) => Array.isArray(value) ? value : []);
+    reminderActions = await syncClinicDataCollection("reminder-actions", reminderActions, [], (value) => Array.isArray(value) ? value : []);
+    reminderSettings = {
+      ...defaultReminderSettings(),
+      ...(await syncClinicDataCollection("reminder-settings", reminderSettings, defaultReminderSettings(), (value) => value && typeof value === "object" && !Array.isArray(value) ? value : defaultReminderSettings()))
+    };
+    permissionSettings = normalizePermissionSettings(await syncClinicDataCollection("permissions", permissionSettings, defaultPermissionSettings, normalizePermissionSettings));
+    availabilityBlocks = await syncClinicDataCollection("availability-blocks", availabilityBlocks, [], (value) => Array.isArray(value) ? value : []);
+    syncPatientPackUsageFromAppointments({ persist: true });
     selectedPatientId = patients[0]?.id || null;
     saveClinicState("patients", patients);
     saveClinicState("practitioners", practitioners);
@@ -7659,6 +7850,18 @@ async function hydrateFromApi() {
     saveClinicState("appointments", appointments);
     saveClinicState("manual-billing-movements", manualBillingMovements);
     saveClinicState("attendance-records", attendanceRecords);
+    saveClinicState("groups", groups);
+    saveClinicState("group-dropins", groupDropIns);
+    saveSyncedClinicState("group-completions", groupCompletions);
+    saveClinicState("group-session-overrides", groupSessionOverrides);
+    saveClinicState("session-packs", sessionPacks);
+    saveSyncedClinicState("patient-packs", patientPacks);
+    saveClinicState("consent-templates", consentTemplates);
+    saveClinicState("patient-consents", patientConsents);
+    saveClinicState("reminder-actions", reminderActions);
+    saveClinicState("reminder-settings", reminderSettings);
+    saveClinicState("permissions", permissionSettings);
+    saveSyncedClinicState("availability-blocks", availabilityBlocks);
     renderAppointmentFormOptions();
     renderLoginProfiles();
     renderAll();
@@ -7677,20 +7880,6 @@ function setupNavigation() {
     }
   });
   $("#recalculate-reminders")?.addEventListener("click", () => renderAutomations());
-  $("#prepare-due-whatsapp")?.addEventListener("click", () => runDueWhatsAppReminders(true));
-  $("#auto-whatsapp-reminders")?.addEventListener("change", (event) => {
-    reminderSettings = { ...reminderSettings, autoWhatsapp: event.target.checked };
-    saveClinicState("reminder-settings", reminderSettings);
-    renderAutomations();
-    if (reminderSettings.autoWhatsapp) {
-      runDueWhatsAppReminders(true);
-    }
-  });
-  window.setInterval(() => {
-    if (reminderSettings.autoWhatsapp) {
-      runDueWhatsAppReminders(true);
-    }
-  }, 60000);
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setActiveSection(button.dataset.section));
   });
@@ -8795,7 +8984,7 @@ function setupLogin() {
     saveClinicState("group-completions", []);
     saveClinicState("group-session-overrides", []);
     saveClinicState("reminder-actions", []);
-    saveClinicState("reminder-settings", { autoWhatsapp: false });
+    saveClinicState("reminder-settings", defaultReminderSettings());
     saveClinicState("manual-billing-movements", []);
     loadActiveClinicData(account.key);
 
@@ -8889,6 +9078,12 @@ function setupLogin() {
       superadminImpersonateClinic(selectedSuperadminClinicId);
       return;
     }
+    const archiveTestClinicButton = event.target.closest("[data-superadmin-archive-test-clinic]");
+    if (archiveTestClinicButton) {
+      selectedSuperadminClinicId = archiveTestClinicButton.dataset.superadminArchiveTestClinic;
+      superadminArchiveTestClinic(selectedSuperadminClinicId);
+      return;
+    }
     const resetUserButton = event.target.closest("[data-superadmin-reset-user]");
     if (resetUserButton) {
       superadminResetUserPassword(resetUserButton.dataset.superadminResetUser);
@@ -8922,6 +9117,8 @@ function setupLogin() {
         superadminUpdateClinicStatus(clinic.id, clinic.subscription_status === "canceled" ? "active" : "canceled");
       } else if (actionButton.dataset.superadminAction === "reset-owner") {
         superadminResetOwnerForClinic(clinic.id);
+      } else if (actionButton.dataset.superadminAction === "archive-test-clinic") {
+        superadminArchiveTestClinic(clinic.id);
       } else if (actionButton.dataset.superadminAction === "export-audit") {
         superadminExportClinicAudit(clinic.id);
       }
@@ -9336,6 +9533,10 @@ function openAppointmentDetail(appointmentId) {
   const patient = byId(patients, appointment.patientId);
   $("#appointment-detail-title").textContent = `${patient?.name || "Paciente"} - ${appointment.start}`;
   $("#appointment-detail-data").innerHTML = `
+    <dt>Día</dt>
+    <dd>${appointment.date || selectedDate}</dd>
+    <dt>Hora</dt>
+    <dd>${appointment.start || ""}${appointmentEnd(appointment) ? ` - ${appointmentEnd(appointment)}` : ""}</dd>
     <dt>Paciente</dt>
     <dd><button class="link-button detail-link-button" type="button" id="open-appointment-patient">${patient?.name || "Paciente no encontrado"}</button></dd>
     <dt>Servicio</dt>
@@ -10092,10 +10293,10 @@ async function deleteGroupById(groupId) {
   groupDropIns = groupDropIns.filter((entry) => entry.groupId !== groupId);
   groupCompletions = groupCompletions.filter((entry) => entry.groupId !== groupId);
   groupSessionOverrides = groupSessionOverrides.filter((entry) => entry.groupId !== groupId);
-  saveClinicState("groups", groups);
-  saveClinicState("group-dropins", groupDropIns);
-  saveClinicState("group-completions", groupCompletions);
-  saveClinicState("group-session-overrides", groupSessionOverrides);
+  saveSyncedClinicState("groups", groups);
+  saveSyncedClinicState("group-dropins", groupDropIns);
+  saveSyncedClinicState("group-completions", groupCompletions);
+  saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
   renderAll();
   showToast("Sesion grupal eliminada.");
 }
@@ -10231,7 +10432,7 @@ function setupGroupDialog() {
     } else {
       groups = [...groups, group];
     }
-    saveClinicState("groups", groups);
+    saveSyncedClinicState("groups", groups);
     $("#group-form-error").classList.remove("visible");
     $("#group-form-error").textContent = "";
     form.reset();
@@ -10346,13 +10547,9 @@ function setupGroupSessionDialog() {
         completedAt: new Date().toLocaleString("es-ES")
       }
     ];
-    saveClinicState("group-completions", groupCompletions);
+    saveSyncedClinicState("group-completions", groupCompletions);
     renderGroupSessionPanel(group, dateValue);
     renderAll();
-  });
-  $("#invoice-group-worker")?.addEventListener("click", () => {
-    const dateValue = dialog.dataset.date || selectedDate;
-    generateGroupWorkerInvoiceForSession(dialog.dataset.groupId, dateValue);
   });
   $("#add-dropin")?.addEventListener("click", () => {
     const dateValue = dialog.dataset.date || selectedDate;
@@ -10374,7 +10571,7 @@ function setupGroupSessionDialog() {
       ...groupDropIns,
       { id: `dropin-${Date.now()}`, groupId: group.id, date: dateValue, patientId, createdAt: new Date().toLocaleString("es-ES") }
     ];
-    saveClinicState("group-dropins", groupDropIns);
+    saveSyncedClinicState("group-dropins", groupDropIns);
     syncGroupCompletionForSession(group, dateValue);
     renderGroupSessionPanel(group, dateValue);
     renderAll();
@@ -10389,7 +10586,7 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
     ? `
       <div class="service-commission-head" aria-hidden="true">
         <span>Servicio</span>
-        <span>Comision</span>
+        <span>Comisión</span>
       </div>
       ${services.map((service) => {
         const item = config[service.id] || {};
@@ -10405,8 +10602,8 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
               </span>
             </label>
             <label class="service-commission-rate">
-              <span>Comision</span>
-              <input type="text" inputmode="decimal" data-service-commission="${service.id}" value="${rate}" placeholder="General" aria-label="Comision de ${escapeHtml(service.name)}" />
+              <span>Comisión</span>
+              <input type="text" inputmode="decimal" data-service-commission="${service.id}" value="${rate}" placeholder="%" aria-label="Comisión de ${escapeHtml(service.name)}" />
             </label>
           </article>
         `;
@@ -10507,15 +10704,13 @@ async function clockPractitioner(practitionerId, action) {
 }
 
 function resetPractitionerForm(form = $("#practitioner-form")) {
-  form.elements.commissionRate.type = "text";
-  form.elements.commissionRate.inputMode = "decimal";
   form.reset();
   form.dataset.editingPractitionerId = "";
   form.querySelector(".modal-header h2").textContent = "Nuevo trabajador";
   form.querySelector('button[type="submit"]').textContent = "Guardar trabajador";
   form.elements.color.value = workerColorPalette[practitioners.length % workerColorPalette.length];
   form.elements.password.value = "";
-  form.elements.commissionRate.value = "40";
+  form.elements.commissionRate.value = "0";
   form.elements.target.value = 2500;
   form.elements.availabilityStart.value = "08:00";
   form.elements.availabilityEnd.value = "14:00";
@@ -10537,7 +10732,7 @@ function openPractitionerEditor(practitionerId) {
   form.elements.specialty.value = practitioner.specialty || "";
   form.elements.email.value = practitioner.email || "";
   form.elements.password.value = practitioner.password || "";
-  form.elements.commissionRate.value = Number((practitioner.commissionRate || 0) * 100).toLocaleString("es-ES");
+  form.elements.commissionRate.value = "0";
   form.elements.target.value = practitioner.target || 0;
   form.elements.availabilityStart.value = practitioner.availabilityStart || "08:00";
   form.elements.availabilityEnd.value = practitioner.availabilityEnd || "20:00";
@@ -10783,6 +10978,7 @@ function setupConfiguration() {
       $("#clinic-save-status").classList.add("error");
       return;
     }
+    const reminderMessageTemplate = form.elements.reminderMessageTemplate?.value.trim() || defaultReminderSettings().reminderMessageTemplate;
     const nextClinic = {
       ...clinic,
       name: form.elements.name.value.trim() || defaultClinic.name,
@@ -10801,11 +10997,11 @@ function setupConfiguration() {
       $("#clinic-save-status").classList.add("error");
       return;
     }
-    const backendPending = Boolean(clinic.backendPending);
     clinic = { ...clinic };
-    delete clinic.backendPending;
-    $("#clinic-save-status").classList.toggle("error", backendPending);
+    $("#clinic-save-status").classList.remove("error");
     saveClinicState("clinic", clinic);
+    reminderSettings = { ...reminderSettings, reminderMessageTemplate };
+    saveSyncedClinicState("reminder-settings", reminderSettings);
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
       account.key === activeClinicKey
         ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, openingStart: clinic.openingStart, openingEnd: clinic.openingEnd, workingDays: clinic.workingDays }
@@ -10813,9 +11009,7 @@ function setupConfiguration() {
     )));
     saveClinicAccounts();
     renderLoginClinics();
-    $("#clinic-save-status").textContent = backendPending
-      ? "Configuración guardada en este navegador y agenda actualizada. Falta desplegar el backend nuevo para sincronizarla entre dispositivos."
-      : "Configuración guardada. Agenda actualizada.";
+    $("#clinic-save-status").textContent = "Configuración guardada. Agenda actualizada.";
     window.setTimeout(() => {
       const status = $("#clinic-save-status");
       if (status && !status.classList.contains("error")) {
@@ -10896,13 +11090,6 @@ function setupConfiguration() {
       missingField.setCustomValidity("");
       return;
     }
-    const commissionPercent = parseDecimal(form.elements.commissionRate.value, NaN);
-    if (!Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
-      form.elements.commissionRate.setCustomValidity("Escribe un porcentaje entre 0 y 100. Puedes usar coma, por ejemplo 30,5.");
-      form.reportValidity();
-      form.elements.commissionRate.setCustomValidity("");
-      return;
-    }
     const hasSecondRange = Boolean(form.elements.availabilityStart2.value || form.elements.availabilityEnd2.value);
     if (hasSecondRange && (!form.elements.availabilityStart2.value || !form.elements.availabilityEnd2.value || form.elements.availabilityStart2.value >= form.elements.availabilityEnd2.value)) {
       form.elements.availabilityStart2.setCustomValidity("Completa la franja de tarde con una hora de inicio menor que la de fin.");
@@ -10936,7 +11123,7 @@ function setupConfiguration() {
       email: form.elements.email?.value.trim() || "",
       password: form.elements.password.value,
       color: form.elements.color.value,
-      commissionRate: commissionPercent / 100,
+      commissionRate: 0,
       target: Number(form.elements.target.value),
       availabilityStart: form.elements.availabilityStart.value,
       availabilityEnd: form.elements.availabilityEnd.value,
@@ -10973,7 +11160,8 @@ function setupConfiguration() {
           practitioner_id: accessRole === "practitioner" ? savedPractitioner.id : undefined
         });
         if (backendUser?.id) {
-          practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? { ...item, backendUserId: backendUser.id } : item);
+          savedPractitioner = { ...savedPractitioner, backendUserId: backendUser.id, userId: backendUser.id };
+          practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? savedPractitioner : item);
         }
       } catch (error) {
         $("#practitioner-key-status").textContent = backendTokenForAccount(currentClinicAccount())
@@ -11425,7 +11613,7 @@ function setupPatientConsentsAndPacks() {
       expiresAt: sessionPackExpiryDate(pack),
       createdAt: new Date().toLocaleString("es-ES")
     }];
-    saveClinicState("patient-packs", patientPacks);
+    saveSyncedClinicState("patient-packs", patientPacks);
     renderPatientDetail();
   });
 
@@ -11456,7 +11644,7 @@ function setupPatientConsentsAndPacks() {
         }
       : item
     );
-    saveClinicState("patient-packs", patientPacks);
+    saveSyncedClinicState("patient-packs", patientPacks);
     $("#patient-pack-dialog").close();
     renderPatientDetail();
     renderBilling();
@@ -11521,7 +11709,7 @@ async function deletePatientPackAssignment(packId) {
     });
     saveClinicState("appointments", appointments);
   }
-  saveClinicState("patient-packs", patientPacks);
+  saveSyncedClinicState("patient-packs", patientPacks);
   renderAll();
   if (selectedPatientId) {
     renderPatientDetail(selectedPatientId);
@@ -11570,7 +11758,7 @@ function generateInvoiceForPatientPack(packId) {
     ? { ...item, invoice: true, invoiceGenerated: true, invoiceGeneratedAt: new Date().toISOString(), invoiceNumber }
     : item
   );
-  saveClinicState("patient-packs", patientPacks);
+  saveSyncedClinicState("patient-packs", patientPacks);
   renderPatientDetail();
   renderBilling();
 }
@@ -11816,6 +12004,9 @@ function setupBillingControls() {
   $("#add-manual-billing")?.addEventListener("click", () => {
     const form = $("#manual-billing-form");
     form.reset();
+    form.dataset.groupMonthlyKey = "";
+    form.dataset.source = "";
+    form.elements.type.disabled = false;
     form.elements.date.value = todayIso();
     $("#manual-billing-error").classList.remove("visible");
     $("#manual-billing-error").textContent = "";
@@ -11826,8 +12017,9 @@ function setupBillingControls() {
     const form = event.currentTarget;
     const amount = Number(form.elements.amount.value || 0);
     const concept = form.elements.concept.value.trim();
-    if (!form.elements.date.value || !concept || amount <= 0) {
-      $("#manual-billing-error").textContent = "Indica fecha, concepto e importe mayor que cero.";
+    const paymentMethod = form.elements.paymentMethod?.value || "";
+    if (!form.elements.date.value || !concept || amount <= 0 || !paymentMethod) {
+      $("#manual-billing-error").textContent = "Indica fecha, concepto, método e importe mayor que cero.";
       $("#manual-billing-error").classList.add("visible");
       return;
     }
@@ -11837,6 +12029,9 @@ function setupBillingControls() {
       date: form.elements.date.value,
       amount,
       concept,
+      paymentMethod,
+      source: form.dataset.source || "",
+      groupMonthlyKey: form.dataset.groupMonthlyKey || "",
       createdAt: new Date().toISOString(),
       createdBy: currentSessionName()
     };
@@ -11849,6 +12044,9 @@ function setupBillingControls() {
     }
     manualBillingMovements = [movement, ...manualBillingMovements.filter((item) => item.id !== movement.id)];
     saveClinicState("manual-billing-movements", manualBillingMovements);
+    form.elements.type.disabled = false;
+    form.dataset.groupMonthlyKey = "";
+    form.dataset.source = "";
     $("#manual-billing-dialog").close();
     renderBilling();
     showToast("Movimiento de facturacion guardado.");

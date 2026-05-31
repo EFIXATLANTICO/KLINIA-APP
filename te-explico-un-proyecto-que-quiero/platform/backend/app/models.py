@@ -174,6 +174,16 @@ class ManualBillingMovement(TimestampMixin, Base):
     metadata_json: Mapped[str | None] = mapped_column(Text)
 
 
+class ClinicDataBlob(TimestampMixin, Base):
+    __tablename__ = "clinic_data_blobs"
+    __table_args__ = (UniqueConstraint("clinic_id", "key", name="uq_clinic_data_blob_clinic_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(80), nullable=False)
+    data_json: Mapped[str] = mapped_column(Text, default="null", nullable=False)
+
+
 class AttendanceRecord(TimestampMixin, Base):
     __tablename__ = "attendance_records"
     __table_args__ = (UniqueConstraint("clinic_id", "practitioner_id", "date", name="uq_attendance_practitioner_date"),)

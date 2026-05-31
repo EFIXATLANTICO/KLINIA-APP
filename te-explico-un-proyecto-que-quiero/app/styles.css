@@ -5839,6 +5839,7 @@ body.superadmin-mode .public-view.active.superadmin-view {
 .superadmin-status.failure,
 .superadmin-status.past_due,
 .superadmin-status.canceled,
+.superadmin-status.archived,
 .superadmin-status.incomplete,
 .superadmin-status.local_pending_backend,
 .superadmin-status.inactive {

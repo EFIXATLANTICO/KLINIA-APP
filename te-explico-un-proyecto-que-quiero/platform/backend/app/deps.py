@@ -53,6 +53,8 @@ def subscription_allows_use(user: User) -> bool:
     if not clinic:
         return False
     subscription_status = clinic.subscription_status or "trialing"
+    if subscription_status in {"archived", "canceled", "inactive", "blocked"}:
+        return False
     if subscription_status == "active":
         return True
     if clinic.trial_ends_at:

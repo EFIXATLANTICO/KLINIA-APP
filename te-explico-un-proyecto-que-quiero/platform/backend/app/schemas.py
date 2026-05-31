@@ -104,6 +104,16 @@ class ClinicSettingsUpdate(BaseModel):
         return cleaned
 
 
+class ClinicDataBlobIn(BaseModel):
+    data_json: str = "null"
+
+
+class ClinicDataBlobOut(BaseModel):
+    key: str
+    data_json: str = "null"
+    updated_at: datetime | None = None
+
+
 class UserOut(BaseModel):
     id: str
     clinic_id: str | None = None
