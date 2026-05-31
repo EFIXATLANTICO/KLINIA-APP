@@ -349,6 +349,23 @@ def normalized_working_days(days: list[str] | None) -> str:
     return ",".join(cleaned or allowed[:5])
 
 
+def validate_opening_range(start: str | None, end: str | None) -> tuple[str, str]:
+    start_value = start or "09:00"
+    end_value = end or "20:00"
+    try:
+        start_hour, start_minute = [int(part) for part in start_value.split(":", 1)]
+        end_hour, end_minute = [int(part) for part in end_value.split(":", 1)]
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid opening hours")
+    if not (0 <= start_hour <= 23 and 0 <= end_hour <= 23 and 0 <= start_minute <= 59 and 0 <= end_minute <= 59):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid opening hours")
+    start_minutes = start_hour * 60 + start_minute
+    end_minutes = end_hour * 60 + end_minute
+    if start_minutes >= end_minutes:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Opening start must be before opening end")
+    return start_value, end_value
+
+
 def request_ip(request: Request | None) -> str | None:
     if not request:
         return None
@@ -762,6 +779,7 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
 
     plan = plan_by_id(payload.plan)
     trial_ends_at = datetime.now(UTC) + timedelta(days=30)
+    opening_start, opening_end = validate_opening_range(payload.opening_start, payload.opening_end)
     clinic = Clinic(
         name=payload.clinic_name,
         email=email,
@@ -775,6 +793,8 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
         stripe_price_id=plan.get("price_id"),
         trial_ends_at=trial_ends_at,
         working_days=normalized_working_days(payload.working_days),
+        opening_start=opening_start,
+        opening_end=opening_end,
     )
     db.add(clinic)
     db.flush()
@@ -794,9 +814,22 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
     token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)
     checkout_url = None
     if plan["id"] != "trial":
-        session = create_checkout_session(clinic, plan["id"])
-        checkout_url = session.url
-        db.commit()
+        try:
+            session = create_checkout_session(clinic, plan["id"])
+            checkout_url = session.url
+            db.commit()
+        except Exception as error:
+            audit_action(
+                db,
+                user,
+                "checkout-session-deferred",
+                "clinic",
+                clinic.id,
+                {"plan": plan["id"], "reason": str(error)[:240]},
+                result="warning",
+                request=request,
+            )
+            db.commit()
     return TokenOut(access_token=token, clinic_id=clinic.id, subscription_status=clinic.subscription_status, checkout_url=checkout_url, force_password_change=False)
 
 
@@ -1761,6 +1794,13 @@ def update_clinic_settings(
         user.clinic.phone = data["phone"]
     if "working_days" in data:
         user.clinic.working_days = normalized_working_days(data["working_days"])
+    if "opening_start" in data or "opening_end" in data:
+        opening_start, opening_end = validate_opening_range(
+            data.get("opening_start") or user.clinic.opening_start,
+            data.get("opening_end") or user.clinic.opening_end,
+        )
+        user.clinic.opening_start = opening_start
+        user.clinic.opening_end = opening_end
     audit_action(db, user, "update-clinic-settings", "clinic", user.clinic_id, {"fields": sorted(data.keys())})
     db.commit()
     db.refresh(user.clinic)

@@ -26,6 +26,8 @@ class ClinicRegisterIn(BaseModel):
     tax_id: str | None = None
     billing_address: str | None = None
     working_days: list[str] | None = None
+    opening_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    opening_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
 
 
 class LoginIn(BaseModel):
@@ -71,6 +73,8 @@ class ClinicOut(BaseModel):
     current_period_end: datetime | None = None
     trial_ends_at: datetime | None = None
     working_days: str | None = "mon,tue,wed,thu,fri"
+    opening_start: str | None = "09:00"
+    opening_end: str | None = "20:00"
 
     model_config = {"from_attributes": True}
 
@@ -80,6 +84,8 @@ class ClinicSettingsUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     working_days: list[str] | None = None
+    opening_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    opening_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
 
     @field_validator("working_days")
     @classmethod

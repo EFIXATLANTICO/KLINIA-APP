@@ -26,9 +26,12 @@ const defaultPatients = [
 ];
 
 const defaultClinic = {
-  name: "Clinica Demo Klinia",
+  name: "Clínica Demo Klinia",
   email: "demo@klinia.local",
-  phone: "600 000 000"
+  phone: "600 000 000",
+  openingStart: "09:00",
+  openingEnd: "20:00",
+  workingDays: ["mon", "tue", "wed", "thu", "fri"]
 };
 
 const saasPlans = [
@@ -729,7 +732,7 @@ let billingFilterState = loadState("billing-filter-state", {
 let pendingImportSnapshot = null;
 let pendingImportAnalysis = null;
 
-const hours = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00"];
+const defaultAgendaHours = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"];
 
 const sectionTitles = {
   agenda: "Agenda",
@@ -866,10 +869,19 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   activeClinicKey = account.key;
   saveState("active-clinic-key", activeClinicKey);
 
-  const customClinic = { name: account.name, email: account.email || "", phone: account.phone || "", workingDays: normalizeWorkingDays(account.workingDays || defaultWorkingDays) };
+  const customClinic = {
+    name: account.name,
+    email: account.email || "",
+    phone: account.phone || "",
+    openingStart: account.openingStart || "09:00",
+    openingEnd: account.openingEnd || "20:00",
+    workingDays: normalizeWorkingDays(account.workingDays || defaultWorkingDays)
+  };
   const storedClinic = loadClinicState("clinic", isDemoClinic() ? defaultClinic : customClinic);
   clinic = {
     ...storedClinic,
+    openingStart: storedClinic.openingStart || customClinic.openingStart,
+    openingEnd: storedClinic.openingEnd || customClinic.openingEnd,
     workingDays: normalizeWorkingDays(storedClinic.workingDays || customClinic.workingDays)
   };
   patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
@@ -1115,18 +1127,30 @@ async function backendRequest(path, options = {}) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
+  const controller = new AbortController();
+  const timeoutMs = Number(options.timeoutMs || 25000);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const fetchOptions = { ...options };
+  delete fetchOptions.timeoutMs;
   let response;
   try {
     response = await fetch(`${backendApiBaseUrl()}${path}`, {
-      ...options,
-      headers
+      ...fetchOptions,
+      headers,
+      signal: fetchOptions.signal || controller.signal
     });
   } catch (fetchError) {
-    const error = new Error("No se puede conectar con la API de Klinia. Revisa la conexion, actualiza la pagina y confirma que el backend esta desplegado.");
+    const aborted = fetchError?.name === "AbortError";
+    const error = new Error(aborted
+      ? "La API de Klinia ha tardado demasiado en responder. Si estabas creando una clínica, intentaremos recuperar el alta automáticamente."
+      : "No se puede conectar con la API de Klinia. Revisa la conexion, actualiza la pagina y confirma que el backend esta desplegado.");
     error.status = 0;
     error.network = true;
+    error.timeout = aborted;
     error.cause = fetchError;
     throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
   const text = await response.text();
   let payload = null;
@@ -2402,6 +2426,8 @@ async function tryBackendLogin(identifier, password, options = {}) {
       trialEndsAt: (me?.clinic?.trial_ends_at || options.account?.trialEndsAt || "").slice(0, 10) || addDaysIso(todayIso(), 30),
       backendToken: session.access_token,
       backendClinicId: session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "",
+      openingStart: me?.clinic?.opening_start || options.account?.openingStart || "09:00",
+      openingEnd: me?.clinic?.opening_end || options.account?.openingEnd || "20:00",
       workingDays: normalizeWorkingDays(me?.clinic?.working_days || options.account?.workingDays),
       billingProfile: {
         ...(options.account?.billingProfile || {}),
@@ -2755,7 +2781,9 @@ async function saveClinicSettingsToBackend(nextClinic) {
         name: nextClinic.name,
         email: nextClinic.email || undefined,
         phone: nextClinic.phone || "",
-        working_days: normalizeWorkingDays(nextClinic.workingDays)
+        working_days: normalizeWorkingDays(nextClinic.workingDays),
+        opening_start: nextClinic.openingStart || "09:00",
+        opening_end: nextClinic.openingEnd || "20:00"
       })
     });
   } catch (error) {
@@ -2769,6 +2797,8 @@ async function saveClinicSettingsToBackend(nextClinic) {
     name: saved.name || nextClinic.name,
     email: saved.email || nextClinic.email,
     phone: saved.phone || nextClinic.phone,
+    openingStart: saved.opening_start || nextClinic.openingStart,
+    openingEnd: saved.opening_end || nextClinic.openingEnd,
     workingDays: normalizeWorkingDays(saved.working_days || nextClinic.workingDays)
   };
 }
@@ -2966,6 +2996,28 @@ function addMinutes(time, amount) {
 
 function minutesBetween(start, end) {
   return Math.max(0, minutes(end) - minutes(start));
+}
+
+function isValidTimeValue(value) {
+  return /^\d{2}:\d{2}$/.test(String(value || ""));
+}
+
+function clinicOpeningHours() {
+  const start = isValidTimeValue(clinic?.openingStart) ? clinic.openingStart : "08:00";
+  const end = isValidTimeValue(clinic?.openingEnd) ? clinic.openingEnd : "21:00";
+  if (minutes(start) >= minutes(end)) {
+    return { start: "08:00", end: "21:00" };
+  }
+  return { start, end };
+}
+
+function agendaHours() {
+  const { start, end } = clinicOpeningHours();
+  const result = [];
+  for (let cursor = start; minutes(cursor) < minutes(end) && result.length < 24; cursor = addMinutes(cursor, 60)) {
+    result.push(cursor);
+  }
+  return result.length ? result : [...defaultAgendaHours];
 }
 
 function overlappingMinutes(firstStart, firstEnd, secondStart, secondEnd) {
@@ -4180,7 +4232,7 @@ function renderSchedule() {
     schedule.append(head);
   });
 
-  hours.forEach((hour) => {
+  agendaHours().forEach((hour) => {
     const time = document.createElement("div");
     time.className = "time-cell";
     time.textContent = hour;
@@ -4406,7 +4458,7 @@ function renderWeekSchedule(schedule, days) {
     schedule.append(head);
   });
 
-  hours.forEach((hour) => {
+  agendaHours().forEach((hour) => {
     const time = document.createElement("div");
     time.className = "time-cell week-hour-cell";
     time.textContent = hour;
@@ -4679,7 +4731,7 @@ function renderWeekScheduleGrid(schedule, days) {
   });
 
   days.forEach((day) => {
-    hours.forEach((hour) => {
+    agendaHours().forEach((hour) => {
       const time = document.createElement("button");
       time.type = "button";
       time.className = "time-cell week-time";
@@ -5311,6 +5363,7 @@ function renderPatientDetail() {
         <div class="compact-actions">
           <button class="secondary-button compact-inline-button" type="button" data-edit-patient-pack="${item.id}">Editar</button>
           <button class="secondary-button compact-inline-button" type="button" data-invoice-patient-pack="${item.id}">${item.invoiceGenerated ? "Reimprimir" : "Facturar"}</button>
+          <button class="danger-button compact-inline-button" type="button" data-delete-patient-pack="${item.id}">Eliminar</button>
         </div>
       </article>
     `;
@@ -5364,6 +5417,9 @@ function renderPatientDetail() {
   });
   $$("[data-invoice-patient-pack], [data-reprint-pack-invoice]").forEach((button) => {
     button.addEventListener("click", () => generateInvoiceForPatientPack(button.dataset.invoicePatientPack || button.dataset.reprintPackInvoice));
+  });
+  $$("[data-delete-patient-pack]").forEach((button) => {
+    button.addEventListener("click", () => deletePatientPackAssignment(button.dataset.deletePatientPack));
   });
 
   const notes = clinicalNotes
@@ -5515,6 +5571,12 @@ function renderSettings() {
   clinicForm.elements.name.value = clinic.name;
   clinicForm.elements.email.value = clinic.email;
   clinicForm.elements.phone.value = clinic.phone;
+  if (clinicForm.elements.openingStart) {
+    clinicForm.elements.openingStart.value = clinic.openingStart || "09:00";
+  }
+  if (clinicForm.elements.openingEnd) {
+    clinicForm.elements.openingEnd.value = clinic.openingEnd || "20:00";
+  }
   const workingDays = new Set(clinicWorkingDays());
   $$("input[name='workingDays']", clinicForm).forEach((input) => {
     input.checked = workingDays.has(input.value);
@@ -7871,16 +7933,16 @@ function registerFieldLabel(field) {
 function registerPasswordPolicyMessage(password) {
   const value = String(password || "");
   if (value.length < 8) {
-    return "La contrasena debe tener al menos 8 caracteres.";
+    return "La contraseña debe tener al menos 8 caracteres.";
   }
   if (!/[A-ZÁÉÍÓÚÜÑ]/.test(value)) {
-    return "La contrasena debe incluir al menos una mayuscula.";
+    return "La contraseña debe incluir al menos una mayúscula.";
   }
   if (!/[a-záéíóúüñ]/.test(value)) {
-    return "La contrasena debe incluir al menos una minuscula.";
+    return "La contraseña debe incluir al menos una minúscula.";
   }
   if (!/[0-9\W_]/.test(value)) {
-    return "La contrasena debe incluir al menos un numero o simbolo.";
+    return "La contraseña debe incluir al menos un número o símbolo.";
   }
   return "";
 }
@@ -7888,15 +7950,15 @@ function registerPasswordPolicyMessage(password) {
 function registerBackendErrorMessage(error) {
   const detail = String(error?.message || "").toLowerCase();
   if (error?.status === 409) {
-    return "Ya existe una clinica con ese email o NIF/CIF en el backend. Si acabas de crearla, entra con el email y contrasena que has elegido.";
+    return "Ya existe una clínica con ese email o NIF/CIF en el backend. Si acabas de crearla, entra con el email y contraseña que has elegido.";
   }
   if (detail.includes("password")) {
-    return "La contrasena debe tener al menos 8 caracteres e incluir mayuscula, minuscula y un numero o simbolo.";
+    return "La contraseña debe tener al menos 8 caracteres e incluir mayúscula, minúscula y un número o símbolo.";
   }
   if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
-    return "No se ha podido crear la clinica en el backend: no hay conexion con la API de Klinia. Revisa la conexion y vuelve a intentarlo.";
+    return "No se ha podido crear la clínica en el backend: no hay conexión con la API de Klinia. Revisa la conexión y vuelve a intentarlo.";
   }
-  return `No se ha podido crear la clinica en el backend. Comprueba conexion/API y vuelve a intentarlo. Detalle: ${error?.message || "error desconocido"}`;
+  return `No se ha podido crear la clínica en el backend. Comprueba conexión/API y vuelve a intentarlo. Detalle: ${error?.message || "error desconocido"}`;
 }
 
 function clearRegisterError() {
@@ -7980,7 +8042,7 @@ function updateRegisterPlanChoice() {
 }
 
 function updateRegisterPreview() {
-  const name = registerFieldValue("name", "Clinica Fisio Salud");
+  const name = registerFieldValue("name", "Clínica Fisio Salud");
   const address = registerFieldValue("billingAddress", "Calle Mayor, 10");
   const postalCode = registerFieldValue("postalCode", "28001");
   const city = registerFieldValue("city", "Madrid");
@@ -8095,12 +8157,20 @@ function validateRegisterStep(step = registerCurrentStep()) {
     }
   }
   if (step === "account" && form.elements.password.value !== form.elements.confirmPassword.value) {
-    showRegisterError("Las contrasenas no coinciden.", form.elements.confirmPassword);
+    showRegisterError("Las contraseñas no coinciden.", form.elements.confirmPassword);
     return false;
   }
   if (step === "operations" && !$$("#register-form input[name='days']:checked").length) {
-    showRegisterError("Selecciona al menos un dia de atencion.");
+    showRegisterError("Selecciona al menos un día de atención.");
     return false;
+  }
+  if (step === "operations") {
+    const openingStart = form.elements.openingStart?.value || "";
+    const openingEnd = form.elements.openingEnd?.value || "";
+    if (isValidTimeValue(openingStart) && isValidTimeValue(openingEnd) && minutes(openingStart) >= minutes(openingEnd)) {
+      showRegisterError("El horario de apertura debe ser anterior al horario de cierre.", form.elements.openingEnd);
+      return false;
+    }
   }
   syncRegisterDraftFromForm();
   clearRegisterError();
@@ -8112,7 +8182,7 @@ function setRegisterSubmitting(isSubmitting) {
   const backButton = $("#register-back-button");
   if (submitButton) {
     submitButton.disabled = isSubmitting;
-    submitButton.textContent = isSubmitting ? "Creando clinica..." : "Confirmar y crear clinica";
+    submitButton.textContent = isSubmitting ? "Creando clínica..." : "Confirmar y crear clínica";
   }
   if (backButton) {
     backButton.disabled = isSubmitting;
@@ -8158,6 +8228,8 @@ async function recoverRegisterSessionAfterDuplicate(form, account) {
         backendClinicId,
         subscriptionStatus: session.subscription_status || me.clinic.subscription_status || account.subscriptionStatus,
         billingStatus: session.subscription_status || me.clinic.subscription_status || account.billingStatus,
+        openingStart: me.clinic.opening_start || account.openingStart || "09:00",
+        openingEnd: me.clinic.opening_end || account.openingEnd || "20:00",
         workingDays: normalizeWorkingDays(me.clinic.working_days || account.workingDays),
         billingProfile: {
           ...(existingLocal?.billingProfile || account.billingProfile || {}),
@@ -8349,12 +8421,6 @@ function setupPublicAccessNavigation() {
   });
   $$("[data-billing-cycle]").forEach((button) => {
     button.addEventListener("click", () => updatePublicBillingCycle(button.dataset.billingCycle));
-  });
-  $$("[data-public-screen='landing'] .faq-grid details").forEach((item) => {
-    item.addEventListener("toggle", () => {
-      const y = window.scrollY;
-      window.requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
-    });
   });
   $$("[data-help-scroll-faq]").forEach((button) => {
     button.addEventListener("click", () => $("#help-faq")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -8596,9 +8662,9 @@ function setupLogin() {
       const sameTaxId = taxId && String(duplicateAccount.billingProfile?.taxId || duplicateAccount.taxId || "").trim().toLowerCase() === taxId.toLowerCase();
       const sameEmail = clinicEmail && String(duplicateAccount.email || duplicateAccount.billingProfile?.billingEmail || "").trim().toLowerCase() === clinicEmail.toLowerCase();
       $("#register-error").textContent = sameTaxId
-        ? "Ya existe una clinica con ese NIF/CIF. Revisa el dato o entra desde el selector de clinicas."
+        ? "Ya existe una clínica con ese NIF/CIF. Revisa el dato o entra desde el selector de clínicas."
         : sameEmail
-          ? "Ya existe una clinica con ese email. Revisa el dato o entra desde Login."
+          ? "Ya existe una clínica con ese email. Revisa el dato o entra desde Login."
           : "Ya existe un usuario con ese email. Usa otro email o entra desde Login.";
       $("#register-error").classList.add("visible");
       delete form.dataset.registerSubmitting;
@@ -8641,6 +8707,8 @@ function setupLogin() {
       checkoutUrl: paymentPlan === "trial" ? "" : `https://checkout.stripe.com/demo/${key}?plan=${paymentPlan}`,
       billingHistory: [],
       billingProfile,
+      openingStart: form.elements.openingStart?.value || "09:00",
+      openingEnd: form.elements.openingEnd?.value || "20:00",
       workingDays: registerWorkingDays
     };
     let backendSession = null;
@@ -8659,6 +8727,8 @@ function setupLogin() {
           billing_email: billingProfile.billingEmail || clinicEmail,
           tax_id: taxId || undefined,
           billing_address: billingProfile.billingAddress,
+          opening_start: form.elements.openingStart?.value || "09:00",
+          opening_end: form.elements.openingEnd?.value || "20:00",
           working_days: registerWorkingDays
         })
       });
@@ -8668,7 +8738,7 @@ function setupLogin() {
       account.billingStatus = backendSession.subscription_status || account.billingStatus;
       account.checkoutUrl = backendSession.checkout_url || account.checkoutUrl;
     } catch (error) {
-      const recovered = error.status === 409
+      const recovered = (error.status === 409 || error.network || error.timeout)
         ? await recoverRegisterSessionAfterDuplicate(form, account)
         : null;
       if (recovered?.account) {
@@ -8698,7 +8768,7 @@ function setupLogin() {
       billingAddress: billingProfile.billingAddress,
       postalCode: form.elements.postalCode?.value.trim() || "",
       city: form.elements.city?.value.trim() || "",
-      country: form.elements.country?.value || "Espana",
+      country: form.elements.country?.value || "España",
       specialty: form.elements.specialty?.value || "",
       clinicType: form.elements.clinicType?.value || "",
       professionalsCount: form.elements.professionalsCount?.value || "",
@@ -8737,7 +8807,7 @@ function setupLogin() {
     registerCreatedAccount = createdAccount;
     updateRegisterPlanChoice();
     setRegisterStep("success");
-    showToast("Clinica creada. Ya puedes iniciar sesion.");
+    showToast("Clínica creada. Ya puedes iniciar sesión.");
     delete form.dataset.registerSubmitting;
     setRegisterSubmitting(false);
   });
@@ -10698,7 +10768,19 @@ function setupConfiguration() {
       .map((input) => normalizeWorkingDayKey(input.value))
       .filter(Boolean);
     if (!workingDays.length) {
-      $("#clinic-save-status").textContent = "Selecciona al menos un dia de atencion.";
+      $("#clinic-save-status").textContent = "Selecciona al menos un día de atención.";
+      return;
+    }
+    const openingStart = form.elements.openingStart?.value || clinic.openingStart || "09:00";
+    const openingEnd = form.elements.openingEnd?.value || clinic.openingEnd || "20:00";
+    if (!isValidTimeValue(openingStart) || !isValidTimeValue(openingEnd)) {
+      $("#clinic-save-status").textContent = "Revisa el horario de apertura y cierre.";
+      $("#clinic-save-status").classList.add("error");
+      return;
+    }
+    if (minutes(openingStart) >= minutes(openingEnd)) {
+      $("#clinic-save-status").textContent = "El horario de apertura debe ser anterior al horario de cierre.";
+      $("#clinic-save-status").classList.add("error");
       return;
     }
     const nextClinic = {
@@ -10706,13 +10788,16 @@ function setupConfiguration() {
       name: form.elements.name.value.trim() || defaultClinic.name,
       email: form.elements.email?.value.trim() || "",
       phone: form.elements.phone.value.trim(),
+      openingStart,
+      openingEnd,
       workingDays
     };
-    $("#clinic-save-status").textContent = "Guardando configuracion...";
+    $("#clinic-save-status").textContent = "Guardando configuración...";
+    $("#clinic-save-status").classList.remove("error");
     try {
       clinic = await saveClinicSettingsToBackend(nextClinic);
     } catch (error) {
-      $("#clinic-save-status").textContent = `No se pudo guardar configuracion: ${error.message}`;
+      $("#clinic-save-status").textContent = `No se pudo guardar configuración: ${error.message}`;
       $("#clinic-save-status").classList.add("error");
       return;
     }
@@ -10723,14 +10808,20 @@ function setupConfiguration() {
     saveClinicState("clinic", clinic);
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
       account.key === activeClinicKey
-        ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, workingDays: clinic.workingDays }
+        ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, openingStart: clinic.openingStart, openingEnd: clinic.openingEnd, workingDays: clinic.workingDays }
         : account
     )));
     saveClinicAccounts();
     renderLoginClinics();
     $("#clinic-save-status").textContent = backendPending
-      ? "Configuracion guardada en este navegador y Agenda actualizada. Falta desplegar el backend nuevo para sincronizarlo entre dispositivos."
-      : "Configuracion guardada. Agenda actualizada.";
+      ? "Configuración guardada en este navegador y agenda actualizada. Falta desplegar el backend nuevo para sincronizarla entre dispositivos."
+      : "Configuración guardada. Agenda actualizada.";
+    window.setTimeout(() => {
+      const status = $("#clinic-save-status");
+      if (status && !status.classList.contains("error")) {
+        status.textContent = "";
+      }
+    }, 3500);
     renderFilters();
     renderAppointmentFormOptions();
     renderAll();
@@ -10738,7 +10829,7 @@ function setupConfiguration() {
 
   $("#delete-clinic").addEventListener("click", async () => {
     if (isDemoClinic()) {
-      const confirmed = await confirmClinicReset("Esto limpiara la demo local y la dejara con datos de ejemplo.");
+      const confirmed = await confirmClinicReset("Esto limpiará la demo local y la dejará con datos de ejemplo.");
       if (!confirmed) {
         $("#clinic-save-status").textContent = "Reset cancelado. No se ha cambiado nada.";
         return;
@@ -10749,7 +10840,7 @@ function setupConfiguration() {
       loadActiveClinicData(demoClinicKey);
     } else {
       const account = clinicAccountByKey(activeClinicKey);
-      const confirmed = await confirmClinicReset(`Vas a resetear pacientes, citas, trabajadores, salas y servicios de ${clinic.name}. La clinica seguira existiendo para poder entrar de nuevo.`);
+      const confirmed = await confirmClinicReset(`Vas a resetear pacientes, citas, trabajadores, salas y servicios de ${clinic.name}. La clínica seguirá existiendo para poder entrar de nuevo.`);
       if (!confirmed) {
         $("#clinic-save-status").textContent = "Reset cancelado. No se ha cambiado nada.";
         return;
@@ -10783,7 +10874,7 @@ function setupConfiguration() {
     renderSession();
     renderAll();
     appendAuditLog("reset-clinic", { clinicKey: activeClinicKey, demo: isDemoClinic() });
-    $("#clinic-save-status").textContent = "Clinica reseteada. La cuenta sigue disponible para entrar.";
+    $("#clinic-save-status").textContent = "Clínica reseteada. La cuenta sigue disponible para entrar.";
   });
 
   $("#new-practitioner").addEventListener("click", () => {
@@ -11392,6 +11483,50 @@ async function consumePatientPack(packId) {
   showToast(`Sesion descontada. Quedan ${result.remaining} sesiones.`);
   renderPatientDetail();
   renderBilling();
+}
+
+async function deletePatientPackAssignment(packId) {
+  const pack = byId(patientPacks, packId);
+  if (!pack) {
+    return;
+  }
+  const linkedAppointments = appointments.filter((appointment) => (
+    String(appointment.patientPackId || "") === String(pack.id)
+      || String(appointment.plannedPatientPackId || "") === String(pack.id)
+  ));
+  const confirmed = await showConfirm({
+    eyebrow: "Bono asignado",
+    title: "Eliminar bono del paciente",
+    message: `¿Quieres eliminar "${pack.name}" de la ficha del paciente?`,
+    detail: linkedAppointments.length
+      ? `Hay ${linkedAppointments.length} cita(s) vinculada(s). Se quitará la relación con este bono para evitar que siga apareciendo como aplicado.`
+      : "Esta acción solo retira el bono asignado a este paciente.",
+    confirmLabel: "Eliminar bono"
+  });
+  if (!confirmed) {
+    return;
+  }
+  patientPacks = patientPacks.filter((item) => String(item.id) !== String(pack.id));
+  if (linkedAppointments.length) {
+    appointments = appointments.map((appointment) => {
+      if (String(appointment.patientPackId || "") !== String(pack.id) && String(appointment.plannedPatientPackId || "") !== String(pack.id)) {
+        return appointment;
+      }
+      return {
+        ...appointment,
+        patientPackId: "",
+        plannedPatientPackId: "",
+        patientPackUsedAt: ""
+      };
+    });
+    saveClinicState("appointments", appointments);
+  }
+  saveClinicState("patient-packs", patientPacks);
+  renderAll();
+  if (selectedPatientId) {
+    renderPatientDetail(selectedPatientId);
+  }
+  showToast("Bono eliminado de la ficha del paciente.");
 }
 
 function openPatientPackDialog(packId) {

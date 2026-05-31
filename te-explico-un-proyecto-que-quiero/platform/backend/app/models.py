@@ -55,6 +55,8 @@ class Clinic(TimestampMixin, Base):
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     working_days: Mapped[str] = mapped_column(String(40), default="mon,tue,wed,thu,fri")
+    opening_start: Mapped[str] = mapped_column(String(5), default="09:00")
+    opening_end: Mapped[str] = mapped_column(String(5), default="20:00")
 
     users: Mapped[list["User"]] = relationship(back_populates="clinic")
 

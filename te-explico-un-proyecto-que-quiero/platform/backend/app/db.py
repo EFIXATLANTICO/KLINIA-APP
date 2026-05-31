@@ -54,6 +54,8 @@ def ensure_runtime_schema() -> None:
             "trial_ends_at": "TIMESTAMP",
             "current_period_end": "TIMESTAMP",
             "working_days": "VARCHAR(40) DEFAULT 'mon,tue,wed,thu,fri'",
+            "opening_start": "VARCHAR(5) DEFAULT '09:00'",
+            "opening_end": "VARCHAR(5) DEFAULT '20:00'",
         }
         if engine.dialect.name == "postgresql":
             connection.execute(text("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'superadmin'"))

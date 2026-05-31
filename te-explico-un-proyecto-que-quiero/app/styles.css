@@ -619,6 +619,8 @@ body.login-mode .public-access {
 
 [data-public-screen="landing"] .faq-grid details {
   height: 104px;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 [data-public-screen="landing"] .faq-grid summary {
@@ -640,6 +642,7 @@ body.login-mode .public-access {
 
 [data-public-screen="landing"] .faq-grid p {
   font-size: 13px;
+  padding-bottom: 14px;
 }
 
 .public-final-cta {
@@ -2824,6 +2827,10 @@ dialog::backdrop {
   font-weight: 800;
 }
 
+.clinic-hours-fieldset {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .check-row {
   display: flex !important;
   grid-template-columns: none !important;
@@ -4744,7 +4751,8 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   }
 
   .billing-filters,
-  .service-commission-grid {
+  .service-commission-grid,
+  .clinic-hours-fieldset {
     grid-template-columns: 1fr;
   }
 
