@@ -5439,9 +5439,33 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   background: #f4f8f7;
 }
 
+body.superadmin-mode {
+  overflow: hidden;
+}
+
 body.superadmin-mode .public-nav,
 body.superadmin-mode .public-nav-actions {
   display: none;
+}
+
+body.superadmin-mode .login-screen.public-access {
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+  padding: 0;
+}
+
+body.superadmin-mode .public-shell {
+  gap: 0;
+  min-height: 100dvh;
+  width: 100%;
+}
+
+body.superadmin-mode .public-view.active.superadmin-view {
+  display: block;
+  gap: 0;
+  min-height: 100dvh;
+  width: 100%;
 }
 
 .superadmin-console {
@@ -5454,9 +5478,11 @@ body.superadmin-mode .public-nav-actions {
 }
 
 .superadmin-sidebar {
-  position: sticky;
+  position: relative;
   top: 0;
   height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -5497,6 +5523,7 @@ body.superadmin-mode .public-nav-actions {
   display: grid;
   gap: 4px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
 }
 
@@ -5534,8 +5561,10 @@ body.superadmin-mode .public-nav-actions {
 
 .superadmin-main {
   height: 100dvh;
+  max-height: 100dvh;
   min-width: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 24px;
   scroll-behavior: auto;
 }
@@ -5585,16 +5614,12 @@ body.superadmin-mode .public-nav-actions {
 }
 
 .superadmin-panel {
-  height: 0;
+  display: none;
   min-height: calc(100dvh - 250px);
-  overflow: hidden;
-  visibility: hidden;
 }
 
 .superadmin-panel.active {
-  height: auto;
-  overflow: visible;
-  visibility: visible;
+  display: block;
 }
 
 .superadmin-kpis {
@@ -5970,15 +5995,21 @@ body.superadmin-mode .public-nav-actions {
 }
 
 @media (max-width: 1100px) {
+  body.superadmin-mode .login-screen.public-access {
+    overflow: auto;
+  }
+
   .superadmin-console {
     grid-template-columns: 1fr;
     height: auto;
+    min-height: 100dvh;
     overflow: visible;
   }
 
   .superadmin-sidebar {
     position: static;
     height: auto;
+    overflow: visible;
   }
 
   .superadmin-nav {
@@ -5987,6 +6018,7 @@ body.superadmin-mode .public-nav-actions {
 
   .superadmin-main {
     height: auto;
+    max-height: none;
     overflow: visible;
   }
 

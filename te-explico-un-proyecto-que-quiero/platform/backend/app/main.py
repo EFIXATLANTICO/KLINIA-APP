@@ -732,6 +732,32 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
         )
     )
     if existing:
+        owner = db.scalar(
+            select(User).where(
+                User.clinic_id == existing.id,
+                func.lower(User.email) == email,
+                User.role == UserRole.owner,
+            )
+        )
+        if owner and verify_login_password(password, owner.password_hash):
+            audit_action(
+                db,
+                owner,
+                "register-clinic-recovered",
+                "clinic",
+                existing.id,
+                {"reason": "idempotent-register-retry"},
+                request=request,
+            )
+            db.commit()
+            token = create_access_token(subject=owner.id, clinic_id=owner.clinic_id, role=owner.role.value)
+            return TokenOut(
+                access_token=token,
+                clinic_id=existing.id,
+                subscription_status=existing.subscription_status,
+                checkout_url=None,
+                force_password_change=owner.force_password_change,
+            )
         raise HTTPException(status_code=409, detail="Clinic tax id or email already exists")
 
     plan = plan_by_id(payload.plan)

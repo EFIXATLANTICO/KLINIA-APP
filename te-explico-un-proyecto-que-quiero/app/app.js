@@ -1761,6 +1761,19 @@ function exportSuperadminCsv() {
   downloadTextFile(`superadmin-${superadminActiveModule}-${todayIso()}.csv`, csv, "text/csv");
 }
 
+function setSuperadminBusy(isBusy, label = "Cargando...") {
+  const refreshButton = $("#superadmin-refresh-button");
+  const filterButton = $("#superadmin-filter-form button[type='submit']");
+  if (refreshButton) {
+    refreshButton.disabled = isBusy;
+    refreshButton.textContent = isBusy ? label : "Actualizar";
+  }
+  if (filterButton) {
+    filterButton.disabled = isBusy;
+    filterButton.textContent = isBusy ? "Aplicando..." : "Aplicar filtros";
+  }
+}
+
 async function superadminResetUserPassword(userId) {
   const user = superadminData.users.find((item) => item.id === userId);
   if (!user) return;
@@ -1974,9 +1987,9 @@ async function superadminExportClinicAudit(clinicId) {
   exportSuperadminCsv();
 }
 
-async function loadSuperadminPanel() {
+async function loadSuperadminPanel(options = {}) {
   const token = superadminToken();
-  if (!token) return;
+  if (!token) return false;
   const form = $("#superadmin-filter-form");
   const params = new URLSearchParams();
   const clinicId = form?.elements.clinicId?.value || "";
@@ -1988,6 +2001,7 @@ async function loadSuperadminPanel() {
   if (dateFrom) params.set("date_from", `${dateFrom}T00:00:00`);
   if (dateTo) params.set("date_to", `${dateTo}T23:59:59`);
 
+  setSuperadminBusy(true, options.loadingLabel || "Actualizando...");
   try {
     const loadErrors = [];
     const safeSuperadminRequest = async (label, requestPromise, fallback) => {
@@ -2037,14 +2051,21 @@ async function loadSuperadminPanel() {
       clinicFilter.value = previousValue;
     }
     renderSuperadminViews();
+    if (options.feedback) {
+      showToast(options.feedback, "success");
+    }
+    return true;
   } catch (error) {
     if ([401, 403].includes(error.status)) {
       clearSuperadminSession();
       showPublicView("login", { updateHash: true, resetLogin: true });
       showLoginError("La sesion de superadmin ha caducado o no tiene permisos. Vuelve a iniciar sesion.", $("#login-form")?.elements?.center);
-      return;
+      return false;
     }
     showToast(`No se pudo cargar el panel superadmin: ${error.message}`, "error");
+    return false;
+  } finally {
+    setSuperadminBusy(false);
   }
 }
 
@@ -2270,8 +2291,13 @@ function openChangePasswordDialog(options = {}) {
   if (!dialog || !form) return;
   form.reset();
   const identity = currentSessionAccessIdentity();
+  const force = Boolean(options.force);
+  dialog.dataset.forcePasswordChange = force ? "true" : "false";
+  $$("[data-password-change-optional]").forEach((button) => {
+    button.classList.toggle("hidden", force);
+  });
   $("#change-password-help").textContent = options.force
-    ? `Has entrado con una clave temporal como ${identity.label}. Cambiala ahora para mantener el acceso seguro.`
+    ? `Has entrado con una clave temporal como ${identity.label}. Debes cambiarla ahora para poder seguir usando Klinia con normalidad.`
     : `Cambia la clave de ${identity.label}${identity.email ? ` (${identity.email})` : ""}. No guardamos contrasenas reales en claro.`;
   $("#change-password-error").textContent = "";
   $("#change-password-error").classList.remove("visible");
@@ -2290,8 +2316,9 @@ async function submitPasswordChange(form) {
     error.classList.add("visible");
     return;
   }
-  if (newPassword.length < 8) {
-    error.textContent = "La nueva clave debe tener al menos 8 caracteres.";
+  const policyMessage = registerPasswordPolicyMessage(newPassword).replace("contrasena", "clave");
+  if (policyMessage) {
+    error.textContent = policyMessage;
     error.classList.add("visible");
     return;
   }
@@ -2325,6 +2352,10 @@ async function submitPasswordChange(form) {
     }
   }
   updateLocalCurrentSessionPassword(newPassword);
+  const dialog = $("#change-password-dialog");
+  if (dialog) {
+    dialog.dataset.forcePasswordChange = "false";
+  }
   $("#change-password-dialog")?.close();
   showToast("Clave actualizada correctamente.", "success");
 }
@@ -8725,12 +8756,18 @@ function setupLogin() {
     event.preventDefault();
     await submitPasswordChange(event.currentTarget);
   });
-
-  $("#superadmin-filter-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    loadSuperadminPanel();
+  $("#change-password-dialog")?.addEventListener("cancel", (event) => {
+    if (event.currentTarget.dataset.forcePasswordChange === "true") {
+      event.preventDefault();
+      setInlineError("#change-password-error", "Debes cambiar la clave temporal antes de continuar.");
+    }
   });
-  $("#superadmin-refresh-button")?.addEventListener("click", () => loadSuperadminPanel());
+
+  $("#superadmin-filter-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await loadSuperadminPanel({ feedback: "Filtros aplicados.", loadingLabel: "Filtrando..." });
+  });
+  $("#superadmin-refresh-button")?.addEventListener("click", () => loadSuperadminPanel({ feedback: "Panel actualizado.", loadingLabel: "Actualizando..." }));
   $$(".superadmin-nav [data-superadmin-module]").forEach((button) => {
     button.addEventListener("click", () => setSuperadminModule(button.dataset.superadminModule));
   });
@@ -8739,14 +8776,15 @@ function setupLogin() {
   $("#superadmin-user-role-filter")?.addEventListener("change", renderSuperadminUsersTable);
   $("#superadmin-user-status-filter")?.addEventListener("change", renderSuperadminUsersTable);
   $("#superadmin-export-button")?.addEventListener("click", exportSuperadminCsv);
-  $("#superadmin-detail-open-audit")?.addEventListener("click", () => {
+  $("#superadmin-detail-open-audit")?.addEventListener("click", async () => {
     const clinic = clinicBySuperadminId();
     const filter = $("#superadmin-clinic-filter");
     if (clinic?.source === "backend" && filter) {
       filter.value = clinic.id;
-      loadSuperadminPanel();
+      await loadSuperadminPanel({ loadingLabel: "Cargando auditoria..." });
     }
     setSuperadminModule("audit");
+    showToast("Auditoria filtrada por clinica.", "success");
   });
   $("#superadmin-detail-impersonate")?.addEventListener("click", () => {
     const clinic = clinicBySuperadminId();
@@ -8847,6 +8885,10 @@ function setupDialogCloseButtons() {
   $$(".dialog-close").forEach((button) => {
     button.addEventListener("click", () => {
       const dialog = document.getElementById(button.dataset.dialogId);
+      if (dialog?.id === "change-password-dialog" && dialog.dataset.forcePasswordChange === "true") {
+        setInlineError("#change-password-error", "Debes cambiar la clave temporal antes de continuar.");
+        return;
+      }
       if (dialog?.open) {
         dialog.close();
       }
