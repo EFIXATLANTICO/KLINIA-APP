@@ -2099,6 +2099,26 @@ def update_practitioner(practitioner_id: str, payload: PractitionerUpdate, user:
 @app.delete("/practitioners/{practitioner_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_practitioner(practitioner_id: str, user: User = Depends(require_subscribed_roles(UserRole.owner)), db: Session = Depends(get_db)) -> None:
     practitioner = clinic_item_or_404(db, Practitioner, practitioner_id, user.clinic_id)
+    active_appointment_refs = db.scalar(
+        select(func.count()).select_from(Appointment).where(
+            Appointment.clinic_id == user.clinic_id,
+            Appointment.practitioner_id == practitioner.id,
+            Appointment.status != AppointmentStatus.cancelled,
+        )
+    ) or 0
+    if active_appointment_refs:
+        raise HTTPException(status_code=409, detail="Practitioner has active appointments")
+    appointment_refs = db.scalar(
+        select(func.count()).select_from(Appointment).where(
+            Appointment.clinic_id == user.clinic_id,
+            Appointment.practitioner_id == practitioner.id,
+        )
+    ) or 0
+    if appointment_refs:
+        practitioner.active = False
+        audit_action(db, user, "archive-practitioner", "practitioner", practitioner.id, {"appointment_refs": appointment_refs})
+        db.commit()
+        return
     audit_action(db, user, "delete-practitioner", "practitioner", practitioner.id)
     db.delete(practitioner)
     db.commit()
@@ -2288,10 +2308,6 @@ def delete_manual_billing_movement(
 @app.get("/appointments", response_model=list[AppointmentOut])
 def list_appointments(user: User = Depends(current_subscribed_user), db: Session = Depends(get_db)) -> list[Appointment]:
     query = select(Appointment).where(Appointment.clinic_id == user.clinic_id).order_by(Appointment.date, Appointment.start)
-    if user.role == UserRole.practitioner:
-        if not user.practitioner:
-            return []
-        query = query.where(Appointment.practitioner_id == user.practitioner.id)
     return list(db.scalars(query))
 
 

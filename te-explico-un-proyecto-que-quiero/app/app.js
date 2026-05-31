@@ -547,8 +547,12 @@ function normalizeGroups(savedGroups) {
     commissionPerPatient: 0,
     patientIds: [],
     active: true,
+    dateFrom: "",
+    dateTo: "",
     ...group,
-    days: Array.isArray(group.days) ? group.days : []
+    days: Array.isArray(group.days) ? group.days : [],
+    dateFrom: /^\d{4}-\d{2}-\d{2}$/.test(String(group.dateFrom || "")) ? group.dateFrom : "",
+    dateTo: /^\d{4}-\d{2}-\d{2}$/.test(String(group.dateTo || "")) ? group.dateTo : ""
   }));
 }
 
@@ -2118,9 +2122,45 @@ async function loadSuperadminPanel(options = {}) {
       safeSuperadminRequest("Health", backendRequest("/health", { auth: false }), null)
     ]);
     const clinics = mergeSuperadminClinics(backendClinics);
+    const selectedBackendClinic = clinicId
+      ? backendClinics.find((clinic) => String(clinic.id) === String(clinicId))
+      : null;
+    const visibleClinics = clinicId
+      ? clinics.filter((clinic) => String(clinic.id) === String(clinicId))
+      : clinics;
+    const visibleBackendClinics = clinicId
+      ? backendClinics.filter((clinic) => String(clinic.id) === String(clinicId))
+      : backendClinics;
+    const visibleAccessIssues = clinicId
+      ? accessIssues.filter((issue) => String(issue.clinic_id || "") === String(clinicId))
+      : accessIssues;
+    const visibleOverview = clinicId
+      ? {
+          ...overview,
+          total_clinics: selectedBackendClinic ? 1 : 0,
+          total_users: users.length,
+          active_clinics: selectedBackendClinic?.subscription_status === "active" ? 1 : 0,
+          trialing_clinics: ["trial", "trialing"].includes(String(selectedBackendClinic?.subscription_status || "")) ? 1 : 0,
+          past_due_clinics: ["past_due", "incomplete", "canceled", "archived", "blocked"].includes(String(selectedBackendClinic?.subscription_status || "")) ? 1 : 0,
+          failed_logins_24h: audit.filter((item) => item.action === "login-failed").length,
+          activity_24h: audit.length
+        }
+      : overview;
     const localClinics = clinics.filter((clinic) => clinic.source === "local");
-    superadminData = { overview, clinics, backendClinics, users, audit, accessIssues, plans, health, loadErrors };
-    if (!selectedSuperadminClinicId || !clinics.some((clinic) => String(clinic.id) === String(selectedSuperadminClinicId))) {
+    superadminData = {
+      overview: visibleOverview,
+      clinics: visibleClinics,
+      backendClinics: visibleBackendClinics,
+      users,
+      audit,
+      accessIssues: visibleAccessIssues,
+      plans,
+      health,
+      loadErrors
+    };
+    if (clinicId) {
+      selectedSuperadminClinicId = clinicId;
+    } else if (!selectedSuperadminClinicId || !clinics.some((clinic) => String(clinic.id) === String(selectedSuperadminClinicId))) {
       selectedSuperadminClinicId = clinics[0]?.id || "";
     }
     const localSyncNote = $("#superadmin-local-sync-note");
@@ -2383,6 +2423,9 @@ function openChangePasswordDialog(options = {}) {
   const form = $("#change-password-form");
   if (!dialog || !form) return;
   form.reset();
+  if (options.currentPassword && form.elements.currentPassword) {
+    form.elements.currentPassword.value = options.currentPassword;
+  }
   const identity = currentSessionAccessIdentity();
   const force = Boolean(options.force);
   dialog.dataset.forcePasswordChange = force ? "true" : "false";
@@ -2511,7 +2554,7 @@ async function tryBackendLogin(identifier, password, options = {}) {
     enterPlatform(backendProfileForUser(me?.user), accountKey);
     if (session.force_password_change || me?.user?.force_password_change) {
       showToast("Has entrado con una clave temporal. Cambiala desde tu perfil o Configuracion cuanto antes.", "warning");
-      setTimeout(() => openChangePasswordDialog({ force: true }), 300);
+      setTimeout(() => openChangePasswordDialog({ force: true, currentPassword: password }), 300);
     }
     return { handled: true, session, me, account: nextAccount };
   } catch (error) {
@@ -2541,7 +2584,25 @@ function uiPatientToApi(patient) {
     email: patient.email || null,
     alert: patient.alert || null,
     status: patient.status || "Activo",
-    metadata_json: backendMetadataJson(patient, ["name", "phone", "email", "alert", "status", "last"])
+    metadata_json: backendMetadataJson(patient, [
+      "name",
+      "firstName",
+      "lastName",
+      "phone",
+      "email",
+      "dni",
+      "dniFileName",
+      "dniFileData",
+      "sex",
+      "birthDate",
+      "occupation",
+      "municipality",
+      "city",
+      "postalCode",
+      "alert",
+      "status",
+      "last"
+    ])
   };
 }
 
@@ -2581,7 +2642,26 @@ function uiPractitionerToApi(practitioner) {
     availability_start_2: practitioner.availabilityStart2 || null,
     availability_end_2: practitioner.availabilityEnd2 || null,
     active: practitioner.active !== false,
-    metadata_json: backendMetadataJson(practitioner, ["name", "specialty", "color", "commissionRate", "target", "availabilityStart", "availabilityEnd", "availabilityStart2", "availabilityEnd2", "active", "password"])
+    metadata_json: backendMetadataJson(practitioner, [
+      "name",
+      "specialty",
+      "color",
+      "commissionRate",
+      "target",
+      "availabilityStart",
+      "availabilityEnd",
+      "availabilityStart2",
+      "availabilityEnd2",
+      "active",
+      "password",
+      "serviceCommissions",
+      "workerType",
+      "accessRole",
+      "userId",
+      "backendUserId",
+      "email",
+      "attendanceRecords"
+    ])
   };
 }
 
@@ -2689,7 +2769,33 @@ function uiAppointmentToApi(candidate) {
     end: candidate.end || appointmentEnd(candidate),
     status: candidate.status,
     internal_notes: candidate.internalNotes || null,
-    metadata_json: backendMetadataJson(candidate, ["patientId", "practitionerId", "roomId", "serviceId", "date", "start", "end", "status", "internalNotes"])
+    metadata_json: backendMetadataJson(candidate, [
+      "patientId",
+      "practitionerId",
+      "roomId",
+      "serviceId",
+      "date",
+      "start",
+      "end",
+      "status",
+      "internalNotes",
+      "paymentStatus",
+      "paymentMethod",
+      "patientPackId",
+      "plannedPatientPackId",
+      "patientPackUsedAt",
+      "invoiceGenerated",
+      "invoiceGeneratedAt",
+      "invoiceNumber",
+      "groupAttendees",
+      "outsideHours",
+      "outsideHoursNotice",
+      "createdBy",
+      "movedAt",
+      "movedBy",
+      "cancelledBy",
+      "cancelledAt"
+    ])
   };
 }
 
@@ -2704,7 +2810,9 @@ function apiManualBillingMovementToUi(item) {
     concept: item.concept || "",
     createdAt: item.created_at || "",
     createdBy: item.created_by_name || "",
-    paymentMethod: meta.paymentMethod || "cash"
+    paymentMethod: meta.paymentMethod || "cash",
+    source: meta.source || "",
+    groupMonthlyKey: meta.groupMonthlyKey || ""
   };
 }
 
@@ -2950,6 +3058,21 @@ async function syncClinicDataCollection(key, localValue, fallback, normalizer = 
   return normalizer(fallback);
 }
 
+async function syncImportedClinicDataBlobsToBackend() {
+  if (!backendDataEnabled()) {
+    return { synced: 0, skipped: "backend-disabled" };
+  }
+  let synced = 0;
+  for (const key of backendSyncedClinicDataKeys) {
+    const localValue = loadClinicState(key, null);
+    if (!isEmptySyncedClinicData(localValue)) {
+      await saveClinicDataToBackend(key, localValue);
+      synced += 1;
+    }
+  }
+  return { synced };
+}
+
 async function deleteAppointmentFromBackend(appointmentId) {
   if (!backendDataEnabled()) {
     if (backendAuthoritativeMode()) {
@@ -3174,6 +3297,22 @@ function isPractitionerSession() {
   return currentSession.role === "practitioner";
 }
 
+function canViewClinicAgenda() {
+  return isOwner() || isStaff() || isPractitionerSession();
+}
+
+function appointmentVisibleToCurrentSession(appointment) {
+  if (!appointment) return false;
+  if (canViewClinicAgenda()) return true;
+  return !isPractitionerSession() || appointment.practitionerId === currentSession.practitionerId;
+}
+
+function groupVisibleToCurrentSession(group) {
+  if (!group) return false;
+  if (canViewClinicAgenda()) return true;
+  return !isPractitionerSession() || group.practitionerId === currentSession.practitionerId;
+}
+
 function canManageOperations() {
   return isOwner() || isStaff();
 }
@@ -3230,7 +3369,7 @@ function visibleAppointments() {
   const ranged = appointments
     .filter((appointment) => isBlockingAppointmentStatus(appointment.status))
     .filter((appointment) => isAppointmentInCurrentRange(appointment));
-  if (!isPractitionerSession()) {
+  if (canViewClinicAgenda()) {
     return ranged;
   }
   return ranged.filter((appointment) => appointment.practitionerId === currentSession.practitionerId);
@@ -3684,8 +3823,45 @@ function groupEnd(group) {
   return addMinutes(group.start, service?.duration || 60);
 }
 
+function groupDateRangeLabel(group) {
+  if (group?.dateFrom && group?.dateTo) {
+    return `${formatShortDate(group.dateFrom)} a ${formatShortDate(group.dateTo)}`;
+  }
+  if (group?.dateFrom) {
+    return `Desde ${formatShortDate(group.dateFrom)}`;
+  }
+  if (group?.dateTo) {
+    return `Hasta ${formatShortDate(group.dateTo)}`;
+  }
+  return "Sin fecha fin";
+}
+
+function groupDateRangeIncludes(group, dateValue) {
+  if (!dateValue) {
+    return true;
+  }
+  if (group?.dateFrom && dateValue < group.dateFrom) {
+    return false;
+  }
+  if (group?.dateTo && dateValue > group.dateTo) {
+    return false;
+  }
+  return true;
+}
+
+function groupDateRangesOverlap(first, second) {
+  const firstStart = first?.dateFrom || "0000-01-01";
+  const firstEnd = first?.dateTo || "9999-12-31";
+  const secondStart = second?.dateFrom || "0000-01-01";
+  const secondEnd = second?.dateTo || "9999-12-31";
+  return firstStart <= secondEnd && secondStart <= firstEnd;
+}
+
 function groupOccursOnDate(group, dateValue) {
-  return group.active !== false && Array.isArray(group.days) && group.days.includes(dayKeyFor(dateValue));
+  return group.active !== false
+    && Array.isArray(group.days)
+    && group.days.includes(dayKeyFor(dateValue))
+    && groupDateRangeIncludes(group, dateValue);
 }
 
 function groupOccurrenceDatesInRange(group, start, end) {
@@ -4116,7 +4292,7 @@ function fillSelect(select, items, label = "name", allLabel = "") {
 
 function selectedAgendaPractitioners() {
   if (isPractitionerSession()) {
-    return practitioners.filter((item) => item.id === currentSession.practitionerId);
+    return practitioners;
   }
   const savedIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
   if (selectedPractitionerIds.includes("all") || !savedIds.length) {
@@ -4141,6 +4317,10 @@ function renderFilters() {
   fillSelect($("#worker-profile-select"), practitioners);
   const workerFilter = $("#filter-practitioner");
   const workerMenu = workerFilter.querySelector(".worker-filter-menu");
+  if (isPractitionerSession() && !selectedPractitionerIds.includes("all")) {
+    selectedPractitionerIds = ["all"];
+    saveState("selected-practitioner-ids", selectedPractitionerIds);
+  }
   const validIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
   if (!selectedPractitionerIds.includes("all") && !validIds.length) {
     selectedPractitionerIds = ["all"];
@@ -4151,12 +4331,12 @@ function renderFilters() {
   workerFilter.querySelector("summary").textContent = `Profesionales (${visibleCount || 0})`;
   workerMenu.innerHTML = `
     <label class="filter-chip">
-      <input type="checkbox" value="all" ${selectedPractitionerIds.includes("all") ? "checked" : ""} ${isPractitionerSession() ? "disabled" : ""} />
+      <input type="checkbox" value="all" ${selectedPractitionerIds.includes("all") ? "checked" : ""} />
       <span>Todos</span>
     </label>
     ${practitioners.map((practitioner) => `
       <label class="filter-chip">
-        <input type="checkbox" value="${practitioner.id}" ${selectedPractitionerIds.includes("all") || selectedPractitionerIds.includes(practitioner.id) ? "checked" : ""} ${isPractitionerSession() ? "disabled" : ""} />
+        <input type="checkbox" value="${practitioner.id}" ${selectedPractitionerIds.includes("all") || selectedPractitionerIds.includes(practitioner.id) ? "checked" : ""} />
         <span>${practitioner.name}</span>
       </label>
     `).join("")}
@@ -4173,10 +4353,6 @@ function renderFilters() {
 function renderWorkerColorLegend() {
   const legend = $("#worker-color-legend");
   if (!legend) {
-    return;
-  }
-  if (isPractitionerSession()) {
-    legend.innerHTML = "";
     return;
   }
   legend.innerHTML = practitioners.length
@@ -4429,10 +4605,10 @@ function renderTwoMonthPlanner(schedule, range) {
       const dateValue = cursor;
       const count = appointments
         .filter((appointment) => (appointment.date || selectedDate) === dateValue)
-        .filter((appointment) => isOwner() || appointment.practitionerId === currentSession.practitionerId)
+        .filter(appointmentVisibleToCurrentSession)
         .filter(appointmentPassesAgendaFilters).length;
       const groupCount = groupsForDate(dateValue)
-        .filter((group) => isOwner() || group.practitionerId === currentSession.practitionerId)
+        .filter(groupVisibleToCurrentSession)
         .filter(groupPassesAgendaFilters).length;
       const canNavigate = dateValue >= todayIso();
       const button = document.createElement("button");
@@ -4478,11 +4654,11 @@ function renderPeriodSchedule(schedule) {
   days.forEach((day) => {
     const dayAppointments = appointments
       .filter((appointment) => (appointment.date || selectedDate) === day)
-      .filter((appointment) => isOwner() || appointment.practitionerId === currentSession.practitionerId)
+      .filter(appointmentVisibleToCurrentSession)
       .filter(appointmentPassesAgendaFilters)
       .sort((a, b) => minutes(a.start) - minutes(b.start));
     const dayGroups = groupsForDate(day)
-      .filter((group) => isOwner() || group.practitionerId === currentSession.practitionerId)
+      .filter(groupVisibleToCurrentSession)
       .filter(groupPassesAgendaFilters)
       .sort((a, b) => minutes(a.start) - minutes(b.start));
     const card = document.createElement("article");
@@ -4595,7 +4771,7 @@ function renderWeekSchedule(schedule, days) {
       setupAppointmentDropTarget(cell, day, hour);
       const hourAppointments = appointments
         .filter((item) => (item.date || selectedDate) === day && item.start === hour)
-        .filter((appointment) => isOwner() || appointment.practitionerId === currentSession.practitionerId)
+        .filter(appointmentVisibleToCurrentSession)
         .filter(appointmentPassesAgendaFilters)
         .sort((a, b) => {
           const aName = byId(practitioners, a.practitionerId)?.name || "";
@@ -4604,7 +4780,7 @@ function renderWeekSchedule(schedule, days) {
         });
       const hourGroups = groupsForDate(day)
         .filter((group) => group.start === hour)
-        .filter((group) => isOwner() || group.practitionerId === currentSession.practitionerId)
+        .filter(groupVisibleToCurrentSession)
         .filter(groupPassesAgendaFilters)
         .sort((a, b) => {
           const aName = byId(practitioners, a.practitionerId)?.name || "";
@@ -4865,7 +5041,7 @@ function renderWeekScheduleGrid(schedule, days) {
         cell.className = "schedule-cell week-cell";
         const appointment = appointments
           .filter((item) => (item.date || selectedDate) === day && item.start === hour && item.practitionerId === practitioner.id)
-          .filter((appointment) => isOwner() || appointment.practitionerId === currentSession.practitionerId)
+          .filter(appointmentVisibleToCurrentSession)
           .filter(appointmentPassesAgendaFilters)[0];
 
         if (appointment) {
@@ -4929,7 +5105,7 @@ function renderGroupBlock(group, dateValue = selectedDate, mode = "day") {
   card.innerHTML = `
     <strong><i></i>${group.name}</strong>
     <span>${service?.name || "Servicio grupal"} - ${groupEnrollmentLabel(group, dateValue)}</span>
-    <span>${group.start} - ${groupEnd(group)} - ${room?.name || "Sala"}</span>
+    <span>${dateValue} · ${group.start} - ${groupEnd(group)} - ${room?.name || "Sala"}</span>
     ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
   `;
   card.addEventListener("click", () => showGroupSummary(group, dateValue));
@@ -5105,7 +5281,7 @@ function renderNextList() {
   const visibleGroups = [];
   for (let cursor = range.start; cursor <= range.end; cursor = addDaysIso(cursor, 1)) {
     groupsForDate(cursor)
-      .filter((group) => isOwner() || group.practitionerId === currentSession.practitionerId)
+      .filter(groupVisibleToCurrentSession)
       .filter(groupPassesAgendaFilters)
       .forEach((group) => visibleGroups.push({ ...group, date: cursor }));
   }
@@ -5488,6 +5664,8 @@ function renderPatientDetail() {
       appointment.patientId === patient.id
         && byId(services, appointment.serviceId)?.type !== "group"
         && normalizeAppointmentStatus(appointment.status) === "confirmed"
+        && !appointment.patientPackId
+        && !appointment.plannedPatientPackId
     ))
     .sort((a, b) => `${b.invoiceGeneratedAt || b.date || ""}`.localeCompare(`${a.invoiceGeneratedAt || a.date || ""}`));
   const invoicePacks = patientPacks
@@ -5529,7 +5707,20 @@ function renderPatientDetail() {
     button.addEventListener("click", () => openPatientPackDialog(button.dataset.editPatientPack));
   });
   $$("[data-invoice-patient-pack], [data-reprint-pack-invoice]").forEach((button) => {
-    button.addEventListener("click", () => generateInvoiceForPatientPack(button.dataset.invoicePatientPack || button.dataset.reprintPackInvoice));
+    button.addEventListener("click", () => {
+      const packId = button.dataset.invoicePatientPack || button.dataset.reprintPackInvoice;
+      const pack = byId(patientPacks, packId);
+      if (pack && !pack.paymentMethod) {
+        openPatientPackDialog(packId);
+        const error = $("#patient-pack-error");
+        if (error) {
+          error.textContent = "Selecciona efectivo o tarjeta antes de facturar el bono.";
+          error.classList.add("visible");
+        }
+        return;
+      }
+      generateInvoiceForPatientPack(packId);
+    });
   });
   $$("[data-delete-patient-pack]").forEach((button) => {
     button.addEventListener("click", () => deletePatientPackAssignment(button.dataset.deletePatientPack));
@@ -5836,6 +6027,7 @@ function renderSettings() {
             <div class="group-card-main">
               <strong>${group.name}</strong>
               <span>${service?.name || "Servicio"} - ${days || "Sin dias"} - ${group.start} - ${groupEnd(group)}</span>
+              <span>Periodo: ${groupDateRangeLabel(group)}</span>
               <span>${practitioner?.name || "Profesional"} - ${room?.name || "Sala"} - ${groupEnrollmentLabel(group)}</span>
               <span>Capacidad de esta sesion: ${groupCapacity(group)} plazas</span>
               <details class="item-menu group-item-menu">
@@ -5860,7 +6052,7 @@ function renderSettings() {
                   <input list="patients-fixed-${group.id}" data-config-add-fixed-input="${group.id}" placeholder="Buscar paciente..." />
                 </label>
                 <datalist id="patients-fixed-${group.id}">
-                  ${patients.filter((patient) => !(group.patientIds || []).includes(patient.id)).map((patient) => `<option value="${patient.name}" data-patient-id="${patient.id}">${patient.phone || "sin telefono"}</option>`).join("")}
+                  ${patients.filter((patient) => !(group.patientIds || []).includes(patient.id)).map((patient) => `<option value="${escapeHtml(patient.name)}" label="${escapeHtml(patient.phone || "sin telefono")}"></option>`).join("")}
                 </datalist>
                 <button class="secondary-button" type="button" data-config-add-fixed="${group.id}">Anadir fijo</button>
               </div>
@@ -5991,6 +6183,7 @@ function renderBilling() {
   const appointmentRows = appointments
     .filter((appointment) => byId(services, appointment.serviceId)?.type !== "group")
     .filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed")
+    .filter((appointment) => !appointment.patientPackId && !appointment.plannedPatientPackId)
     .map((appointment) => ({
       id: appointment.id,
       sortKey: `${appointment.date || selectedDate} ${appointment.start}`,
@@ -6020,7 +6213,11 @@ function renderBilling() {
         practitioner: packServiceLabel(pack),
         status: pack.invoiceGenerated ? "confirmed" : "pending",
         statusText: pack.invoiceGenerated ? "Facturado" : "Pendiente",
-        amount: Number(pack.price || 0)
+        amount: Number(pack.price || 0),
+        paymentStatus: pack.paymentMethod || "",
+        paymentText: pack.invoiceGenerated
+          ? paymentStatusLabel(pack.paymentMethod || "cash")
+          : "Pendiente"
       };
     });
   const manualRows = manualBillingMovements
@@ -6060,6 +6257,9 @@ function renderBilling() {
       .reduce((total, row) => total + row.amount, 0)
     + groupRows
       .filter((row) => row.status === "completed" && row.paymentStatus === "cash" && billingRowInRange(row, range))
+      .reduce((total, row) => total + row.amount, 0)
+    + packRows
+      .filter((row) => row.status === "confirmed" && (row.paymentStatus || "cash") === "cash" && billingRowInRange(row, range))
       .reduce((total, row) => total + row.amount, 0);
   const card = paidAppointments
     .filter((appointment) => appointment.paymentStatus === "card" && billingRowInRange(appointment, range))
@@ -6069,6 +6269,9 @@ function renderBilling() {
       .reduce((total, row) => total + row.amount, 0)
     + groupRows
       .filter((row) => row.status === "completed" && row.paymentStatus === "card" && billingRowInRange(row, range))
+      .reduce((total, row) => total + row.amount, 0)
+    + packRows
+      .filter((row) => row.status === "confirmed" && row.paymentStatus === "card" && billingRowInRange(row, range))
       .reduce((total, row) => total + row.amount, 0);
 
   $("#billing-paid").textContent = `${paid} EUR`;
@@ -7379,13 +7582,26 @@ async function commitImportSnapshot() {
     entries.forEach(([key, value]) => {
       localStorage.setItem(key, value);
     });
+    activeClinicKey = loadState("active-clinic-key", activeClinicKey);
+    clinicAccounts = normalizeClinicAccounts(loadState("clinic-accounts", clinicAccounts));
+    const syncedBackendBlobs = await syncImportedClinicDataBlobsToBackend().catch((error) => {
+      console.warn("La copia se importo localmente, pero no se pudo sincronizar con backend", error);
+      return { synced: 0, skipped: error.message };
+    });
     appendAuditLog("import-backup", {
       keys: pendingImportAnalysis.totalKeys,
       clinicCount: pendingImportAnalysis.clinicCount,
-      conflicts: pendingImportAnalysis.conflicts
+      conflicts: pendingImportAnalysis.conflicts,
+      backendBlobsSynced: syncedBackendBlobs.synced || 0
     });
     $("#import-preview-dialog")?.close();
-    await showNotice("Copia importada", "La importacion se ha completado con trazabilidad. La aplicacion se recargara ahora.", { variant: "success" });
+    await showNotice(
+      "Copia importada",
+      syncedBackendBlobs.synced
+        ? `La importación se ha completado y ${syncedBackendBlobs.synced} colecciones compartidas se han sincronizado con backend. La aplicación se recargará ahora.`
+        : "La importación se ha completado con trazabilidad. Si la clínica usa backend y hay datos maestros importados, revisa la sincronización desde soporte antes de usarla en otro dispositivo.",
+      { variant: "success" }
+    );
     window.location.reload();
   } catch (error) {
     previousValues.forEach((value, key) => {
@@ -7932,7 +8148,7 @@ function setEntrySection(persist = true) {
 function renderSession() {
   $("#session-select").value = isPractitionerSession() ? currentSession.practitionerId : currentSession.role;
   $$("#filter-practitioner input").forEach((input) => {
-    input.disabled = isPractitionerSession();
+    input.disabled = false;
   });
   $("#worker-profile-select").disabled = !canViewDirectionReports();
   $("#owner-mode-button").disabled = !canViewDirectionReports();
@@ -7944,8 +8160,10 @@ function renderSession() {
   document.body.classList.toggle("availability-only-settings", isAvailabilityOnlySettingsSession());
 
   if (isPractitionerSession()) {
-    selectedPractitionerIds = [currentSession.practitionerId];
-    saveState("selected-practitioner-ids", selectedPractitionerIds);
+    if (!selectedPractitionerIds.length) {
+      selectedPractitionerIds = ["all"];
+      saveState("selected-practitioner-ids", selectedPractitionerIds);
+    }
     $("#worker-profile-select").value = currentSession.practitionerId;
     $$(".performance-mode").forEach((item) => item.classList.remove("selected"));
     $(".performance-mode[data-mode='worker']").classList.add("selected");
@@ -8942,63 +9160,74 @@ function setupLogin() {
         return;
       }
     }
-    clinicAccounts = normalizeClinicAccounts([...clinicAccounts, account]);
-    saveClinicAccounts();
-    const createdAccount = clinicAccountByKey(account.key);
+    try {
+      ensureClinicAccount(account);
+      const createdAccount = clinicAccountByKey(account.key) || account;
 
-    activeClinicKey = account.key;
-    saveClinicState("clinic", {
-      name: account.name,
-      email: clinicEmail,
-      phone: clinicPhone,
-      billingName: billingProfile.billingName,
-      billingEmail: billingProfile.billingEmail,
-      taxId: billingProfile.taxId,
-      billingAddress: billingProfile.billingAddress,
-      postalCode: form.elements.postalCode?.value.trim() || "",
-      city: form.elements.city?.value.trim() || "",
-      country: form.elements.country?.value || "España",
-      specialty: form.elements.specialty?.value || "",
-      clinicType: form.elements.clinicType?.value || "",
-      professionalsCount: form.elements.professionalsCount?.value || "",
-      website: form.elements.website?.value.trim() || "",
-      instagram: form.elements.instagram?.value.trim() || "",
-      facebook: form.elements.facebook?.value.trim() || "",
-      openingStart: form.elements.openingStart?.value || "09:00",
-      openingEnd: form.elements.openingEnd?.value || "20:00",
-      timezone: form.elements.timezone?.value || "(GMT+01:00) Madrid",
-      workingDays: registerWorkingDays
-    });
-    clinicLogo = nextClinicLogo;
-    saveClinicState("clinic-logo", clinicLogo);
-    saveClinicState("patients", []);
-    saveClinicState("appointments", []);
-    saveClinicState("clinical-notes", []);
-    saveClinicState("services", []);
-    saveClinicState("practitioners", []);
-    saveClinicState("rooms", []);
-    saveClinicState("groups", []);
-    saveClinicState("availability-blocks", []);
-    saveClinicState("permissions", defaultPermissionSettings);
-    saveClinicState("group-dropins", []);
-    saveClinicState("group-completions", []);
-    saveClinicState("group-session-overrides", []);
-    saveClinicState("reminder-actions", []);
-    saveClinicState("reminder-settings", defaultReminderSettings());
-    saveClinicState("manual-billing-movements", []);
-    loadActiveClinicData(account.key);
+      activeClinicKey = account.key;
+      saveClinicState("clinic", {
+        name: account.name,
+        email: clinicEmail,
+        phone: clinicPhone,
+        billingName: billingProfile.billingName,
+        billingEmail: billingProfile.billingEmail,
+        taxId: billingProfile.taxId,
+        billingAddress: billingProfile.billingAddress,
+        postalCode: form.elements.postalCode?.value.trim() || "",
+        city: form.elements.city?.value.trim() || "",
+        country: form.elements.country?.value || "España",
+        specialty: form.elements.specialty?.value || "",
+        clinicType: form.elements.clinicType?.value || "",
+        professionalsCount: form.elements.professionalsCount?.value || "",
+        website: form.elements.website?.value.trim() || "",
+        instagram: form.elements.instagram?.value.trim() || "",
+        facebook: form.elements.facebook?.value.trim() || "",
+        openingStart: form.elements.openingStart?.value || "09:00",
+        openingEnd: form.elements.openingEnd?.value || "20:00",
+        timezone: form.elements.timezone?.value || "(GMT+01:00) Madrid",
+        workingDays: registerWorkingDays
+      });
+      clinicLogo = nextClinicLogo;
+      saveClinicState("clinic-logo", clinicLogo);
+      saveClinicState("patients", []);
+      saveClinicState("appointments", []);
+      saveClinicState("clinical-notes", []);
+      saveClinicState("services", []);
+      saveClinicState("practitioners", []);
+      saveClinicState("rooms", []);
+      saveClinicState("groups", []);
+      saveClinicState("availability-blocks", []);
+      saveClinicState("permissions", defaultPermissionSettings);
+      saveClinicState("group-dropins", []);
+      saveClinicState("group-completions", []);
+      saveClinicState("group-session-overrides", []);
+      saveClinicState("reminder-actions", []);
+      saveClinicState("reminder-settings", defaultReminderSettings());
+      saveClinicState("manual-billing-movements", []);
 
-    renderLoginClinics();
-    $("#login-clinic-select").value = account.name;
-    renderLoginProfiles();
-    $("#login-form").elements.password.value = "";
-    $("#profile-form").elements.password.value = "";
-    registerCreatedAccount = createdAccount;
-    updateRegisterPlanChoice();
-    setRegisterStep("success");
-    showToast("Clínica creada. Ya puedes iniciar sesión.");
-    delete form.dataset.registerSubmitting;
-    setRegisterSubmitting(false);
+      registerCreatedAccount = createdAccount;
+      setRegisterStep("success");
+      showToast("Clínica creada. Ya puedes iniciar sesión.");
+
+      loadActiveClinicData(account.key).catch((error) => {
+        console.warn("No se pudo hidratar la clínica recién creada", error);
+      });
+      renderLoginClinics();
+      $("#login-clinic-select").value = account.name;
+      renderLoginProfiles();
+      $("#login-form").elements.password.value = "";
+      $("#profile-form").elements.password.value = "";
+      updateRegisterPlanChoice();
+    } catch (localError) {
+      console.error("La clínica se creó, pero falló la preparación local", localError);
+      registerCreatedAccount = account;
+      setRegisterStep("success");
+      $("#register-error").textContent = "La clínica se ha creado correctamente. Si algún dato local tarda en aparecer, entra desde Login para cargarla desde backend.";
+      $("#register-error").classList.add("visible");
+    } finally {
+      delete form.dataset.registerSubmitting;
+      setRegisterSubmitting(false);
+    }
   });
 
   $("#logout-button").addEventListener("click", () => {
@@ -9531,6 +9760,8 @@ function openAppointmentDetail(appointmentId) {
   const form = $("#appointment-detail-form");
   const service = byId(services, appointment.serviceId);
   const patient = byId(patients, appointment.patientId);
+  const appointmentHasPack = Boolean(appointment.patientPackId || appointment.plannedPatientPackId);
+  const productionAmount = appointmentRevenueAmount(appointment);
   $("#appointment-detail-title").textContent = `${patient?.name || "Paciente"} - ${appointment.start}`;
   $("#appointment-detail-data").innerHTML = `
     <dt>Día</dt>
@@ -9567,6 +9798,17 @@ function openAppointmentDetail(appointmentId) {
   if (form.elements.paymentStatus) {
     form.elements.paymentStatus.value = appointmentPaymentStatus(appointment);
   }
+  form.querySelector(".appointment-payment-field")?.classList.toggle("hidden", appointmentHasPack);
+  const productionPanel = $("#appointment-production-panel");
+  const productionText = $("#appointment-production-text");
+  if (productionPanel) {
+    productionPanel.classList.toggle("hidden", !appointmentHasPack);
+  }
+  if (productionText) {
+    productionText.textContent = appointmentHasPack
+      ? `Esta cita está cubierta por bono. No genera un nuevo cobro ni pendiente de facturación; al guardarla como confirmada cuenta como producción interna (${productionAmount} EUR) para rendimiento.`
+      : "";
+  }
   if (form.elements.cancelledBy) {
     form.elements.cancelledBy.value = appointment.cancelledBy || "";
   }
@@ -9589,8 +9831,8 @@ function openAppointmentDetail(appointmentId) {
   form.elements.internalNotes.value = appointment.internalNotes || "";
   const invoiceButton = $("#appointment-invoice-button");
   if (invoiceButton) {
-    invoiceButton.textContent = appointment.invoiceGenerated ? "Reimprimir factura" : "Generar factura";
-    invoiceButton.disabled = normalizeAppointmentStatus(appointment.status) === "cancelled";
+    invoiceButton.textContent = appointmentHasPack ? "Facturar bono desde ficha" : (appointment.invoiceGenerated ? "Reimprimir factura" : "Generar factura");
+    invoiceButton.disabled = appointmentHasPack || normalizeAppointmentStatus(appointment.status) === "cancelled";
   }
   const attendanceButton = $("#appointment-attendance-button");
   if (attendanceButton) {
@@ -9725,7 +9967,16 @@ async function generateInvoiceForAppointment(appointment) {
 <p class="total">Total: ${amount} EUR</p>
 </body></html>`;
     downloadTextFile(`factura-${invoiceNumber}.html`, html, "text/html");
-    appointments = appointments.map((item) => item.id === appointment.id ? { ...item, ...invoiceAppointment, invoiceGenerated: true, invoiceGeneratedAt: new Date().toISOString(), invoiceNumber } : item);
+    const invoiceSavedAt = new Date().toISOString();
+    const updatedInvoiceAppointment = { ...appointment, ...invoiceAppointment, invoiceGenerated: true, invoiceGeneratedAt: invoiceSavedAt, invoiceNumber };
+    if (backendDataEnabled()) {
+      try {
+        await saveAppointmentToBackend(updatedInvoiceAppointment, appointment.id);
+      } catch (error) {
+        showToast(`Factura generada, pero no se pudo sincronizar la cita: ${error.message}`, "warning");
+      }
+    }
+    appointments = appointments.map((item) => item.id === appointment.id ? updatedInvoiceAppointment : item);
     saveClinicState("appointments", appointments);
     syncPatientPackUsageFromAppointments({ persist: true });
     openAppointmentDetail(appointment.id);
@@ -9835,8 +10086,12 @@ function setupAppointmentDetail() {
       ...existingAppointment,
       status: nextStatus,
       internalNotes: form.elements.internalNotes.value.trim(),
-      paymentStatus: form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment),
-      paymentMethod: form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment),
+      paymentStatus: nextPatientPackId || nextPlannedPatientPackId
+        ? "unpaid"
+        : (form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment)),
+      paymentMethod: nextPatientPackId || nextPlannedPatientPackId
+        ? ""
+        : (form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment)),
       patientPackId: nextPatientPackId,
       plannedPatientPackId: nextPlannedPatientPackId,
       patientPackUsedAt: nextPatientPackId ? (nextPatientPackUsedAt || consumedPatientPackAt || new Date().toISOString()) : "",
@@ -10201,6 +10456,8 @@ function resetGroupForm(form) {
   form.dataset.editingGroupId = "";
   form.elements.capacity.value = 6;
   form.elements.start.value = "18:00";
+  if (form.elements.dateFrom) form.elements.dateFrom.value = todayIso();
+  if (form.elements.dateTo) form.elements.dateTo.value = "";
   form.querySelector(".modal-header h2").textContent = "Nueva sesion grupal";
   form.querySelector('button[type="submit"]').textContent = "Guardar sesion";
   renderGroupFormPatientSelection(form);
@@ -10219,6 +10476,8 @@ function fillGroupForm(form, group) {
   });
   form.elements.start.value = group.start || "18:00";
   form.elements.capacity.value = group.capacity || 6;
+  if (form.elements.dateFrom) form.elements.dateFrom.value = group.dateFrom || "";
+  if (form.elements.dateTo) form.elements.dateTo.value = group.dateTo || "";
   [...form.elements.patients.options].forEach((option) => {
     option.selected = (group.patientIds || []).includes(option.value);
   });
@@ -10371,6 +10630,13 @@ function setupGroupDialog() {
       $("#group-form-error").classList.add("visible");
       return;
     }
+    const dateFrom = form.elements.dateFrom?.value || "";
+    const dateTo = form.elements.dateTo?.value || "";
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      $("#group-form-error").textContent = "La fecha desde no puede ser posterior a la fecha hasta.";
+      $("#group-form-error").classList.add("visible");
+      return;
+    }
     const group = {
       id: `grp-${Date.now()}`,
       name: form.elements.name.value.trim(),
@@ -10380,6 +10646,8 @@ function setupGroupDialog() {
       days: selectedDays,
       start: form.elements.start.value,
       capacity,
+      dateFrom,
+      dateTo,
       patientIds: selectedPatients,
       active: true
     };
@@ -10417,8 +10685,9 @@ function setupGroupDialog() {
       if (existing.id === editingGroupId) return false;
       if (existing.active === false) return false;
       const sharesDay = existing.days.some((day) => group.days.includes(day));
+      const sharesDateRange = groupDateRangesOverlap(existing, group);
       const sameResource = existing.roomId === group.roomId || existing.practitionerId === group.practitionerId;
-      return sharesDay && sameResource && overlaps(group.start, groupEnd(group), existing.start, groupEnd(existing));
+      return sharesDay && sharesDateRange && sameResource && overlaps(group.start, groupEnd(group), existing.start, groupEnd(existing));
     });
     if (conflict) {
       $("#group-form-error").textContent = `Conflicto con el grupo ${conflict.name} a las ${conflict.start}.`;
@@ -10750,33 +11019,53 @@ function openPractitionerEditor(practitionerId) {
 async function deletePractitionerById(practitionerId) {
   const practitioner = byId(practitioners, practitionerId);
   if (!practitioner || !canManageClinic()) return;
-  const inUse = appointments.some((appointment) => appointment.practitionerId === practitionerId)
-    || groups.some((group) => group.practitionerId === practitionerId)
-    || groupSessionOverrides.some((override) => override.practitionerId === practitionerId);
-  if (inUse) {
-    await showNotice("No se puede eliminar", "No se puede eliminar un trabajador con citas o grupos asociados.", { variant: "warning" });
+  const activeAppointments = appointments.filter((appointment) => (
+    appointment.practitionerId === practitionerId
+      && normalizeAppointmentStatus(appointment.status) !== "cancelled"
+  ));
+  const cancelledAppointments = appointments.filter((appointment) => (
+    appointment.practitionerId === practitionerId
+      && normalizeAppointmentStatus(appointment.status) === "cancelled"
+  ));
+  const activeGroups = groups.filter((group) => group.practitionerId === practitionerId && group.active !== false);
+  const activeOverrides = groupSessionOverrides.filter((override) => override.practitionerId === practitionerId);
+  if (activeAppointments.length || activeGroups.length || activeOverrides.length) {
+    await showNotice(
+      "No se puede eliminar",
+      `Este trabajador tiene ${activeAppointments.length} cita(s) activas, ${activeGroups.length} sesion(es) grupales o cambios puntuales vinculados. Cancela o reasigna esos elementos antes de eliminarlo.`,
+      { variant: "warning" }
+    );
     return;
   }
+  const shouldArchive = cancelledAppointments.length > 0;
   const confirmed = await showConfirm({
-    title: "Eliminar trabajador",
-    message: `Eliminar a ${practitioner.name}?`,
-    detail: "Esta accion no se puede deshacer.",
-    confirmLabel: "Eliminar"
+    title: shouldArchive ? "Archivar trabajador" : "Eliminar trabajador",
+    message: shouldArchive
+      ? `${practitioner.name} solo tiene citas canceladas vinculadas. Se archivara para conservar trazabilidad.`
+      : `Eliminar a ${practitioner.name}?`,
+    detail: shouldArchive ? "Dejara de aparecer como trabajador activo, pero el historico cancelado queda protegido." : "Esta accion no se puede deshacer.",
+    confirmLabel: shouldArchive ? "Archivar" : "Eliminar"
   });
   if (!confirmed) return;
   try {
-    await deletePractitionerFromBackend(practitionerId);
+    if (shouldArchive) {
+      await savePractitionerToBackend({ ...practitioner, active: false }, practitionerId);
+    } else {
+      await deletePractitionerFromBackend(practitionerId);
+    }
   } catch (error) {
-    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    showToast(`No se pudo ${shouldArchive ? "archivar" : "eliminar"} en backend: ${error.message}`, "error");
     return;
   }
-  practitioners = practitioners.filter((item) => item.id !== practitionerId);
+  practitioners = shouldArchive
+    ? practitioners.map((item) => item.id === practitionerId ? { ...item, active: false } : item)
+    : practitioners.filter((item) => item.id !== practitionerId);
   saveClinicState("practitioners", practitioners);
   renderFilters();
   renderLoginProfiles();
   renderAppointmentFormOptions();
   renderAll();
-  showToast("Trabajador eliminado.");
+  showToast(shouldArchive ? "Trabajador archivado." : "Trabajador eliminado.");
 }
 
 function resetRoomForm(form = $("#room-form")) {
@@ -11639,6 +11928,7 @@ function setupPatientConsentsAndPacks() {
           price: Math.max(0, Number(form.elements.price.value || 0)),
           expiresAt: form.elements.expiresAt?.value || "",
           serviceId: form.elements.serviceId.value || "",
+          paymentMethod: form.elements.paymentMethod?.value || item.paymentMethod || "",
           invoice: form.elements.invoice.checked,
           updatedAt: new Date().toISOString()
         }
@@ -11730,6 +12020,9 @@ function openPatientPackDialog(packId) {
   if (form.elements.expiresAt) {
     form.elements.expiresAt.value = pack.expiresAt || "";
   }
+  if (form.elements.paymentMethod) {
+    form.elements.paymentMethod.value = pack.paymentMethod || "";
+  }
   fillPackServiceOptions(form.elements.serviceId, pack.serviceId || "");
   form.elements.invoice.checked = Boolean(pack.invoice);
   $("#patient-pack-error").classList.remove("visible");
@@ -11741,6 +12034,20 @@ function openPatientPackDialog(packId) {
 function generateInvoiceForPatientPack(packId) {
   const pack = byId(patientPacks, packId);
   if (!pack) return;
+  const form = $("#patient-pack-form");
+  const selectedPaymentMethod = form?.dataset.editingPatientPackId === String(pack.id)
+    ? (form.elements.paymentMethod?.value || pack.paymentMethod || "")
+    : (pack.paymentMethod || "");
+  if (!["cash", "card"].includes(selectedPaymentMethod)) {
+    const error = $("#patient-pack-error");
+    if (error) {
+      error.textContent = "Selecciona si el bono se cobra en efectivo o tarjeta antes de facturarlo.";
+      error.classList.add("visible");
+    } else {
+      showToast("Selecciona método de cobro del bono.", "warning");
+    }
+    return;
+  }
   const patient = byId(patients, pack.patientId);
   const invoiceNumber = pack.invoiceNumber || `KL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
   const html = `<!doctype html>
@@ -11755,7 +12062,7 @@ function generateInvoiceForPatientPack(packId) {
 </body></html>`;
   downloadTextFile(`factura-${invoiceNumber}.html`, html, "text/html");
   patientPacks = patientPacks.map((item) => item.id === pack.id
-    ? { ...item, invoice: true, invoiceGenerated: true, invoiceGeneratedAt: new Date().toISOString(), invoiceNumber }
+    ? { ...item, invoice: true, invoiceGenerated: true, invoiceGeneratedAt: new Date().toISOString(), invoiceNumber, paymentMethod: selectedPaymentMethod }
     : item
   );
   saveSyncedClinicState("patient-packs", patientPacks);
@@ -11902,7 +12209,7 @@ function setupPatientDetail() {
 
 function setupFilters() {
   $("#filter-practitioner").addEventListener("change", (event) => {
-    if (isPractitionerSession() || event.target.tagName !== "INPUT") {
+    if (event.target.tagName !== "INPUT") {
       return;
     }
     const value = event.target.value;
