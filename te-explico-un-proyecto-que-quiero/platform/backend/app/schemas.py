@@ -227,6 +227,11 @@ class SuperAdminClinicUpdateIn(BaseModel):
     subscription_status: str | None = Field(default=None, max_length=40)
 
 
+class SuperAdminClinicDeleteIn(BaseModel):
+    confirm_name: str = Field(min_length=2, max_length=180)
+    confirm_phrase: str = Field(min_length=8, max_length=40)
+
+
 class SuperAdminAccessIssueOut(BaseModel):
     id: str
     clinic_id: str | None = None
@@ -257,6 +262,38 @@ class SuperAdminPractitionerAccessOut(BaseModel):
     temporary_password: str
     actions: list[str]
     force_password_change: bool = True
+
+
+class SuperAdminSupportTicketOut(BaseModel):
+    id: str
+    clinic_id: str | None = None
+    clinic_name: str | None = None
+    user_id: str | None = None
+    user_email: str | None = None
+    issue_key: str | None = None
+    title: str
+    description: str | None = None
+    priority: str
+    status: str
+    history: list[dict] = []
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class SuperAdminSupportTicketCreateIn(BaseModel):
+    clinic_id: str | None = None
+    user_id: str | None = None
+    issue_key: str | None = Field(default=None, max_length=220)
+    title: str = Field(min_length=2, max_length=220)
+    description: str | None = None
+    priority: str = Field(default="medium", max_length=30)
+    status: str = Field(default="open", max_length=30)
+
+
+class SuperAdminSupportTicketUpdateIn(BaseModel):
+    status: str | None = Field(default=None, max_length=30)
+    priority: str | None = Field(default=None, max_length=30)
+    note: str | None = Field(default=None, max_length=500)
 
 
 class PlanOut(BaseModel):

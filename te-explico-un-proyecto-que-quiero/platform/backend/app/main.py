@@ -32,6 +32,7 @@ from .models import (
     Practitioner,
     Room,
     Service,
+    SupportTicket,
     User,
     UserRole,
 )
@@ -75,11 +76,15 @@ from .schemas import (
     ServiceUpdate,
     SuperAdminAuditLogOut,
     SuperAdminAccessIssueOut,
+    SuperAdminClinicDeleteIn,
     SuperAdminClinicOut,
     SuperAdminClinicUpdateIn,
     SuperAdminOverviewOut,
     SuperAdminPasswordResetOut,
     SuperAdminRepairAccessOut,
+    SuperAdminSupportTicketCreateIn,
+    SuperAdminSupportTicketOut,
+    SuperAdminSupportTicketUpdateIn,
     SuperAdminPractitionerAccessOut,
     SuperAdminUserUpdateIn,
     SuperAdminUserOut,
@@ -1318,6 +1323,33 @@ def superadmin_user_out(db: Session, item: User) -> SuperAdminUserOut:
     )
 
 
+def support_ticket_out(db: Session, item: SupportTicket) -> SuperAdminSupportTicketOut:
+    clinic = db.get(Clinic, item.clinic_id) if item.clinic_id else None
+    target_user = db.get(User, item.user_id) if item.user_id else None
+    history = []
+    if item.history_json:
+        try:
+            parsed = json.loads(item.history_json)
+            history = parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            history = []
+    return SuperAdminSupportTicketOut(
+        id=item.id,
+        clinic_id=item.clinic_id,
+        clinic_name=clinic.name if clinic else None,
+        user_id=item.user_id,
+        user_email=target_user.email if target_user else None,
+        issue_key=item.issue_key,
+        title=item.title,
+        description=item.description,
+        priority=item.priority,
+        status=item.status,
+        history=history,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+
 def collect_superadmin_access_issues(db: Session) -> list[SuperAdminAccessIssueOut]:
     since = datetime.now(UTC) - timedelta(hours=24)
     issues: list[SuperAdminAccessIssueOut] = []
@@ -1755,6 +1787,91 @@ def superadmin_archive_test_clinic(
     )
 
 
+@app.post("/superadmin/clinics/{clinic_id}/restore", response_model=SuperAdminClinicOut)
+def superadmin_restore_archived_clinic(
+    clinic_id: str,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminClinicOut:
+    clinic = db.get(Clinic, clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    if clinic.subscription_status != "archived":
+        raise HTTPException(status_code=400, detail="Only archived clinics can be restored")
+    clinic.subscription_status = "trialing"
+    owners = list(db.scalars(select(User).where(User.clinic_id == clinic.id, User.role == UserRole.owner)))
+    for owner in owners:
+        owner.active = True
+    audit_action(
+        db,
+        admin,
+        "superadmin-restore-clinic",
+        "clinic",
+        clinic.id,
+        {"clinic_name": clinic.name, "owners_reactivated": len(owners)},
+        clinic_id=clinic.id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(clinic)
+    users_count = db.scalar(select(func.count()).select_from(User).where(User.clinic_id == clinic.id)) or 0
+    last_activity_at = db.scalar(select(func.max(AuditLog.created_at)).where(AuditLog.clinic_id == clinic.id))
+    return SuperAdminClinicOut(
+        id=clinic.id,
+        name=clinic.name,
+        email=clinic.email,
+        phone=clinic.phone,
+        subscription_plan=clinic.subscription_plan,
+        subscription_status=clinic.subscription_status,
+        trial_ends_at=clinic.trial_ends_at,
+        current_period_end=clinic.current_period_end,
+        created_at=clinic.created_at,
+        users_count=users_count,
+        last_activity_at=last_activity_at,
+    )
+
+
+@app.post("/superadmin/clinics/{clinic_id}/delete-permanent", status_code=status.HTTP_204_NO_CONTENT)
+def superadmin_delete_clinic_permanently(
+    clinic_id: str,
+    payload: SuperAdminClinicDeleteIn,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> None:
+    clinic = db.get(Clinic, clinic_id)
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    if payload.confirm_name.strip() != clinic.name:
+        raise HTTPException(status_code=400, detail="Clinic name confirmation does not match")
+    if payload.confirm_phrase.strip().upper() != "ELIMINAR":
+        raise HTTPException(status_code=400, detail="Delete phrase confirmation does not match")
+    counts = {
+        "users": db.scalar(select(func.count()).select_from(User).where(User.clinic_id == clinic.id)) or 0,
+        "patients": db.scalar(select(func.count()).select_from(Patient).where(Patient.clinic_id == clinic.id)) or 0,
+        "appointments": db.scalar(select(func.count()).select_from(Appointment).where(Appointment.clinic_id == clinic.id)) or 0,
+        "practitioners": db.scalar(select(func.count()).select_from(Practitioner).where(Practitioner.clinic_id == clinic.id)) or 0,
+        "rooms": db.scalar(select(func.count()).select_from(Room).where(Room.clinic_id == clinic.id)) or 0,
+        "services": db.scalar(select(func.count()).select_from(Service).where(Service.clinic_id == clinic.id)) or 0,
+        "manual_billing_movements": db.scalar(select(func.count()).select_from(ManualBillingMovement).where(ManualBillingMovement.clinic_id == clinic.id)) or 0,
+        "support_tickets": db.scalar(select(func.count()).select_from(SupportTicket).where(SupportTicket.clinic_id == clinic.id)) or 0,
+    }
+    audit_action(
+        db,
+        admin,
+        "superadmin-delete-clinic-permanent",
+        "clinic",
+        clinic.id,
+        {"clinic_name": clinic.name, "clinic_email": clinic.email, "deleted_counts": counts},
+        clinic_id=None,
+        request=request,
+    )
+    db.query(SupportTicket).filter(SupportTicket.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.delete(clinic)
+    db.commit()
+
+
 @app.post("/superadmin/clinics/{clinic_id}/impersonation-token", response_model=TokenOut)
 def superadmin_impersonation_token(
     clinic_id: str,
@@ -1804,6 +1921,119 @@ def superadmin_access_issues(
     audit_action(db, admin, "superadmin-view-access-issues", "support", metadata={"count": len(issues)}, clinic_id=None)
     db.commit()
     return issues
+
+
+@app.get("/superadmin/support-tickets", response_model=list[SuperAdminSupportTicketOut])
+def superadmin_support_tickets(
+    clinic_id: str | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> list[SuperAdminSupportTicketOut]:
+    query = select(SupportTicket).order_by(SupportTicket.updated_at.desc(), SupportTicket.created_at.desc())
+    if clinic_id:
+        query = query.where(SupportTicket.clinic_id == clinic_id)
+    if status_filter:
+        query = query.where(SupportTicket.status == status_filter)
+    tickets = list(db.scalars(query.limit(300)))
+    audit_action(db, admin, "superadmin-list-support-tickets", "support-ticket", metadata={"clinic_id": clinic_id, "count": len(tickets)}, clinic_id=None)
+    db.commit()
+    return [support_ticket_out(db, ticket) for ticket in tickets]
+
+
+@app.post("/superadmin/support-tickets", response_model=SuperAdminSupportTicketOut, status_code=status.HTTP_201_CREATED)
+def superadmin_create_support_ticket(
+    payload: SuperAdminSupportTicketCreateIn,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminSupportTicketOut:
+    if payload.clinic_id and not db.get(Clinic, payload.clinic_id):
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    if payload.user_id:
+        target_user = db.get(User, payload.user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if payload.clinic_id and target_user.clinic_id != payload.clinic_id:
+            raise HTTPException(status_code=400, detail="User does not belong to clinic")
+    history = [{
+        "at": datetime.now(UTC).isoformat(),
+        "by": admin.email,
+        "action": "created",
+        "note": payload.description or "",
+    }]
+    ticket = SupportTicket(
+        clinic_id=payload.clinic_id,
+        user_id=payload.user_id,
+        created_by_id=admin.id,
+        issue_key=payload.issue_key,
+        title=payload.title.strip(),
+        description=payload.description,
+        priority=payload.priority or "medium",
+        status=payload.status or "open",
+        history_json=json.dumps(history),
+    )
+    db.add(ticket)
+    db.flush()
+    audit_action(
+        db,
+        admin,
+        "superadmin-create-support-ticket",
+        "support-ticket",
+        ticket.id,
+        {"clinic_id": ticket.clinic_id, "issue_key": ticket.issue_key, "status": ticket.status},
+        clinic_id=ticket.clinic_id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(ticket)
+    return support_ticket_out(db, ticket)
+
+
+@app.patch("/superadmin/support-tickets/{ticket_id}", response_model=SuperAdminSupportTicketOut)
+def superadmin_update_support_ticket(
+    ticket_id: str,
+    payload: SuperAdminSupportTicketUpdateIn,
+    request: Request,
+    admin: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+) -> SuperAdminSupportTicketOut:
+    ticket = db.get(SupportTicket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Support ticket not found")
+    data = payload.model_dump(exclude_unset=True)
+    old_status = ticket.status
+    if payload.status is not None:
+        ticket.status = payload.status
+    if payload.priority is not None:
+        ticket.priority = payload.priority
+    history = []
+    if ticket.history_json:
+        try:
+            parsed = json.loads(ticket.history_json)
+            history = parsed if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            history = []
+    history.append({
+        "at": datetime.now(UTC).isoformat(),
+        "by": admin.email,
+        "action": f"status:{old_status}->{ticket.status}" if payload.status is not None else "updated",
+        "note": payload.note or "",
+    })
+    ticket.history_json = json.dumps(history[-50:])
+    audit_action(
+        db,
+        admin,
+        "superadmin-update-support-ticket",
+        "support-ticket",
+        ticket.id,
+        {"fields": sorted(data.keys()), "status": ticket.status},
+        clinic_id=ticket.clinic_id,
+        request=request,
+    )
+    db.commit()
+    db.refresh(ticket)
+    return support_ticket_out(db, ticket)
 
 
 @app.post("/superadmin/clinics/{clinic_id}/repair-access", response_model=SuperAdminRepairAccessOut)

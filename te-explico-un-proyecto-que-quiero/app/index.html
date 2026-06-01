@@ -332,6 +332,7 @@
               </nav>
               <div class="superadmin-sidebar-footer">
                 <span id="superadmin-backend-state">Backend conectado</span>
+                <button class="secondary-button" type="button" id="superadmin-change-password-button">Cambiar clave</button>
                 <button class="secondary-button" type="button" id="superadmin-logout-button">Cerrar sesión</button>
               </div>
             </aside>
@@ -419,6 +420,8 @@
                         <option value="active">Activas</option>
                         <option value="trialing">En prueba</option>
                         <option value="past_due">Impagadas</option>
+                        <option value="canceled">Canceladas</option>
+                        <option value="archived">Archivadas</option>
                         <option value="local_pending_backend">Locales pendientes</option>
                       </select>
                     </div>
@@ -586,6 +589,7 @@
               </select>
             </label>
             <button class="secondary-button install-button hidden" type="button" id="install-app">Instalar app</button>
+            <button class="secondary-button" type="button" id="change-password-button">Cambiar clave</button>
             <button class="secondary-button" type="button" id="logout-button">Salir</button>
             <button class="primary-button" type="button" id="new-appointment">Nueva cita</button>
           </div>
