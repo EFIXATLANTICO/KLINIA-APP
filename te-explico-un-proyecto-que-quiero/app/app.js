@@ -46,6 +46,19 @@ function todayIso(offsetDays = 0) {
   return date.toISOString().slice(0, 10);
 }
 
+function addMonthsIso(value, months = 1) {
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? new Date(`${value}T00:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) {
+    return todayIso();
+  }
+  const day = base.getDate();
+  base.setMonth(base.getMonth() + months);
+  if (base.getDate() !== day) {
+    base.setDate(0);
+  }
+  return base.toISOString().slice(0, 10);
+}
+
 const defaultAppointments = [
   { id: 1, date: todayIso(), patientId: "p1", practitionerId: "ana", roomId: "sala-1", serviceId: "deportiva", start: "09:00", status: "confirmed", internalNotes: "" },
   { id: 2, date: todayIso(), patientId: "p2", practitionerId: "luis", roomId: "gimnasio", serviceId: "readaptacion", start: "10:00", status: "confirmed", internalNotes: "" },
@@ -256,7 +269,8 @@ const backendSyncedClinicDataKeys = new Set([
   "reminder-settings",
   "availability-blocks",
   "permissions",
-  "clinic-logo"
+  "clinic-logo",
+  "audit-log"
 ]);
 
 function saveSyncedClinicState(key, value) {
@@ -282,7 +296,7 @@ function appendAuditLog(action, detail = {}) {
     },
     ...auditLog
   ].slice(0, 500);
-  saveClinicState("audit-log", auditLog);
+  saveSyncedClinicState("audit-log", auditLog);
 }
 
 function isDemoClinic() {
@@ -1443,6 +1457,9 @@ function renderSuperadminEmpty(tbody, colspan, message) {
 }
 
 function localSuperadminClinics(backendClinics = []) {
+  if (localStorage.getItem("klinia:superadmin-show-local-clinics") !== "true") {
+    return [];
+  }
   const backendKeys = new Set((backendClinics || []).flatMap((clinic) => [
     String(clinic.id || "").toLowerCase(),
     String(clinic.email || "").trim().toLowerCase(),
@@ -1472,6 +1489,31 @@ function mergeSuperadminClinics(backendClinics = []) {
     ...backendClinics.map((clinic) => ({ ...clinic, source: "backend" })),
     ...localSuperadminClinics(backendClinics)
   ];
+}
+
+function removeLocalClinicReferencesForSuperadmin(clinic = {}) {
+  const matchers = new Set([
+    String(clinic.id || "").trim().toLowerCase(),
+    String(clinic.backendClinicId || "").trim().toLowerCase(),
+    String(clinic.email || "").trim().toLowerCase(),
+    String(clinic.name || "").trim().toLowerCase(),
+    String(clinic.key || "").trim().toLowerCase()
+  ].filter(Boolean));
+  if (!matchers.size) return;
+  const before = clinicAccounts.length;
+  clinicAccounts = normalizeClinicAccounts(clinicAccounts.filter((account) => {
+    if (account.key === demoClinicKey) return true;
+    return ![
+      account.key,
+      account.backendClinicId,
+      account.email,
+      account.ownerEmail,
+      account.name
+    ].some((value) => matchers.has(String(value || "").trim().toLowerCase()));
+  }));
+  if (clinicAccounts.length !== before) {
+    saveClinicAccounts();
+  }
 }
 
 function saveSuperadminSession(session, me) {
@@ -1781,6 +1823,7 @@ function renderSuperadminClinicDetail() {
   $("#superadmin-detail-plan").innerHTML = `
     <dt>Plan</dt><dd>${escapeHtml(clinic.subscription_plan || "-")}</dd>
     <dt>Estado</dt><dd><span class="superadmin-status ${superadminStatusClass(clinic.subscription_status)}">${escapeHtml(superadminStatusLabel(clinic.subscription_status))}</span></dd>
+    <dt>Precio Stripe</dt><dd>${escapeHtml(clinic.stripe_price_id || "Sin precio asignado")}</dd>
     <dt>Fin de prueba</dt><dd>${escapeHtml(formatSuperadminDate(clinic.trial_ends_at))}</dd>
     <dt>Periodo actual</dt><dd>${escapeHtml(formatSuperadminDate(clinic.current_period_end))}</dd>
   `;
@@ -1795,6 +1838,9 @@ function renderSuperadminClinicDetail() {
   const detailActions = [
     ["Impersonar clinica", "Genera un token temporal de 30 minutos y registra la accion.", `data-superadmin-action="impersonate-clinic" ${clinic.subscription_status !== "archived" ? backendActionDisabled : "disabled title=\"Restaura la clinica antes de impersonar\""}`],
     [clinic.subscription_status === "canceled" ? "Reactivar clinica" : "Bloquear clinica", "Cambia el estado de suscripcion para permitir o bloquear uso.", `data-superadmin-action="toggle-clinic-status" ${backendActionDisabled}`],
+    ["Ampliar prueba 30 dias", "Suma un mes gratis a la fecha de fin de prueba interna y audita el cambio.", `data-superadmin-action="extend-trial" ${backendActionDisabled}`],
+    ["Aplicar plan mensual", "Actualiza plan/precio interno a mensual sin modificar Stripe directamente.", `data-superadmin-action="apply-monthly-plan" ${backendActionDisabled}`],
+    ["Aplicar plan anual", "Actualiza plan/precio interno a anual sin modificar Stripe directamente.", `data-superadmin-action="apply-annual-plan" ${backendActionDisabled}`],
     ["Resetear acceso direccion", "Genera una clave temporal para el usuario direccion activo.", `data-superadmin-action="reset-owner" ${backendActionDisabled}`],
     [clinic.subscription_status === "archived" ? "Restaurar clinica" : "Archivar prueba", clinic.subscription_status === "archived" ? "Reactiva la clinica archivada y sus accesos de direccion." : "Desactiva una clinica de simulacion sin borrar fisicamente sus datos.", `data-superadmin-action="${clinic.subscription_status === "archived" ? "restore-clinic" : "archive-test-clinic"}" ${backendActionDisabled}`],
     ["Eliminar permanentemente", "Borra la clinica y todos sus datos asociados tras doble confirmacion.", `data-superadmin-action="delete-clinic-permanent" ${backendActionDisabled}`],
@@ -2103,6 +2149,83 @@ async function superadminUpdateClinicStatus(clinicId, statusValue) {
   }
 }
 
+function superadminPlanForInterval(interval) {
+  const normalized = String(interval || "").toLowerCase();
+  return (superadminData.plans || []).find((plan) => String(plan.interval || "").toLowerCase() === normalized)
+    || (superadminData.plans || []).find((plan) => String(plan.id || "").toLowerCase().includes(normalized));
+}
+
+async function superadminExtendClinicTrial(clinicId) {
+  const clinic = clinicBySuperadminId(clinicId);
+  if (!clinic || clinic.source !== "backend") {
+    showToast("Solo se pueden modificar clinicas persistidas en backend.", "warning");
+    return;
+  }
+  const currentTrial = String(clinic.trial_ends_at || "").slice(0, 10);
+  const baseDate = currentTrial && currentTrial > todayIso() ? currentTrial : todayIso();
+  const nextTrial = addMonthsIso(baseDate, 1);
+  const confirmed = await showConfirm({
+    eyebrow: "Gestion comercial",
+    title: "Ampliar prueba 30 dias",
+    message: `La prueba de ${clinic.name} pasara a finalizar el ${nextTrial}.`,
+    detail: "Esto actualiza el estado interno de Klinia y queda auditado. No modifica una suscripcion de Stripe ya creada.",
+    confirmLabel: "Ampliar prueba",
+    variant: "primary"
+  });
+  if (!confirmed) return;
+  try {
+    await backendRequest(`/superadmin/clinics/${encodeURIComponent(clinic.id)}`, {
+      method: "PATCH",
+      token: superadminToken(),
+      auth: false,
+      body: JSON.stringify({
+        subscription_status: "trialing",
+        trial_ends_at: `${nextTrial}T23:59:59Z`
+      })
+    });
+    await loadSuperadminPanel({ feedback: "Prueba ampliada.", loadingLabel: "Actualizando..." });
+  } catch (error) {
+    showToast(`No se pudo ampliar la prueba: ${error.message}`, "error");
+  }
+}
+
+async function superadminApplyClinicPlan(clinicId, interval) {
+  const clinic = clinicBySuperadminId(clinicId);
+  if (!clinic || clinic.source !== "backend") {
+    showToast("Solo se pueden modificar clinicas persistidas en backend.", "warning");
+    return;
+  }
+  const plan = superadminPlanForInterval(interval);
+  if (!plan) {
+    showToast(`No se ha recibido un plan ${interval} desde backend. Revisa configuracion de Stripe.`, "warning");
+    return;
+  }
+  const confirmed = await showConfirm({
+    eyebrow: "Gestion comercial",
+    title: `Aplicar ${plan.name}`,
+    message: `Actualizar ${clinic.name} a ${plan.name}.`,
+    detail: "Esto actualiza el plan interno y el price_id visible en Klinia. No ejecuta cobro ni cambia una suscripcion activa en Stripe.",
+    confirmLabel: "Aplicar plan",
+    variant: "primary"
+  });
+  if (!confirmed) return;
+  try {
+    await backendRequest(`/superadmin/clinics/${encodeURIComponent(clinic.id)}`, {
+      method: "PATCH",
+      token: superadminToken(),
+      auth: false,
+      body: JSON.stringify({
+        subscription_plan: plan.id || clinic.subscription_plan || "",
+        stripe_price_id: plan.price_id || "",
+        subscription_status: clinic.subscription_status === "archived" ? "trialing" : (clinic.subscription_status || "active")
+      })
+    });
+    await loadSuperadminPanel({ feedback: "Plan actualizado.", loadingLabel: "Actualizando..." });
+  } catch (error) {
+    showToast(`No se pudo aplicar el plan: ${error.message}`, "error");
+  }
+}
+
 async function superadminArchiveTestClinic(clinicId) {
   const clinic = clinicBySuperadminId(clinicId) || superadminData.clinics.find((item) => String(item.id) === String(clinicId));
   if (!clinic || clinic.source !== "backend") {
@@ -2196,6 +2319,7 @@ async function superadminDeleteClinicPermanently(clinicId) {
       auth: false,
       body: JSON.stringify({ confirm_name: clinic.name, confirm_phrase: "ELIMINAR" })
     });
+    removeLocalClinicReferencesForSuperadmin(clinic);
     selectedSuperadminClinicId = "";
     await loadSuperadminPanel({ feedback: "Clinica eliminada permanentemente.", loadingLabel: "Actualizando..." });
   } catch (error) {
@@ -2758,6 +2882,8 @@ function openChangePasswordDialog(options = {}) {
   const identity = currentSessionAccessIdentity();
   const force = Boolean(options.force);
   dialog.dataset.forcePasswordChange = force ? "true" : "false";
+  dialog.dataset.backendToken = options.backendToken || "";
+  dialog.dataset.accountKey = options.accountKey || activeClinicKey || "";
   $$("[data-password-change-optional]").forEach((button) => {
     button.classList.toggle("hidden", force);
   });
@@ -2793,14 +2919,16 @@ async function submitPasswordChange(form) {
     return;
   }
   const identity = currentSessionAccessIdentity();
+  const dialog = $("#change-password-dialog");
   const account = currentClinicAccount();
-  const superadminSessionToken = identity.role === "superadmin" ? superadminToken() : "";
-  const hasBackend = !superadminSessionToken && backendTokenForAccount(account);
-  if (superadminSessionToken) {
+  const forcedBackendToken = dialog?.dataset.backendToken || "";
+  const activeBackendToken = identity.role === "superadmin" ? superadminToken() : (forcedBackendToken || backendTokenForAccount(account));
+  const hasBackend = Boolean(activeBackendToken);
+  if (hasBackend) {
     try {
       await backendRequest("/me/password", {
         method: "POST",
-        token: superadminSessionToken,
+        token: activeBackendToken,
         auth: false,
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
       });
@@ -2811,25 +2939,16 @@ async function submitPasswordChange(form) {
       error.classList.add("visible");
       return;
     }
+    if (dialog) {
+      dialog.dataset.forcePasswordChange = "false";
+      dialog.dataset.backendToken = "";
+      dialog.dataset.accountKey = "";
+    }
     $("#change-password-dialog")?.close();
-    showToast("Clave de superadmin actualizada correctamente.", "success");
+    showToast(identity.role === "superadmin" ? "Clave de superadmin actualizada correctamente." : "Clave actualizada correctamente.", "success");
     return;
   }
-  if (hasBackend) {
-    try {
-      await backendRequest("/me/password", {
-        method: "POST",
-        account,
-        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
-      });
-    } catch (backendError) {
-      error.textContent = backendError.status === 401
-        ? "La clave actual no es correcta."
-        : `No se pudo actualizar la clave en backend: ${backendError.message}`;
-      error.classList.add("visible");
-      return;
-    }
-  } else {
+  if (!hasBackend) {
     const identity = currentSessionAccessIdentity();
     if (identity.localPassword && currentPassword !== identity.localPassword) {
       error.textContent = "La clave actual no es correcta.";
@@ -2838,9 +2957,10 @@ async function submitPasswordChange(form) {
     }
   }
   updateLocalCurrentSessionPassword(newPassword);
-  const dialog = $("#change-password-dialog");
   if (dialog) {
     dialog.dataset.forcePasswordChange = "false";
+    dialog.dataset.backendToken = "";
+    dialog.dataset.accountKey = "";
   }
   $("#change-password-dialog")?.close();
   showToast("Clave actualizada correctamente.", "success");
@@ -2901,8 +3021,13 @@ async function tryBackendLogin(identifier, password, options = {}) {
     renderLoginClinics();
     enterPlatform(backendProfileForUser(me?.user), accountKey);
     if (session.force_password_change || me?.user?.force_password_change) {
-      showToast("Has entrado con una clave temporal. Cambiala desde tu perfil o Configuracion cuanto antes.", "warning");
-      setTimeout(() => openChangePasswordDialog({ force: true, currentPassword: password }), 300);
+      showToast("Has entrado con una clave temporal. Debes crear una clave nueva para continuar.", "warning");
+      setTimeout(() => openChangePasswordDialog({
+        force: true,
+        currentPassword: password,
+        backendToken: session.access_token,
+        accountKey
+      }), 300);
     }
     return { handled: true, session, me, account: nextAccount };
   } catch (error) {
@@ -4006,6 +4131,13 @@ function syncPatientPackUsageFromAppointments(options = {}) {
   let changed = false;
   patientPacks = patientPacks.map((pack) => {
     const actualUsed = Math.min(Math.max(0, Number(pack.sessions || 0)), patientPackActualUsedCount(pack));
+    if (pack.usageSource === "manual-correction") {
+      if (Number(pack.linkedAppointmentUses || 0) === actualUsed) {
+        return pack;
+      }
+      changed = true;
+      return { ...pack, linkedAppointmentUses: actualUsed, updatedAt: new Date().toISOString() };
+    }
     if (Number(pack.used || 0) === actualUsed) {
       return pack;
     }
@@ -6453,7 +6585,7 @@ function renderSettings() {
                   <input list="patients-fixed-${group.id}" data-config-add-fixed-input="${group.id}" placeholder="Buscar paciente..." />
                 </label>
                 <datalist id="patients-fixed-${group.id}">
-                  ${patients.filter((patient) => !(group.patientIds || []).includes(patient.id)).map((patient) => `<option value="${escapeHtml(patient.name)}" label="${escapeHtml(patient.phone || "sin telefono")}"></option>`).join("")}
+                  ${patients.filter((patient) => !(group.patientIds || []).includes(patient.id)).map((patient) => `<option value="${escapeHtml(patient.name)}" label="${escapeHtml(`${patient.name} - ${patient.phone || "sin telefono"}`)}"></option>`).join("")}
                 </datalist>
                 <button class="secondary-button" type="button" data-config-add-fixed="${group.id}">Anadir fijo</button>
               </div>
@@ -6474,7 +6606,13 @@ function renderSettings() {
         const groupId = button.dataset.configAddFixed;
         const input = document.querySelector(`[data-config-add-fixed-input="${groupId}"]`);
         const typed = input?.value.trim() || "";
-        const patient = patients.find((item) => item.id === typed || item.name.toLowerCase() === typed.toLowerCase());
+        const typedLower = typed.toLowerCase();
+        const typedPhone = typed.replace(/\D/g, "");
+        const patient = patients.find((item) => (
+          item.id === typed
+          || item.name.toLowerCase() === typedLower
+          || (typedPhone && String(item.phone || "").replace(/\D/g, "").includes(typedPhone))
+        ));
         if (!patient) return;
         const group = groups.find((item) => item.id === groupId);
         if (!group) return;
@@ -6623,20 +6761,25 @@ function renderBilling() {
     });
   const manualRows = manualBillingMovements
     .filter((movement) => movement.source !== "group-monthly-fee")
-    .map((movement) => ({
-    id: movement.id,
-    sortKey: `${movement.date || todayIso()} 23:59`,
-    concept: movement.concept || (movement.type === "payment" ? "Pago manual" : "Cobro manual"),
-    patient: "-",
-    practitioner: "Movimiento manual",
-    status: movement.type === "payment" ? "cancelled" : "confirmed",
-    statusText: movement.type === "payment" ? "Pago" : "Cobro",
-    amount: signedManualBillingAmount(movement),
-    paymentStatus: movement.paymentMethod || "cash",
-    paymentText: `${paymentStatusLabel(movement.paymentMethod || "cash")} - ${movement.type === "payment" ? "Resta" : "Suma"}`,
-    manual: true,
-    manualId: movement.id
-  }));
+    .map((movement) => {
+      const createdTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(movement.createdAt || ""))
+        ? String(movement.createdAt).slice(11, 16)
+        : "23:59";
+      return {
+        id: movement.id,
+        sortKey: `${movement.date || todayIso()} ${createdTime}`,
+        concept: movement.concept || (movement.type === "payment" ? "Pago manual" : "Cobro manual"),
+        patient: "-",
+        practitioner: "Movimiento manual",
+        status: movement.type === "payment" ? "cancelled" : "confirmed",
+        statusText: movement.type === "payment" ? "Pago" : "Cobro",
+        amount: signedManualBillingAmount(movement),
+        paymentStatus: movement.paymentMethod || "cash",
+        paymentText: `${paymentStatusLabel(movement.paymentMethod || "cash")} - ${movement.type === "payment" ? "Resta" : "Suma"}`,
+        manual: true,
+        manualId: movement.id
+      };
+    });
   const allRows = [...appointmentRows, ...groupRows, ...packRows, ...manualRows].filter((row) => billingRowInRange(row, range));
   const paidAppointments = appointmentRows.filter((appointment) => appointment.status === "confirmed" && ["cash", "card"].includes(appointment.paymentStatus));
   const paid = paidAppointments
@@ -8524,6 +8667,7 @@ async function hydrateFromApi(options = {}) {
     permissionSettings = normalizePermissionSettings(await syncClinicDataCollection("permissions", permissionSettings, defaultPermissionSettings, normalizePermissionSettings));
     availabilityBlocks = await syncClinicDataCollection("availability-blocks", availabilityBlocks, [], (value) => Array.isArray(value) ? value : []);
     clinicLogo = await syncClinicDataCollection("clinic-logo", clinicLogo, "", (value) => typeof value === "string" ? value : "");
+    auditLog = await syncClinicDataCollection("audit-log", auditLog, [], (value) => Array.isArray(value) ? value : []);
     syncPatientPackUsageFromAppointments({ persist: true });
     selectedPatientId = patients.some((patient) => String(patient.id) === String(selectedPatientId))
       ? selectedPatientId
@@ -8549,6 +8693,7 @@ async function hydrateFromApi(options = {}) {
     saveClinicState("permissions", permissionSettings);
     saveSyncedClinicState("availability-blocks", availabilityBlocks);
     saveClinicState("clinic-logo", clinicLogo);
+    saveClinicState("audit-log", auditLog);
     backendLastSyncAt = Date.now();
     if (options.render !== false) {
       renderAppointmentFormOptions();
@@ -9923,6 +10068,12 @@ function setupLogin() {
         superadminImpersonateClinic(clinic.id);
       } else if (actionButton.dataset.superadminAction === "toggle-clinic-status") {
         superadminUpdateClinicStatus(clinic.id, clinic.subscription_status === "canceled" ? "active" : "canceled");
+      } else if (actionButton.dataset.superadminAction === "extend-trial") {
+        superadminExtendClinicTrial(clinic.id);
+      } else if (actionButton.dataset.superadminAction === "apply-monthly-plan") {
+        superadminApplyClinicPlan(clinic.id, "month");
+      } else if (actionButton.dataset.superadminAction === "apply-annual-plan") {
+        superadminApplyClinicPlan(clinic.id, "year");
       } else if (actionButton.dataset.superadminAction === "reset-owner") {
         superadminResetOwnerForClinic(clinic.id);
       } else if (actionButton.dataset.superadminAction === "archive-test-clinic") {
@@ -12584,19 +12735,33 @@ function setupPatientConsentsAndPacks() {
     renderPatientDetail();
   });
 
-  $("#patient-pack-form")?.addEventListener("submit", (event) => {
+  $("#patient-pack-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const pack = byId(patientPacks, form.dataset.editingPatientPackId);
     if (!pack) return;
     const sessions = Math.max(1, Number(form.elements.sessions.value || 1));
-    const used = Math.max(0, Math.min(sessions, patientPackActualUsedCount(pack)));
+    const actualUsed = patientPackActualUsedCount(pack);
+    const usedInput = Math.max(0, Number(form.elements.used.value || 0));
+    const used = Math.min(sessions, usedInput);
     const name = form.elements.name.value.trim();
     if (!name) {
       $("#patient-pack-error").textContent = "El nombre del bono es obligatorio.";
       $("#patient-pack-error").classList.add("visible");
       return;
     }
+    if (used < actualUsed) {
+      const confirmed = await showConfirm({
+        eyebrow: "Bono del paciente",
+        title: "Sesiones vinculadas superiores",
+        message: `Hay ${actualUsed} cita(s) vinculada(s) a este bono y quieres dejar ${used} sesion(es) usadas.`,
+        detail: "Puedes guardar la correccion, pero conviene revisar esas citas para que saldo, agenda y rendimiento no queden descuadrados.",
+        confirmLabel: "Guardar correccion",
+        variant: "danger"
+      });
+      if (!confirmed) return;
+    }
+    const usageChanged = Number(pack.used || 0) !== used || used !== actualUsed;
     patientPacks = patientPacks.map((item) => item.id === pack.id
       ? {
           ...item,
@@ -12608,10 +12773,23 @@ function setupPatientConsentsAndPacks() {
           serviceId: form.elements.serviceId.value || "",
           paymentMethod: form.elements.paymentMethod?.value || item.paymentMethod || "",
           invoice: form.elements.invoice.checked,
+          usageSource: used === actualUsed ? "appointments" : "manual-correction",
+          usageAdjustedAt: usageChanged ? new Date().toISOString() : item.usageAdjustedAt,
+          usageAdjustedBy: usageChanged ? currentSessionName() : item.usageAdjustedBy,
+          linkedAppointmentUses: actualUsed,
           updatedAt: new Date().toISOString()
         }
       : item
     );
+    if (usageChanged) {
+      appendAuditLog("adjust-patient-pack-usage", {
+        patientPackId: pack.id,
+        patientId: pack.patientId,
+        previousUsed: pack.used || 0,
+        nextUsed: used,
+        linkedAppointmentUses: actualUsed
+      });
+    }
     saveSyncedClinicState("patient-packs", patientPacks);
     $("#patient-pack-dialog").close();
     renderPatientDetail();

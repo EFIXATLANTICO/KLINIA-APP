@@ -1150,6 +1150,9 @@ def create_user(payload: UserCreate, user: User = Depends(require_roles(UserRole
     existing = db.scalar(select(User).where(User.clinic_id == user.clinic_id, func.lower(User.email) == email))
     if existing:
         raise HTTPException(status_code=409, detail="User email already exists in this clinic")
+    existing_name = db.scalar(select(User).where(User.clinic_id == user.clinic_id, User.active.is_(True), func.lower(User.name) == payload.name.strip().lower()))
+    if existing_name:
+        raise HTTPException(status_code=409, detail="User name already exists in this clinic")
     password = validate_new_password(payload.password)
     next_user = User(
         clinic_id=user.clinic_id,
@@ -1180,6 +1183,10 @@ def update_user(user_id: str, payload: UserUpdate, user: User = Depends(require_
         if existing:
             raise HTTPException(status_code=409, detail="User email already exists in this clinic")
         target.email = email
+    if "name" in data and data["name"]:
+        existing_name = db.scalar(select(User).where(User.clinic_id == user.clinic_id, User.id != target.id, User.active.is_(True), func.lower(User.name) == data["name"].strip().lower()))
+        if existing_name:
+            raise HTTPException(status_code=409, detail="User name already exists in this clinic")
     if "password" in data and data["password"]:
         password = validate_new_password(data["password"])
         target.password_hash = hash_password(password)
@@ -1595,6 +1602,7 @@ def superadmin_clinics(
                 phone=clinic.phone,
                 subscription_plan=clinic.subscription_plan,
                 subscription_status=clinic.subscription_status,
+                stripe_price_id=clinic.stripe_price_id,
                 trial_ends_at=clinic.trial_ends_at,
                 current_period_end=clinic.current_period_end,
                 created_at=clinic.created_at,
@@ -1707,6 +1715,14 @@ def superadmin_update_clinic(
         raise HTTPException(status_code=404, detail="Clinic not found")
     if payload.subscription_status is not None:
         clinic.subscription_status = payload.subscription_status
+    if payload.subscription_plan is not None:
+        clinic.subscription_plan = payload.subscription_plan
+    if payload.stripe_price_id is not None:
+        clinic.stripe_price_id = payload.stripe_price_id
+    if payload.trial_ends_at is not None:
+        clinic.trial_ends_at = payload.trial_ends_at
+    if payload.current_period_end is not None:
+        clinic.current_period_end = payload.current_period_end
     audit_action(
         db,
         admin,
@@ -1728,6 +1744,7 @@ def superadmin_update_clinic(
         phone=clinic.phone,
         subscription_plan=clinic.subscription_plan,
         subscription_status=clinic.subscription_status,
+        stripe_price_id=clinic.stripe_price_id,
         trial_ends_at=clinic.trial_ends_at,
         current_period_end=clinic.current_period_end,
         created_at=clinic.created_at,
@@ -1779,6 +1796,7 @@ def superadmin_archive_test_clinic(
         phone=clinic.phone,
         subscription_plan=clinic.subscription_plan,
         subscription_status=clinic.subscription_status,
+        stripe_price_id=clinic.stripe_price_id,
         trial_ends_at=clinic.trial_ends_at,
         current_period_end=clinic.current_period_end,
         created_at=clinic.created_at,
@@ -1824,6 +1842,7 @@ def superadmin_restore_archived_clinic(
         phone=clinic.phone,
         subscription_plan=clinic.subscription_plan,
         subscription_status=clinic.subscription_status,
+        stripe_price_id=clinic.stripe_price_id,
         trial_ends_at=clinic.trial_ends_at,
         current_period_end=clinic.current_period_end,
         created_at=clinic.created_at,
@@ -1868,6 +1887,16 @@ def superadmin_delete_clinic_permanently(
         request=request,
     )
     db.query(SupportTicket).filter(SupportTicket.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(AttendanceRecord).filter(AttendanceRecord.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(Appointment).filter(Appointment.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(ManualBillingMovement).filter(ManualBillingMovement.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(ClinicDataBlob).filter(ClinicDataBlob.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(AuditLog).filter(AuditLog.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(Practitioner).filter(Practitioner.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(Room).filter(Room.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(Service).filter(Service.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(Patient).filter(Patient.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(User).filter(User.clinic_id == clinic.id).delete(synchronize_session=False)
     db.delete(clinic)
     db.commit()
 

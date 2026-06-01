@@ -184,6 +184,7 @@ class SuperAdminClinicOut(BaseModel):
     phone: str | None = None
     subscription_plan: str = "trial"
     subscription_status: str = "trialing"
+    stripe_price_id: str | None = None
     trial_ends_at: datetime | None = None
     current_period_end: datetime | None = None
     created_at: datetime
@@ -225,6 +226,10 @@ class SuperAdminPasswordResetOut(BaseModel):
 
 class SuperAdminClinicUpdateIn(BaseModel):
     subscription_status: str | None = Field(default=None, max_length=40)
+    subscription_plan: str | None = Field(default=None, max_length=40)
+    stripe_price_id: str | None = Field(default=None, max_length=120)
+    trial_ends_at: datetime | None = None
+    current_period_end: datetime | None = None
 
 
 class SuperAdminClinicDeleteIn(BaseModel):
