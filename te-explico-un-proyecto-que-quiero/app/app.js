@@ -46,19 +46,6 @@ function todayIso(offsetDays = 0) {
   return date.toISOString().slice(0, 10);
 }
 
-function addMonthsIso(value, months = 1) {
-  const base = /^\d{4}-\d{2}-\d{2}$/.test(String(value || "")) ? new Date(`${value}T00:00:00`) : new Date();
-  if (Number.isNaN(base.getTime())) {
-    return todayIso();
-  }
-  const day = base.getDate();
-  base.setMonth(base.getMonth() + months);
-  if (base.getDate() !== day) {
-    base.setDate(0);
-  }
-  return base.toISOString().slice(0, 10);
-}
-
 const defaultAppointments = [
   { id: 1, date: todayIso(), patientId: "p1", practitionerId: "ana", roomId: "sala-1", serviceId: "deportiva", start: "09:00", status: "confirmed", internalNotes: "" },
   { id: 2, date: todayIso(), patientId: "p2", practitionerId: "luis", roomId: "gimnasio", serviceId: "readaptacion", start: "10:00", status: "confirmed", internalNotes: "" },
