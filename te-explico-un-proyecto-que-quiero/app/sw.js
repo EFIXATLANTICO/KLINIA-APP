@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-sync-critical-20260601";
+const KLINIA_CACHE = "klinia-live-sync-20260601";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260601-sync-critical",
-  "./app.js?v=20260601-sync-critical",
+  "./styles.css?v=20260601-live-sync",
+  "./app.js?v=20260601-live-sync",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

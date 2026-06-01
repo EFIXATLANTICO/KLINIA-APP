@@ -243,6 +243,7 @@ function saveClinicState(key, value) {
 }
 
 const backendSyncedClinicDataKeys = new Set([
+  "clinical-notes",
   "groups",
   "group-dropins",
   "group-completions",
@@ -254,7 +255,8 @@ const backendSyncedClinicDataKeys = new Set([
   "reminder-actions",
   "reminder-settings",
   "availability-blocks",
-  "permissions"
+  "permissions",
+  "clinic-logo"
 ]);
 
 function saveSyncedClinicState(key, value) {
@@ -756,6 +758,11 @@ const groupWorkerInvoiceLocks = new Set();
 const appointmentDragMime = "application/x-klinia-appointment";
 let draggedAppointmentId = "";
 let suppressAppointmentClickUntil = 0;
+let backendAutoSyncTimer = null;
+let backendAutoSyncInProgress = false;
+let backendLastSyncAt = 0;
+const backendAutoSyncIntervalMs = 30000;
+const backendAutoSyncMinIntervalMs = 8000;
 let billingFilterState = loadState("billing-filter-state", {
   mode: "current-month",
   day: todayIso(),
@@ -1256,6 +1263,71 @@ async function syncCurrentSubscriptionFromBackend(options = {}) {
     }
     return null;
   }
+}
+
+function applyBackendClinicSnapshot(apiClinic) {
+  if (!apiClinic) {
+    return false;
+  }
+  const nextClinic = {
+    ...clinic,
+    name: apiClinic.name || clinic.name || defaultClinic.name,
+    email: apiClinic.email || clinic.email || "",
+    phone: apiClinic.phone || clinic.phone || "",
+    billingName: apiClinic.billing_name || clinic.billingName || apiClinic.name || clinic.name || "",
+    billingEmail: apiClinic.billing_email || clinic.billingEmail || apiClinic.email || clinic.email || "",
+    taxId: apiClinic.tax_id || clinic.taxId || "",
+    billingAddress: apiClinic.billing_address || clinic.billingAddress || "",
+    openingStart: apiClinic.opening_start || clinic.openingStart || "09:00",
+    openingEnd: apiClinic.opening_end || clinic.openingEnd || "20:00",
+    workingDays: normalizeWorkingDays(apiClinic.working_days || clinic.workingDays)
+  };
+  const before = JSON.stringify({
+    name: clinic.name || "",
+    email: clinic.email || "",
+    phone: clinic.phone || "",
+    openingStart: clinic.openingStart || "",
+    openingEnd: clinic.openingEnd || "",
+    workingDays: normalizeWorkingDays(clinic.workingDays)
+  });
+  const after = JSON.stringify({
+    name: nextClinic.name || "",
+    email: nextClinic.email || "",
+    phone: nextClinic.phone || "",
+    openingStart: nextClinic.openingStart || "",
+    openingEnd: nextClinic.openingEnd || "",
+    workingDays: normalizeWorkingDays(nextClinic.workingDays)
+  });
+  clinic = nextClinic;
+  saveClinicState("clinic", clinic);
+  clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
+    account.key === activeClinicKey
+      ? {
+          ...account,
+          name: nextClinic.name,
+          email: nextClinic.email,
+          phone: nextClinic.phone,
+          backendClinicId: apiClinic.id || account.backendClinicId || "",
+          paymentPlan: normalizeSaasPlanId(apiClinic.subscription_plan || account.paymentPlan),
+          subscriptionStatus: apiClinic.subscription_status || account.subscriptionStatus,
+          billingStatus: apiClinic.subscription_status || account.billingStatus,
+          currentPeriodEnd: (apiClinic.current_period_end || account.currentPeriodEnd || "").slice(0, 10),
+          trialEndsAt: (apiClinic.trial_ends_at || account.trialEndsAt || "").slice(0, 10),
+          openingStart: nextClinic.openingStart,
+          openingEnd: nextClinic.openingEnd,
+          workingDays: nextClinic.workingDays,
+          billingProfile: {
+            ...(account.billingProfile || {}),
+            billingName: nextClinic.billingName,
+            billingEmail: nextClinic.billingEmail,
+            taxId: nextClinic.taxId,
+            billingAddress: nextClinic.billingAddress
+          }
+        }
+      : account
+  )));
+  saveClinicAccounts();
+  return before !== after;
 }
 
 function backendDataEnabled(account = currentClinicAccount()) {
@@ -2502,9 +2574,7 @@ async function tryBackendLogin(identifier, password, options = {}) {
     return { handled: false, error: null };
   }
   const resolvedAccount = options.account || clinicAccountByClinicIdentifier(cleanIdentifier) || clinicAccountByLogin(cleanIdentifier);
-  const backendEmail = looksLikeEmail(cleanIdentifier)
-    ? cleanIdentifier
-    : (ownerEmailForAccount(resolvedAccount) || resolvedAccount?.email || cleanIdentifier);
+  const backendEmail = cleanIdentifier;
   const backendClinicEmail = options.clinicEmail || resolvedAccount?.email || resolvedAccount?.name || "";
   try {
     const session = await backendRequest("/auth/login", {
@@ -7442,7 +7512,7 @@ function setupCommercialSettings() {
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       clinicLogo = reader.result;
-      saveClinicState("clinic-logo", clinicLogo);
+      saveSyncedClinicState("clinic-logo", clinicLogo);
       renderCommercialSettings();
     });
     reader.readAsDataURL(file);
@@ -8010,13 +8080,14 @@ function setupAccessManagement() {
   });
 }
 
-async function hydrateFromApi() {
+async function hydrateFromApi(options = {}) {
   if (!backendDataEnabled()) {
-    return;
+    return false;
   }
 
   try {
-    let [apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
+    let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
+      backendRequest("/me"),
       backendRequest("/patients"),
       backendRequest("/practitioners"),
       backendRequest("/rooms"),
@@ -8025,6 +8096,7 @@ async function hydrateFromApi() {
       backendOptionalCollection("/manual-billing-movements"),
       backendOptionalCollection("/attendance-records")
     ]);
+    applyBackendClinicSnapshot(apiMe?.clinic);
     ({ apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = await bootstrapBackendDataIfNeeded({
       apiPatients,
       apiPractitioners,
@@ -8043,6 +8115,7 @@ async function hydrateFromApi() {
     manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
     attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
     groups = normalizeGroups(await syncClinicDataCollection("groups", groups, [], normalizeGroups));
+    clinicalNotes = await syncClinicDataCollection("clinical-notes", clinicalNotes, [], (value) => Array.isArray(value) ? value : []);
     groupDropIns = await syncClinicDataCollection("group-dropins", groupDropIns, [], (value) => Array.isArray(value) ? value : []);
     groupCompletions = await syncClinicDataCollection("group-completions", groupCompletions, [], (value) => Array.isArray(value) ? value : []);
     groupSessionOverrides = await syncClinicDataCollection("group-session-overrides", groupSessionOverrides, [], normalizeGroupSessionOverrides);
@@ -8057,13 +8130,17 @@ async function hydrateFromApi() {
     };
     permissionSettings = normalizePermissionSettings(await syncClinicDataCollection("permissions", permissionSettings, defaultPermissionSettings, normalizePermissionSettings));
     availabilityBlocks = await syncClinicDataCollection("availability-blocks", availabilityBlocks, [], (value) => Array.isArray(value) ? value : []);
+    clinicLogo = await syncClinicDataCollection("clinic-logo", clinicLogo, "", (value) => typeof value === "string" ? value : "");
     syncPatientPackUsageFromAppointments({ persist: true });
-    selectedPatientId = patients[0]?.id || null;
+    selectedPatientId = patients.some((patient) => String(patient.id) === String(selectedPatientId))
+      ? selectedPatientId
+      : patients[0]?.id || null;
     saveClinicState("patients", patients);
     saveClinicState("practitioners", practitioners);
     saveClinicState("rooms", rooms);
     saveClinicState("services", services);
     saveClinicState("appointments", appointments);
+    saveClinicState("clinical-notes", clinicalNotes);
     saveClinicState("manual-billing-movements", manualBillingMovements);
     saveClinicState("attendance-records", attendanceRecords);
     saveClinicState("groups", groups);
@@ -8078,13 +8155,81 @@ async function hydrateFromApi() {
     saveClinicState("reminder-settings", reminderSettings);
     saveClinicState("permissions", permissionSettings);
     saveSyncedClinicState("availability-blocks", availabilityBlocks);
-    renderAppointmentFormOptions();
-    renderLoginProfiles();
-    renderAll();
+    saveClinicState("clinic-logo", clinicLogo);
+    backendLastSyncAt = Date.now();
+    if (options.render !== false) {
+      renderAppointmentFormOptions();
+      renderLoginProfiles();
+      renderAll();
+    }
+    return true;
   } catch (error) {
     console.warn("Klinia backend data unavailable, keeping local cache.", error);
-    showToast(`No se pudo sincronizar datos con backend: ${error.message}`, "warning");
+    if (!options.silent) {
+      showToast(`No se pudo sincronizar datos con backend: ${error.message}`, "warning");
+    }
+    return false;
   }
+}
+
+function shouldAutoSyncBackend(options = {}) {
+  if (!isAuthenticated || isDemoClinic() || !backendDataEnabled()) {
+    return false;
+  }
+  if (options.force) {
+    return true;
+  }
+  if (document.querySelector("dialog[open]")) {
+    return false;
+  }
+  return true;
+}
+
+async function syncCurrentClinicFromBackend(options = {}) {
+  if (!shouldAutoSyncBackend(options) || backendAutoSyncInProgress) {
+    return false;
+  }
+  const minInterval = Number(options.minIntervalMs ?? backendAutoSyncMinIntervalMs);
+  if (!options.force && Date.now() - backendLastSyncAt < minInterval) {
+    return false;
+  }
+  backendAutoSyncInProgress = true;
+  try {
+    return await hydrateFromApi({ silent: true });
+  } finally {
+    backendAutoSyncInProgress = false;
+  }
+}
+
+function stopBackendAutoSync() {
+  if (backendAutoSyncTimer) {
+    window.clearInterval(backendAutoSyncTimer);
+    backendAutoSyncTimer = null;
+  }
+}
+
+function startBackendAutoSync() {
+  stopBackendAutoSync();
+  if (!shouldAutoSyncBackend({ force: true })) {
+    return;
+  }
+  backendAutoSyncTimer = window.setInterval(() => {
+    syncCurrentClinicFromBackend({ silent: true });
+  }, backendAutoSyncIntervalMs);
+}
+
+function setupBackendAutoSyncTriggers() {
+  window.addEventListener("focus", () => {
+    syncCurrentClinicFromBackend({ minIntervalMs: 3000 });
+  });
+  window.addEventListener("online", () => {
+    syncCurrentClinicFromBackend({ force: true });
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      syncCurrentClinicFromBackend({ minIntervalMs: 3000 });
+    }
+  });
 }
 
 function setupNavigation() {
@@ -8244,6 +8389,7 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   if (blocked) {
     showToast(subscriptionBlockMessage(account), "warning");
   }
+  startBackendAutoSync();
   syncCurrentSubscriptionFromBackend({ silent: true }).then((status) => {
     if (!status) return;
     applyRolePermissions();
@@ -8254,10 +8400,11 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
       setActiveSection("suscripcion", false);
     }
   });
-  hydrateFromApi();
+  hydrateFromApi({ silent: true });
 }
 
 function clearAuthenticatedSessionForBackend(message = "") {
+  stopBackendAutoSync();
   isAuthenticated = false;
   saveState("authenticated", false);
   saveState("authenticated-at", 0);
@@ -8271,6 +8418,7 @@ function clearAuthenticatedSessionForBackend(message = "") {
 
 async function restoreAuthenticatedSessionOnLoad() {
   if (!isAuthenticated) {
+    stopBackendAutoSync();
     setActiveSection("agenda", false);
     return;
   }
@@ -8284,13 +8432,15 @@ async function restoreAuthenticatedSessionOnLoad() {
   setEntrySection(true);
 
   if (!backendAuthoritativeMode(account)) {
-    hydrateFromApi();
+    startBackendAutoSync();
+    hydrateFromApi({ silent: true });
     return;
   }
 
   try {
     await backendRequest("/me", { account });
-    await hydrateFromApi();
+    startBackendAutoSync();
+    await hydrateFromApi({ silent: true });
   } catch (error) {
     if ([401, 403].includes(error.status)) {
       clearAuthenticatedSessionForBackend("Tu sesion ha caducado. Inicia sesion de nuevo para cargar los datos reales.");
@@ -9231,6 +9381,7 @@ function setupLogin() {
   });
 
   $("#logout-button").addEventListener("click", () => {
+    stopBackendAutoSync();
     isAuthenticated = false;
     saveState("authenticated", false);
     saveState("authenticated-at", 0);
@@ -11287,6 +11438,7 @@ function setupConfiguration() {
       return;
     }
     clinic = { ...clinic };
+    backendLastSyncAt = Date.now();
     $("#clinic-save-status").classList.remove("error");
     saveClinicState("clinic", clinic);
     reminderSettings = { ...reminderSettings, reminderMessageTemplate };
@@ -12115,7 +12267,7 @@ function openClinicalNoteDialog(noteId) {
 
 function deleteClinicalNoteById(noteId) {
   clinicalNotes = clinicalNotes.filter((note) => String(note.id) !== String(noteId));
-  saveClinicState("clinical-notes", clinicalNotes);
+  saveSyncedClinicState("clinical-notes", clinicalNotes);
   selectedClinicalNoteId = null;
   $("#clinical-note-dialog")?.close();
   renderPatientDetail();
@@ -12160,7 +12312,7 @@ function setupPatientDetail() {
       },
       ...clinicalNotes
     ];
-    saveClinicState("clinical-notes", clinicalNotes);
+    saveSyncedClinicState("clinical-notes", clinicalNotes);
     form.reset();
     renderPatientDetail();
   });
@@ -12195,7 +12347,7 @@ function setupPatientDetail() {
         }
       : item
     );
-    saveClinicState("clinical-notes", clinicalNotes);
+    saveSyncedClinicState("clinical-notes", clinicalNotes);
     $("#clinical-note-dialog").close();
     renderPatientDetail();
   });
@@ -12416,6 +12568,7 @@ setupFormErrorClearing("#group-exception-form", "#group-exception-error");
 setupFormErrorClearing("#manual-billing-form", "#manual-billing-error");
 setupSession();
 setupDialog();
+setupBackendAutoSyncTriggers();
 setupAppointmentDetail();
 setupPatientDialog();
 setupServiceDialog();

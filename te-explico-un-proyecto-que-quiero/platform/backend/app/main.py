@@ -906,8 +906,9 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
             token = create_access_token(subject=superadmin.id, clinic_id=None, role=superadmin.role.value)
             return TokenOut(access_token=token, clinic_id=None, subscription_status="active", force_password_change=False)
 
-    if not payload.clinic_id and not payload.clinic_email:
-        clinic = clinic_by_identifier(db, identifier)
+    if not looks_like_email(identifier):
+        clinic = db.get(Clinic, payload.clinic_id) if payload.clinic_id else None
+        clinic = clinic or clinic_by_identifier(db, payload.clinic_email) or clinic_by_identifier(db, identifier)
         if clinic:
             owner = db.scalar(
                 select(User).where(
@@ -1580,13 +1581,14 @@ def superadmin_reset_user_password(
     temporary_password = generate_temporary_password()
     target.password_hash = hash_password(temporary_password)
     target.force_password_change = True
+    target.active = True
     audit_action(
         db,
         admin,
         "superadmin-reset-password",
         "user",
         target.id,
-        {"target_email": target.email},
+        {"target_email": target.email, "reactivated": True},
         clinic_id=target.clinic_id,
         request=request,
     )
