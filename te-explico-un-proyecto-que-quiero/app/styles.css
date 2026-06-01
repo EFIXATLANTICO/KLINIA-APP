@@ -1482,7 +1482,7 @@ textarea {
 .schedule-cell,
 .schedule-head,
 .time-cell {
-  min-height: 56px;
+  min-height: 112px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 8px;
@@ -1490,6 +1490,7 @@ textarea {
 
 .schedule-cell {
   position: relative;
+  overflow: visible;
 }
 
 .schedule-cell.can-create-appointment {
@@ -1854,6 +1855,22 @@ textarea {
   padding: 8px;
   min-height: 52px;
   text-align: left;
+}
+
+.appointment.timed-block,
+.week-appointment.timed-block {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: var(--event-offset, 0%);
+  height: max(34px, var(--event-height, 100%));
+  min-height: 34px;
+  overflow: hidden;
+}
+
+.week-appointment.timed-block {
+  left: 7px;
+  right: 7px;
 }
 
 .appointment[draggable="true"],
@@ -2569,7 +2586,7 @@ th {
   display: grid;
   gap: 0;
   grid-template-columns: 1fr;
-  max-height: 190px;
+  max-height: 180px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2603,12 +2620,12 @@ th {
   display: grid;
   gap: 8px;
   grid-template-columns: minmax(0, 1fr) 92px;
-  padding: 6px 10px;
+  padding: 5px 9px;
   transition: background 0.15s ease;
 }
 
 .service-commission-row.selected {
-  background: #f2fbf8;
+  background: #f7fcfa;
 }
 
 .service-commission-row:last-child {
@@ -2632,7 +2649,7 @@ th {
 
 .service-commission-check strong {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2658,8 +2675,8 @@ th {
 }
 
 .service-commission-rate input {
-  font-size: 13px;
-  height: 34px;
+  font-size: 12px;
+  height: 30px;
   min-width: 0;
   text-align: right;
   width: 100%;

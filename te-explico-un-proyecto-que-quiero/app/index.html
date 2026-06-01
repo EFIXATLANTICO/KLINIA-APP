@@ -15,7 +15,7 @@
       body.login-mode .app-shell { display: none !important; }
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
-    <link rel="stylesheet" href="./styles.css?v=20260601-live-sync" />
+    <link rel="stylesheet" href="./styles.css?v=20260601-ops-time" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -1389,7 +1389,7 @@
         <div class="form-row">
           <label>
             Hora
-            <input name="start" type="time" required value="12:00" />
+            <input name="start" type="time" step="300" required value="12:00" />
           </label>
           <label>
             Estado
@@ -1399,6 +1399,7 @@
             </select>
           </label>
         </div>
+        <p class="form-help" id="appointment-duration-preview"></p>
         <fieldset class="repeat-fieldset">
           <legend>Cita recurrente</legend>
           <label class="check-row">
@@ -1562,6 +1563,32 @@
           <button class="icon-button dialog-close" type="button" data-dialog-id="appointment-detail-dialog" title="Cerrar">x</button>
         </div>
         <dl id="appointment-detail-data"></dl>
+        <fieldset class="time-ranges-fieldset appointment-edit-fieldset">
+          <legend>Datos de agenda</legend>
+          <div class="form-grid two">
+            <label>
+              Día
+              <input name="date" type="date" required />
+            </label>
+            <label>
+              Hora inicio
+              <input name="start" type="time" step="300" required />
+            </label>
+            <label>
+              Servicio
+              <select name="service" required></select>
+            </label>
+            <label>
+              Profesional
+              <select name="practitioner" required></select>
+            </label>
+            <label>
+              Sala
+              <select name="room" required></select>
+            </label>
+          </div>
+          <p class="form-help" id="appointment-detail-duration"></p>
+        </fieldset>
         <label>
           Estado
           <select name="status">
@@ -1957,7 +1984,7 @@
           </label>
           <label>
             Clave acceso
-            <input name="password" type="password" minlength="8" required />
+            <input name="password" type="password" minlength="8" placeholder="Solo si vas a crear o cambiar acceso" />
           </label>
           <button class="secondary-button" type="button" id="generate-practitioner-key">Generar clave segura</button>
           <p class="save-status" id="practitioner-key-status"></p>
@@ -2027,7 +2054,7 @@
     <dialog id="manual-billing-dialog">
       <form method="dialog" class="modal-form" id="manual-billing-form" novalidate>
         <div class="modal-header">
-          <h2>Añadir pago o cobro</h2>
+          <h2 id="manual-billing-title">Añadir pago o cobro</h2>
           <button class="icon-button dialog-close" type="button" data-dialog-id="manual-billing-dialog" title="Cerrar">x</button>
         </div>
         <label>
@@ -2063,7 +2090,7 @@
         <p class="form-error" id="manual-billing-error" role="alert"></p>
         <div class="modal-actions">
           <button class="secondary-button dialog-close" type="button" data-dialog-id="manual-billing-dialog">Cancelar</button>
-          <button class="primary-button" type="submit">Guardar movimiento</button>
+          <button class="primary-button" type="submit" id="manual-billing-submit">Guardar movimiento</button>
         </div>
       </form>
     </dialog>
@@ -2501,7 +2528,7 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260601-live-sync"></script>
+    <script src="./app.js?v=20260601-ops-time"></script>
   </body>
 </html>
 

@@ -58,6 +58,7 @@ from .schemas import (
     LoginIn,
     ManualBillingMovementCreate,
     ManualBillingMovementOut,
+    ManualBillingMovementUpdate,
     MeOut,
     PasswordChangeIn,
     PatientCreate,
@@ -367,6 +368,71 @@ def validate_opening_range(start: str | None, end: str | None) -> tuple[str, str
     if start_minutes >= end_minutes:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Opening start must be before opening end")
     return start_value, end_value
+
+
+def time_to_minutes(value: str | None) -> int:
+    try:
+        hour, minute = [int(part) for part in str(value or "").split(":", 1)]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid appointment time")
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid appointment time")
+    return hour * 60 + minute
+
+
+def minutes_to_time(value: int) -> str:
+    return f"{value // 60:02d}:{value % 60:02d}"
+
+
+def appointment_end_from_service(start: str, service: Service) -> str:
+    start_minutes = time_to_minutes(start)
+    duration = max(1, int(service.duration_minutes or 60))
+    end_minutes = start_minutes + duration
+    if end_minutes >= 24 * 60:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Appointment cannot end after midnight")
+    return minutes_to_time(end_minutes)
+
+
+def intervals_overlap(first_start: str, first_end: str, second_start: str, second_end: str) -> bool:
+    return time_to_minutes(first_start) < time_to_minutes(second_end) and time_to_minutes(second_start) < time_to_minutes(first_end)
+
+
+def status_is_cancelled(value: AppointmentStatus | str | None) -> bool:
+    return value == AppointmentStatus.cancelled or str(value or "") == AppointmentStatus.cancelled.value
+
+
+def validate_appointment_schedule(
+    db: Session,
+    clinic_id: str,
+    *,
+    date: str,
+    start: str,
+    end: str,
+    practitioner_id: str,
+    room_id: str,
+    patient_id: str,
+    ignored_appointment_id: str | None = None,
+) -> None:
+    query = select(Appointment).where(
+        Appointment.clinic_id == clinic_id,
+        Appointment.date == date,
+        Appointment.status != AppointmentStatus.cancelled,
+    )
+    if ignored_appointment_id:
+        query = query.where(Appointment.id != ignored_appointment_id)
+    for appointment in db.scalars(query):
+        if not (
+            appointment.practitioner_id == practitioner_id
+            or appointment.room_id == room_id
+            or appointment.patient_id == patient_id
+        ):
+            continue
+        existing_end = appointment.end
+        if not existing_end:
+            existing_service = db.get(Service, appointment.service_id)
+            existing_end = appointment_end_from_service(appointment.start, existing_service) if existing_service else minutes_to_time(time_to_minutes(appointment.start) + 60)
+        if intervals_overlap(start, end, appointment.start, existing_end):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Appointment overlaps an existing appointment")
 
 
 CLINIC_DATA_DEFAULTS = {
@@ -2295,6 +2361,25 @@ def create_manual_billing_movement(
     return movement
 
 
+@app.patch("/manual-billing-movements/{movement_id}", response_model=ManualBillingMovementOut)
+def update_manual_billing_movement(
+    movement_id: str,
+    payload: ManualBillingMovementUpdate,
+    user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)),
+    db: Session = Depends(get_db),
+) -> ManualBillingMovement:
+    movement = clinic_item_or_404(db, ManualBillingMovement, movement_id, user.clinic_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "concept" in data and data["concept"]:
+        data["concept"] = data["concept"].strip()
+    for field, value in data.items():
+        setattr(movement, field, value)
+    audit_action(db, user, "update-manual-billing-movement", "manual-billing-movement", movement.id, {"fields": sorted(data.keys())})
+    db.commit()
+    db.refresh(movement)
+    return movement
+
+
 @app.delete("/manual-billing-movements/{movement_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_manual_billing_movement(
     movement_id: str,
@@ -2315,6 +2400,7 @@ def list_appointments(user: User = Depends(current_subscribed_user), db: Session
 
 @app.post("/appointments", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
 def create_appointment(payload: AppointmentCreate, user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)), db: Session = Depends(get_db)) -> Appointment:
+    service: Service | None = None
     for model, item_id in (
         (Patient, payload.patient_id),
         (Practitioner, payload.practitioner_id),
@@ -2324,6 +2410,8 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
         exists = db.scalar(select(model).where(model.id == item_id, model.clinic_id == user.clinic_id))
         if not exists:
             raise HTTPException(status_code=404, detail=f"{model.__name__} not found")
+        if model is Service:
+            service = exists
 
     if user.role == UserRole.practitioner:
         if not user.practitioner:
@@ -2331,7 +2419,23 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
         if payload.practitioner_id != user.practitioner.id:
             raise HTTPException(status_code=403, detail="Practitioners can only create their own appointments")
 
-    appointment = Appointment(clinic_id=user.clinic_id, **payload.model_dump())
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    end = appointment_end_from_service(payload.start, service)
+    validate_appointment_schedule(
+        db,
+        user.clinic_id,
+        date=payload.date,
+        start=payload.start,
+        end=end,
+        practitioner_id=payload.practitioner_id,
+        room_id=payload.room_id,
+        patient_id=payload.patient_id,
+    )
+
+    values = payload.model_dump()
+    values["end"] = end
+    appointment = Appointment(clinic_id=user.clinic_id, **values)
     db.add(appointment)
     db.flush()
     audit_action(db, user, "create-appointment", "appointment", appointment.id)
@@ -2362,8 +2466,31 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
     if user.role == UserRole.practitioner and data.get("practitioner_id", appointment.practitioner_id) != user.practitioner.id:
         raise HTTPException(status_code=403, detail="Practitioners can only assign their own appointments")
 
+    next_patient_id = data.get("patient_id", appointment.patient_id)
+    next_practitioner_id = data.get("practitioner_id", appointment.practitioner_id)
+    next_room_id = data.get("room_id", appointment.room_id)
+    next_service_id = data.get("service_id", appointment.service_id)
+    next_date = data.get("date", appointment.date)
+    next_start = data.get("start", appointment.start)
+    next_status = data.get("status", appointment.status)
+    service = clinic_item_or_404(db, Service, next_service_id, user.clinic_id)
+    data["end"] = appointment_end_from_service(next_start, service)
+    if not status_is_cancelled(next_status):
+        validate_appointment_schedule(
+            db,
+            user.clinic_id,
+            date=next_date,
+            start=next_start,
+            end=data["end"],
+            practitioner_id=next_practitioner_id,
+            room_id=next_room_id,
+            patient_id=next_patient_id,
+            ignored_appointment_id=appointment.id,
+        )
+
     previous_status = appointment.status
-    apply_update(appointment, payload)
+    for field, value in data.items():
+        setattr(appointment, field, value)
     action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
     audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
     db.commit()

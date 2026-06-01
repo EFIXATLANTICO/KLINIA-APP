@@ -479,6 +479,15 @@ class ManualBillingMovementCreate(ManualBillingMovementBase):
     pass
 
 
+class ManualBillingMovementUpdate(BaseModel):
+    type: str | None = Field(default=None, pattern="^(charge|payment)$")
+    date: str | None = Field(default=None, min_length=10, max_length=10)
+    amount_cents: int | None = Field(default=None, gt=0)
+    concept: str | None = Field(default=None, min_length=1, max_length=240)
+    created_by_name: str | None = Field(default=None, max_length=160)
+    metadata_json: str | None = None
+
+
 class ManualBillingMovementOut(ManualBillingMovementBase):
     id: str
     user_id: str | None = None

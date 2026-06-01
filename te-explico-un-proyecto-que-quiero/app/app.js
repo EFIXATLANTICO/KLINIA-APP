@@ -2724,12 +2724,8 @@ function uiPractitionerToApi(practitioner) {
       "availabilityEnd2",
       "active",
       "password",
-      "serviceCommissions",
-      "workerType",
-      "accessRole",
       "userId",
       "backendUserId",
-      "email",
       "attendanceRecords"
     ])
   };
@@ -3051,18 +3047,24 @@ async function saveClinicSettingsToBackend(nextClinic) {
   };
 }
 
-async function saveManualBillingMovementToBackend(movement) {
+async function saveManualBillingMovementToBackend(movement, previousId = "") {
   if (!backendDataEnabled()) {
     if (backendAuthoritativeMode()) {
       throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar movimientos.");
     }
     return movement;
   }
-  const saved = await backendRequest("/manual-billing-movements", {
-    method: "POST",
+  const { method, path } = backendWriteTarget("/manual-billing-movements", previousId);
+  const saved = await backendRequest(path, {
+    method,
     body: JSON.stringify(uiManualBillingMovementToApi(movement))
   });
   return apiManualBillingMovementToUi(saved);
+}
+
+async function deleteManualBillingMovementFromBackend(movementId) {
+  if (!backendDataEnabled() || !looksLikeBackendId(movementId)) return;
+  await backendRequest(`/manual-billing-movements/${encodeURIComponent(movementId)}`, { method: "DELETE" });
 }
 
 async function backendOptionalCollection(path) {
@@ -3334,6 +3336,35 @@ function agendaHours() {
   return result.length ? result : [...defaultAgendaHours];
 }
 
+function slotStartForTime(time) {
+  const slots = agendaHours();
+  const value = minutes(time);
+  return slots.slice().reverse().find((slot) => minutes(slot) <= value) || slots[0] || "08:00";
+}
+
+function startsInsideSlot(time, slotStart) {
+  const value = minutes(time);
+  const slotValue = minutes(slotStart);
+  return value >= slotValue && value < slotValue + 60;
+}
+
+function appointmentStartsInsideSlot(appointment, slotStart) {
+  return startsInsideSlot(appointment.start || "00:00", slotStart);
+}
+
+function groupStartsInsideSlot(group, slotStart) {
+  return startsInsideSlot(group.start || "00:00", slotStart);
+}
+
+function applyTimedBlockStyle(element, start, end, slotStart) {
+  const slotMinutes = 60;
+  const offset = Math.max(0, Math.min(slotMinutes, minutes(start) - minutes(slotStart)));
+  const duration = Math.max(15, minutesBetween(start, end));
+  element.classList.add("timed-block");
+  element.style.setProperty("--event-offset", `${(offset / slotMinutes) * 100}%`);
+  element.style.setProperty("--event-height", `${(duration / slotMinutes) * 100}%`);
+}
+
 function overlappingMinutes(firstStart, firstEnd, secondStart, secondEnd) {
   const start = Math.max(minutes(firstStart), minutes(secondStart));
   const end = Math.min(minutes(firstEnd), minutes(secondEnd));
@@ -3526,7 +3557,7 @@ function appointmentsForSelectedDay() {
 
 function appointmentEnd(appointment) {
   const service = byId(services, appointment.serviceId);
-  return addMinutes(appointment.start, service?.duration || 60);
+  return addMinutes(appointment.start, Number(service?.duration || 0) || (appointment.end ? minutesBetween(appointment.start, appointment.end) : 60));
 }
 
 function statusLabel(status) {
@@ -4264,12 +4295,12 @@ function isBlockingAppointmentStatus(status) {
   return normalizeAppointmentStatus(status) !== "cancelled";
 }
 
-function findConflict(candidate) {
+function findConflict(candidate, ignoredAppointmentId = "") {
   const service = byId(services, candidate.serviceId);
   const candidateEnd = addMinutes(candidate.start, service?.duration || 60);
 
   return appointments.find((appointment) => {
-    if (!isBlockingAppointmentStatus(appointment.status)) {
+    if (String(appointment.id) === String(ignoredAppointmentId) || !isBlockingAppointmentStatus(appointment.status)) {
       return false;
     }
     const sameDate = (appointment.date || selectedDate) === (candidate.date || selectedDate);
@@ -4504,11 +4535,25 @@ function appointmentOutsideHoursMessage(form = $("#appointment-form")) {
     : "";
 }
 
+function updateAppointmentDurationPreview(form = $("#appointment-form")) {
+  const preview = $("#appointment-duration-preview");
+  if (!preview || !form) return;
+  const service = byId(services, form.elements.service?.value);
+  const start = form.elements.start?.value || "";
+  if (!service || !isValidTimeValue(start)) {
+    preview.textContent = "";
+    return;
+  }
+  const duration = Number(service.duration || 60);
+  preview.textContent = `Duración del servicio: ${duration} min. La cita quedará ${start} - ${addMinutes(start, duration)}.`;
+}
+
 function updateAppointmentOutsideHoursWarning(form = $("#appointment-form")) {
   const warning = $("#appointment-outside-hours-warning");
   if (!warning) {
     return;
   }
+  updateAppointmentDurationPreview(form);
   const message = appointmentOutsideHoursMessage(form);
   warning.textContent = message;
   warning.classList.toggle("visible", Boolean(message));
@@ -4613,13 +4658,13 @@ function renderSchedule() {
       const availabilityBlock = applyScheduleCellAvailability(cell, practitioner, selectedDate, hour, cellEnd, singlePractitionerVisible);
       setupAppointmentDropTarget(cell, selectedDate, hour, practitioner.id);
       const hourGroups = groupsForDate(selectedDate)
-        .filter((group) => group.start === hour && group.practitionerId === practitioner.id)
+        .filter((group) => groupStartsInsideSlot(group, hour) && group.practitionerId === practitioner.id)
         .filter(groupPassesAgendaFilters);
-      const hourAppointments = dayAppointments.filter((item) => item.start === hour && item.practitionerId === practitioner.id && appointmentPassesAgendaFilters(item));
+      const hourAppointments = dayAppointments.filter((item) => appointmentStartsInsideSlot(item, hour) && item.practitionerId === practitioner.id && appointmentPassesAgendaFilters(item));
 
       if (hourGroups.length || hourAppointments.length) {
-        hourGroups.forEach((group) => cell.append(renderGroupBlock(group, selectedDate)));
-        hourAppointments.forEach((appointment) => cell.append(renderAppointment(appointment)));
+        hourGroups.forEach((group) => cell.append(renderGroupBlock(group, selectedDate, "day", hour)));
+        hourAppointments.forEach((appointment) => cell.append(renderAppointment(appointment, hour)));
         const defaults = slotDefaults(selectedDate, hour, practitioner);
         attachCellQuickCreate(cell, defaults.practitioner, selectedDate, hour, defaults.room?.id);
         cell.append(renderCellQuickAdd(defaults.practitioner, selectedDate, hour, "cell-quick-add", defaults.room?.id));
@@ -4790,6 +4835,7 @@ function renderPeriodSchedule(schedule) {
 
 function renderWeekSchedule(schedule, days) {
   const visiblePractitioners = selectedAgendaPractitioners();
+  const useTimedWeekBlocks = visiblePractitioners.length === 1;
   schedule.style.gridTemplateColumns = `72px repeat(${days.length}, minmax(190px, 1fr))`;
 
   if (!visiblePractitioners.length) {
@@ -4840,7 +4886,7 @@ function renderWeekSchedule(schedule, days) {
       }
       setupAppointmentDropTarget(cell, day, hour);
       const hourAppointments = appointments
-        .filter((item) => (item.date || selectedDate) === day && item.start === hour)
+        .filter((item) => (item.date || selectedDate) === day && appointmentStartsInsideSlot(item, hour))
         .filter(appointmentVisibleToCurrentSession)
         .filter(appointmentPassesAgendaFilters)
         .sort((a, b) => {
@@ -4849,7 +4895,7 @@ function renderWeekSchedule(schedule, days) {
           return aName.localeCompare(bName, "es");
         });
       const hourGroups = groupsForDate(day)
-        .filter((group) => group.start === hour)
+        .filter((group) => groupStartsInsideSlot(group, hour))
         .filter(groupVisibleToCurrentSession)
         .filter(groupPassesAgendaFilters)
         .sort((a, b) => {
@@ -4859,9 +4905,9 @@ function renderWeekSchedule(schedule, days) {
         });
 
       if (hourAppointments.length || hourGroups.length) {
-        hourGroups.forEach((group) => cell.append(renderGroupBlock(group, day, "week")));
+        hourGroups.forEach((group) => cell.append(renderGroupBlock(group, day, "week", hour, useTimedWeekBlocks)));
         hourAppointments.forEach((appointment) => {
-          cell.append(renderWeekAppointment(appointment));
+          cell.append(renderWeekAppointment(appointment, hour, useTimedWeekBlocks));
         });
         const defaults = slotDefaults(day, hour);
         attachCellQuickCreate(cell, defaults.practitioner, day, hour, defaults.room?.id);
@@ -5005,7 +5051,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
     await showNotice("No se puede mover la cita", validation.message, { variant: "warning" });
     return;
   }
-  let movedAppointment = { ...appointment, date: dateValue, start: hour, movedAt: new Date().toISOString(), movedBy: currentSessionName() };
+  let movedAppointment = { ...appointment, date: dateValue, start: hour, end: addMinutes(hour, byId(services, appointment.serviceId)?.duration || 60), movedAt: new Date().toISOString(), movedBy: currentSessionName() };
   if (backendDataEnabled()) {
     try {
       movedAppointment = await saveAppointmentToBackend(movedAppointment, appointment.id);
@@ -5025,7 +5071,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
   showToast("Cita movida.");
 }
 
-function renderWeekAppointment(appointment) {
+function renderWeekAppointment(appointment, slotStart = slotStartForTime(appointment.start || "00:00"), useTimedBlock = true) {
   const patient = byId(patients, appointment.patientId);
   const service = byId(services, appointment.serviceId);
   const room = byId(rooms, appointment.roomId);
@@ -5041,6 +5087,9 @@ function renderWeekAppointment(appointment) {
     <strong>${patient?.name || "Paciente no encontrado"}</strong>
     <span>${service?.name || "Servicio"} - ${room?.name || "Sala"}</span>
   `;
+  if (useTimedBlock) {
+    applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart);
+  }
   setupAppointmentDrag(button, appointment);
   button.addEventListener("click", () => {
     if (Date.now() < suppressAppointmentClickUntil) return;
@@ -5049,7 +5098,7 @@ function renderWeekAppointment(appointment) {
   return button;
 }
 
-function renderAppointment(appointment) {
+function renderAppointment(appointment, slotStart = slotStartForTime(appointment.start || "00:00")) {
   const patient = byId(patients, appointment.patientId);
   const service = byId(services, appointment.serviceId);
   const room = byId(rooms, appointment.roomId);
@@ -5061,9 +5110,10 @@ function renderAppointment(appointment) {
   button.style.setProperty("--worker-color", workerColor);
   button.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.14));
   button.innerHTML = `
-    <strong><i></i>${appointment.start} - ${patient?.name || "Paciente no encontrado"}</strong>
+    <strong><i></i>${appointment.start} - ${appointmentEnd(appointment)} - ${patient?.name || "Paciente no encontrado"}</strong>
     <span>${service?.name || "Servicio"} - ${room?.name || "Sala"} - ${statusLabel(appointment.status)}</span>
   `;
+  applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart);
   setupAppointmentDrag(button, appointment);
   button.addEventListener("click", () => {
     if (Date.now() < suppressAppointmentClickUntil) return;
@@ -5162,7 +5212,7 @@ function renderCellQuickAdd(practitioner, date, hour, className = "cell-quick-ad
   return button;
 }
 
-function renderGroupBlock(group, dateValue = selectedDate, mode = "day") {
+function renderGroupBlock(group, dateValue = selectedDate, mode = "day", slotStart = slotStartForTime(group.start || "00:00"), useTimedBlock = true) {
   const service = groupService(group);
   const room = byId(rooms, group.roomId);
   const practitioner = byId(practitioners, group.practitionerId);
@@ -5178,6 +5228,9 @@ function renderGroupBlock(group, dateValue = selectedDate, mode = "day") {
     <span>${dateValue} · ${group.start} - ${groupEnd(group)} - ${room?.name || "Sala"}</span>
     ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
   `;
+  if (useTimedBlock) {
+    applyTimedBlockStyle(card, group.start, groupEnd(group), slotStart);
+  }
   card.addEventListener("click", () => showGroupSummary(group, dateValue));
   return card;
 }
@@ -6303,7 +6356,8 @@ function renderBilling() {
     amount: signedManualBillingAmount(movement),
     paymentStatus: movement.paymentMethod || "cash",
     paymentText: `${paymentStatusLabel(movement.paymentMethod || "cash")} - ${movement.type === "payment" ? "Resta" : "Suma"}`,
-    manual: true
+    manual: true,
+    manualId: movement.id
   }));
   const allRows = [...appointmentRows, ...groupRows, ...packRows, ...manualRows].filter((row) => billingRowInRange(row, range));
   const paidAppointments = appointmentRows.filter((appointment) => appointment.status === "confirmed" && ["cash", "card"].includes(appointment.paymentStatus));
@@ -6369,6 +6423,15 @@ function renderBilling() {
         <td>
           ${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}
           ${row.groupMonthlyKey && !row.collected ? `<button class="secondary-button row-action" type="button" data-collect-group-monthly="${row.groupMonthlyKey}">Cobrar</button>` : ""}
+          ${row.manualId ? `
+            <details class="item-menu table-item-menu">
+              <summary aria-label="Opciones de movimiento">...</summary>
+              <div class="item-menu-popover">
+                <button type="button" data-edit-manual-billing="${row.manualId}">Editar</button>
+                <button class="danger-menu-action" type="button" data-delete-manual-billing="${row.manualId}">Eliminar</button>
+              </div>
+            </details>
+          ` : ""}
         </td>
       </tr>
     `)
@@ -6393,6 +6456,12 @@ function renderBilling() {
     if (button.dataset.collectGroupMonthly) {
       button.addEventListener("click", () => openGroupMonthlyPaymentDialog(button.dataset.collectGroupMonthly));
     }
+  });
+  $$("[data-edit-manual-billing]").forEach((button) => {
+    button.addEventListener("click", () => openManualBillingDialog(button.dataset.editManualBilling));
+  });
+  $$("[data-delete-manual-billing]").forEach((button) => {
+    button.addEventListener("click", () => deleteManualBillingMovement(button.dataset.deleteManualBilling));
   });
 }
 
@@ -6457,6 +6526,7 @@ function openGroupMonthlyPaymentDialog(groupMonthlyKey) {
   const form = $("#manual-billing-form");
   if (!form) return;
   form.reset();
+  form.dataset.editingMovementId = "";
   form.dataset.groupMonthlyKey = groupMonthlyKey;
   form.dataset.source = "group-monthly-fee";
   form.elements.type.value = "charge";
@@ -6464,9 +6534,54 @@ function openGroupMonthlyPaymentDialog(groupMonthlyKey) {
   form.elements.date.value = todayIso();
   form.elements.amount.value = Number(row.amount || 0);
   form.elements.concept.value = `${row.concept} - ${row.patient}`;
+  $("#manual-billing-title").textContent = "Cobrar cuota grupal";
+  $("#manual-billing-submit").textContent = "Guardar cobro";
   $("#manual-billing-error").classList.remove("visible");
   $("#manual-billing-error").textContent = "";
   $("#manual-billing-dialog").showModal();
+}
+
+function openManualBillingDialog(movementId = "") {
+  const form = $("#manual-billing-form");
+  if (!form) return;
+  const movement = movementId ? manualBillingMovements.find((item) => String(item.id) === String(movementId)) : null;
+  form.reset();
+  form.dataset.editingMovementId = movement?.id || "";
+  form.dataset.groupMonthlyKey = movement?.groupMonthlyKey || "";
+  form.dataset.source = movement?.source || "";
+  form.elements.type.disabled = Boolean(movement?.source === "group-monthly-fee");
+  form.elements.type.value = movement?.type || "charge";
+  form.elements.paymentMethod.value = movement?.paymentMethod || "";
+  form.elements.date.value = movement?.date || todayIso();
+  form.elements.amount.value = movement ? Number(movement.amount || 0) : "";
+  form.elements.concept.value = movement?.concept || "";
+  $("#manual-billing-title").textContent = movement ? "Editar pago o cobro" : "Añadir pago o cobro";
+  $("#manual-billing-submit").textContent = movement ? "Guardar cambios" : "Guardar movimiento";
+  $("#manual-billing-error").classList.remove("visible");
+  $("#manual-billing-error").textContent = "";
+  $("#manual-billing-dialog").showModal();
+}
+
+async function deleteManualBillingMovement(movementId) {
+  const movement = manualBillingMovements.find((item) => String(item.id) === String(movementId));
+  if (!movement) return;
+  const confirmed = await showConfirm({
+    title: "Eliminar movimiento",
+    message: `Eliminar "${movement.concept}"?`,
+    detail: "Se quitará de facturación y no se podrá recuperar.",
+    confirmLabel: "Eliminar"
+  });
+  if (!confirmed) return;
+  try {
+    await deleteManualBillingMovementFromBackend(movement.id);
+  } catch (error) {
+    showToast(`No se pudo eliminar el movimiento: ${error.message}`, "error");
+    return;
+  }
+  manualBillingMovements = manualBillingMovements.filter((item) => String(item.id) !== String(movement.id));
+  saveClinicState("manual-billing-movements", manualBillingMovements);
+  renderBilling();
+  showToast("Movimiento eliminado.");
 }
 
 function billableAppointments() {
@@ -9870,6 +9985,7 @@ function setupDialog() {
     const practitioner = byId(practitioners, candidate.practitionerId);
     const candidateService = byId(services, candidate.serviceId);
     const candidateEnd = addMinutes(candidate.start, candidateService?.duration || 60);
+    candidate.end = candidateEnd;
     const outsideHours = isOutsidePractitionerHours(practitioner, candidate.start, candidateEnd, candidate.date || selectedDate);
     if (outsideHours) {
       candidate.outsideHours = true;
@@ -9914,6 +10030,14 @@ function openAppointmentDetail(appointmentId) {
   const appointmentHasPack = Boolean(appointment.patientPackId || appointment.plannedPatientPackId);
   const productionAmount = appointmentRevenueAmount(appointment);
   $("#appointment-detail-title").textContent = `${patient?.name || "Paciente"} - ${appointment.start}`;
+  fillSelect(form.elements.service, services.filter((item) => item.active || item.id === appointment.serviceId));
+  fillSelect(form.elements.practitioner, practitioners);
+  fillSelect(form.elements.room, rooms);
+  form.elements.date.value = appointment.date || selectedDate;
+  form.elements.start.value = appointment.start || "12:00";
+  form.elements.service.value = appointment.serviceId || "";
+  form.elements.practitioner.value = appointment.practitionerId || "";
+  form.elements.room.value = appointment.roomId || "";
   $("#appointment-detail-data").innerHTML = `
     <dt>Día</dt>
     <dd>${appointment.date || selectedDate}</dd>
@@ -9980,6 +10104,7 @@ function openAppointmentDetail(appointmentId) {
     packField.classList.toggle("hidden", packSelect.options.length <= 1 && !selectedPackId);
   }
   form.elements.internalNotes.value = appointment.internalNotes || "";
+  updateAppointmentDetailDuration(form);
   const invoiceButton = $("#appointment-invoice-button");
   if (invoiceButton) {
     invoiceButton.textContent = appointmentHasPack ? "Facturar bono desde ficha" : (appointment.invoiceGenerated ? "Reimprimir factura" : "Generar factura");
@@ -9990,6 +10115,20 @@ function openAppointmentDetail(appointmentId) {
     attendanceButton.disabled = normalizeAppointmentStatus(appointment.status) === "cancelled";
   }
   $("#appointment-detail-dialog").showModal();
+}
+
+function updateAppointmentDetailDuration(form = $("#appointment-detail-form")) {
+  if (!form) return;
+  const service = byId(services, form.elements.service?.value);
+  const start = form.elements.start?.value || "00:00";
+  const duration = Number(service?.duration || 60);
+  const end = isValidTimeValue(start) ? addMinutes(start, duration) : "";
+  const label = $("#appointment-detail-duration");
+  if (label) {
+    label.textContent = service
+      ? `Duración del servicio: ${duration} min. La cita quedará ${start} - ${end}.`
+      : "Selecciona un servicio para calcular la hora final.";
+  }
 }
 
 
@@ -10141,6 +10280,10 @@ async function generateInvoiceForAppointment(appointment) {
 }
 
 function setupAppointmentDetail() {
+  ["date", "start", "service", "practitioner", "room"].forEach((fieldName) => {
+    $("#appointment-detail-form")?.elements[fieldName]?.addEventListener("change", () => updateAppointmentDetailDuration());
+    $("#appointment-detail-form")?.elements[fieldName]?.addEventListener("input", () => updateAppointmentDetailDuration());
+  });
   $("#appointment-detail-form")?.elements.status?.addEventListener("change", (event) => {
     $("#appointment-detail-form")?.querySelector(".cancelled-by-field")?.classList.toggle("hidden", event.target.value !== "cancelled");
     if (event.target.value === "cancelled" && $("#appointment-detail-form")?.elements.cancelledBy && !$("#appointment-detail-form").elements.cancelledBy.value.trim()) {
@@ -10165,6 +10308,56 @@ function setupAppointmentDetail() {
     const nextStatus = normalizeAppointmentStatus(form.elements.status.value);
     const finalStatusIsCancelled = nextStatus === "cancelled";
     const existingAppointment = byId(appointments, selectedAppointmentId);
+    if (!existingAppointment) {
+      if (detailError) {
+        detailError.textContent = "No se ha encontrado la cita.";
+        detailError.classList.add("visible");
+      }
+      return;
+    }
+    const nextDate = form.elements.date?.value || existingAppointment.date || selectedDate;
+    const nextStart = form.elements.start?.value || existingAppointment.start || "12:00";
+    const nextServiceId = form.elements.service?.value || existingAppointment.serviceId;
+    const nextPractitionerId = form.elements.practitioner?.value || existingAppointment.practitionerId;
+    const nextRoomId = form.elements.room?.value || existingAppointment.roomId;
+    const nextService = byId(services, nextServiceId);
+    if (!nextDate || !isValidTimeValue(nextStart) || !nextServiceId || !nextPractitionerId || !nextRoomId) {
+      if (detailError) {
+        detailError.textContent = "Revisa día, hora, servicio, profesional y sala antes de guardar.";
+        detailError.classList.add("visible");
+      }
+      return;
+    }
+    const scheduleCandidate = {
+      ...existingAppointment,
+      date: nextDate,
+      start: nextStart,
+      end: addMinutes(nextStart, nextService?.duration || 60),
+      serviceId: nextServiceId,
+      practitionerId: nextPractitionerId,
+      roomId: nextRoomId,
+      status: nextStatus
+    };
+    if (!finalStatusIsCancelled) {
+      const availabilityBlock = availabilityBlockFor(nextPractitionerId, nextDate, scheduleCandidate.start, scheduleCandidate.end);
+      const appointmentConflict = findConflict(scheduleCandidate, selectedAppointmentId);
+      const groupConflict = groupsForDate(nextDate).find((group) => (
+        (group.practitionerId === nextPractitionerId || group.roomId === nextRoomId)
+          && overlaps(scheduleCandidate.start, scheduleCandidate.end, group.start, groupEnd(group))
+      ));
+      if (availabilityBlock || appointmentConflict || groupConflict) {
+        const conflictText = availabilityBlock
+          ? availabilityBlockLabel(availabilityBlock)
+          : appointmentConflict
+            ? `Conflicto con ${byId(patients, appointmentConflict.patientId)?.name || "otra cita"} a las ${appointmentConflict.start}.`
+            : `Conflicto con la sesión grupal ${groupConflict.name} a las ${groupConflict.start}.`;
+        if (detailError) {
+          detailError.textContent = conflictText;
+          detailError.classList.add("visible");
+        }
+        return;
+      }
+    }
     const selectedPackId = form.elements.patientPack?.value || "";
     let nextPatientPackId = existingAppointment?.patientPackId || "";
     let nextPlannedPatientPackId = existingAppointment?.plannedPatientPackId || "";
@@ -10178,10 +10371,10 @@ function setupAppointmentDetail() {
       restoredExistingPack = true;
     }
     if (!finalStatusIsCancelled && selectedPackId && existingAppointment?.patientPackId !== selectedPackId) {
-      const consumeResult = usePatientPackForAppointment(existingAppointment, selectedPackId);
+      const consumeResult = usePatientPackForAppointment(scheduleCandidate, selectedPackId);
       if (!consumeResult.ok) {
         if (restoredExistingPack && existingAppointment?.patientPackId) {
-          usePatientPackForAppointment(existingAppointment, existingAppointment.patientPackId);
+          usePatientPackForAppointment(scheduleCandidate, existingAppointment.patientPackId);
           nextPatientPackId = existingAppointment.patientPackId;
           nextPatientPackUsedAt = existingAppointment.patientPackUsedAt || new Date().toISOString();
         }
@@ -10235,6 +10428,12 @@ function setupAppointmentDetail() {
 
     const localUpdate = {
       ...existingAppointment,
+      date: scheduleCandidate.date,
+      start: scheduleCandidate.start,
+      end: scheduleCandidate.end,
+      serviceId: scheduleCandidate.serviceId,
+      practitionerId: scheduleCandidate.practitionerId,
+      roomId: scheduleCandidate.roomId,
       status: nextStatus,
       internalNotes: form.elements.internalNotes.value.trim(),
       paymentStatus: nextPatientPackId || nextPlannedPatientPackId
@@ -10246,6 +10445,10 @@ function setupAppointmentDetail() {
       patientPackId: nextPatientPackId,
       plannedPatientPackId: nextPlannedPatientPackId,
       patientPackUsedAt: nextPatientPackId ? (nextPatientPackUsedAt || consumedPatientPackAt || new Date().toISOString()) : "",
+      outsideHours: !finalStatusIsCancelled && isOutsidePractitionerHours(byId(practitioners, nextPractitionerId), scheduleCandidate.start, scheduleCandidate.end, scheduleCandidate.date),
+      outsideHoursNotice: !finalStatusIsCancelled && isOutsidePractitionerHours(byId(practitioners, nextPractitionerId), scheduleCandidate.start, scheduleCandidate.end, scheduleCandidate.date)
+        ? "Está creando una cita fuera de horario"
+        : "",
       cancelledBy,
       cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : ""
     };
@@ -11523,7 +11726,7 @@ function setupConfiguration() {
   $("#practitioner-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const requiredFields = ["name", "specialty", "password", "availabilityStart", "availabilityEnd"];
+    const requiredFields = ["name", "specialty", "availabilityStart", "availabilityEnd"];
     const missingField = requiredFields.map((name) => form.elements[name]).find((field) => !String(field.value || "").trim());
     if (missingField) {
       missingField.setCustomValidity("Completa este campo.");
@@ -11544,6 +11747,11 @@ function setupConfiguration() {
     const editingPractitionerId = form.dataset.editingPractitionerId || "";
     const normalizedName = slugifyClinicName(form.elements.name.value.trim());
     const normalizedEmail = String(form.elements.email?.value || "").trim().toLowerCase();
+    const typedPassword = form.elements.password.value || "";
+    if (!editingPractitionerId && normalizedEmail && !typedPassword) {
+      $("#practitioner-key-status").textContent = "Introduce una clave o genera una clave segura para activar el acceso del trabajador.";
+      return;
+    }
     const duplicatePractitioner = practitioners.find((item) => (
       item.id !== editingPractitionerId
         && (
@@ -11562,7 +11770,7 @@ function setupConfiguration() {
       name: form.elements.name.value.trim(),
       specialty: form.elements.specialty.value.trim(),
       email: form.elements.email?.value.trim() || "",
-      password: form.elements.password.value,
+      password: typedPassword || byId(practitioners, editingPractitionerId)?.password || "",
       color: form.elements.color.value,
       commissionRate: 0,
       target: Number(form.elements.target.value),
@@ -11589,13 +11797,13 @@ function setupConfiguration() {
     practitioners = editingPractitionerId
       ? practitioners.map((item) => item.id === editingPractitionerId ? savedPractitioner : item)
       : [...practitioners, savedPractitioner];
-    if (savedPractitioner.email && practitioner.password) {
+    if (savedPractitioner.email && typedPassword) {
       try {
         const accessRole = savedPractitioner.accessRole === "staff" ? "staff" : "practitioner";
         const backendUser = await createBackendUserIfAvailable({
           name: savedPractitioner.name,
           email: savedPractitioner.email,
-          password: practitioner.password,
+          password: typedPassword,
           role: accessRole,
           active: true,
           practitioner_id: accessRole === "practitioner" ? savedPractitioner.id : undefined
@@ -12461,15 +12669,7 @@ function setupBillingControls() {
   $("#billing-filter-mode")?.addEventListener("change", () => updateBillingFilterFieldVisibility());
   $("#apply-billing-filters")?.addEventListener("click", sync);
   $("#add-manual-billing")?.addEventListener("click", () => {
-    const form = $("#manual-billing-form");
-    form.reset();
-    form.dataset.groupMonthlyKey = "";
-    form.dataset.source = "";
-    form.elements.type.disabled = false;
-    form.elements.date.value = todayIso();
-    $("#manual-billing-error").classList.remove("visible");
-    $("#manual-billing-error").textContent = "";
-    $("#manual-billing-dialog").showModal();
+    openManualBillingDialog();
   });
   $("#manual-billing-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -12482,8 +12682,10 @@ function setupBillingControls() {
       $("#manual-billing-error").classList.add("visible");
       return;
     }
+    const editingMovementId = form.dataset.editingMovementId || "";
+    const existingMovement = editingMovementId ? manualBillingMovements.find((item) => String(item.id) === String(editingMovementId)) : null;
     let movement = {
-      id: `manual-billing-${Date.now()}`,
+      id: editingMovementId || `manual-billing-${Date.now()}`,
       type: form.elements.type.value,
       date: form.elements.date.value,
       amount,
@@ -12491,24 +12693,25 @@ function setupBillingControls() {
       paymentMethod,
       source: form.dataset.source || "",
       groupMonthlyKey: form.dataset.groupMonthlyKey || "",
-      createdAt: new Date().toISOString(),
-      createdBy: currentSessionName()
+      createdAt: existingMovement?.createdAt || new Date().toISOString(),
+      createdBy: existingMovement?.createdBy || currentSessionName()
     };
     try {
-      movement = await saveManualBillingMovementToBackend(movement);
+      movement = await saveManualBillingMovementToBackend(movement, editingMovementId);
     } catch (error) {
       $("#manual-billing-error").textContent = `No se pudo guardar en backend: ${error.message}`;
       $("#manual-billing-error").classList.add("visible");
       return;
     }
-    manualBillingMovements = [movement, ...manualBillingMovements.filter((item) => item.id !== movement.id)];
+    manualBillingMovements = [movement, ...manualBillingMovements.filter((item) => item.id !== movement.id && item.id !== editingMovementId)];
     saveClinicState("manual-billing-movements", manualBillingMovements);
     form.elements.type.disabled = false;
+    form.dataset.editingMovementId = "";
     form.dataset.groupMonthlyKey = "";
     form.dataset.source = "";
     $("#manual-billing-dialog").close();
     renderBilling();
-    showToast("Movimiento de facturacion guardado.");
+    showToast(editingMovementId ? "Movimiento actualizado." : "Movimiento de facturacion guardado.");
   });
 }
 
