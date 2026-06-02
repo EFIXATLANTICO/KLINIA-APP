@@ -4425,11 +4425,17 @@ function groupPassesAgendaFilters(group) {
 function findGroupConflict(candidate) {
   const service = byId(services, candidate.serviceId);
   const candidateEnd = addMinutes(candidate.start, service?.duration || 60);
+  const dateValue = candidate.date || selectedDate;
   return groupsForDate(candidate.date || selectedDate).find((group) => {
     const samePractitioner = group.practitionerId === candidate.practitionerId;
     const sameRoom = group.roomId === candidate.roomId;
+    const samePatient = Boolean(candidate.patientId)
+      && (
+        (group.patientIds || []).includes(candidate.patientId)
+          || groupDropInsFor(group, dateValue).some((entry) => entry.patientId === candidate.patientId)
+      );
     const timeConflict = overlaps(candidate.start, candidateEnd, group.start, groupEnd(group));
-    return timeConflict && (samePractitioner || sameRoom);
+    return timeConflict && (samePractitioner || sameRoom || samePatient);
   });
 }
 
@@ -4720,6 +4726,43 @@ function findConflict(candidate, ignoredAppointmentId = "") {
     const timeConflict = overlaps(candidate.start, candidateEnd, appointment.start, appointmentEnd(appointment));
     return sameDate && timeConflict && (samePractitioner || sameRoom || samePatient);
   });
+}
+
+function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
+  const service = byId(services, candidate.serviceId);
+  const end = addMinutes(candidate.start, service?.duration || 60);
+  const availabilityBlock = availabilityBlockFor(candidate.practitionerId, candidate.date || selectedDate, candidate.start, end);
+  if (availabilityBlock) {
+    return {
+      type: "availability",
+      message: availabilityBlockLabel(availabilityBlock),
+      item: availabilityBlock
+    };
+  }
+  const appointmentConflict = findConflict(candidate, ignoredAppointmentId);
+  if (appointmentConflict) {
+    return {
+      type: "appointment",
+      message: `Conflicto con ${byId(patients, appointmentConflict.patientId)?.name || "otra cita"} a las ${appointmentConflict.start}.`,
+      item: appointmentConflict
+    };
+  }
+  const groupConflict = findGroupConflict(candidate);
+  if (groupConflict) {
+    const patientInGroup = Boolean(candidate.patientId)
+      && (
+        (groupConflict.patientIds || []).includes(candidate.patientId)
+          || groupDropInsFor(groupConflict, candidate.date || selectedDate).some((entry) => entry.patientId === candidate.patientId)
+      );
+    return {
+      type: "group",
+      message: patientInGroup
+        ? `El paciente ya está inscrito en la sesión grupal ${groupConflict.name} a las ${groupConflict.start}.`
+        : `Conflicto con la sesión grupal ${groupConflict.name} a las ${groupConflict.start}.`,
+      item: groupConflict
+    };
+  }
+  return null;
 }
 
 function isWithinAvailability(appointment) {
@@ -5246,6 +5289,7 @@ function renderPeriodSchedule(schedule) {
 function renderWeekSchedule(schedule, days) {
   const visiblePractitioners = selectedAgendaPractitioners();
   const useTimedWeekBlocks = true;
+  const weekTimedLayouts = buildWeekTimedLayouts(days);
   schedule.style.gridTemplateColumns = `72px repeat(${days.length}, minmax(190px, 1fr))`;
 
   if (!visiblePractitioners.length) {
@@ -5317,11 +5361,13 @@ function renderWeekSchedule(schedule, days) {
       if (hourAppointments.length || hourGroups.length) {
         const timedItems = [
           ...hourGroups.map((group) => ({
+            key: weekTimedItemKey("group", group.id, day),
             start: group.start,
             end: groupEnd(group),
             render: () => renderGroupBlock(group, day, "week", hour, useTimedWeekBlocks)
           })),
           ...hourAppointments.map((appointment) => ({
+            key: weekTimedItemKey("appointment", appointment.id, day),
             start: appointment.start,
             end: appointmentEnd(appointment),
             render: () => renderWeekAppointment(appointment, hour, useTimedWeekBlocks)
@@ -5333,8 +5379,8 @@ function renderWeekSchedule(schedule, days) {
         timedItems.forEach((item, index) => {
           const block = item.render();
           if (useTimedWeekBlocks) {
-            const lane = weekTimedLaneFor(item, timedItems, index);
-            applyWeekTimedLaneStyle(block, lane.index, lane.total);
+            const layout = weekTimedLayouts.get(item.key) || { column: 0, columns: 1 };
+            applyWeekTimedLayoutStyle(block, layout.column, layout.columns);
           }
           cell.append(block);
         });
@@ -5356,26 +5402,98 @@ function renderWeekSchedule(schedule, days) {
   });
 }
 
-function weekTimedLaneFor(item, items, index) {
-  const overlappingItems = items
-    .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
-    .filter(({ candidate }) => overlappingMinutes(item.start, item.end, candidate.start, candidate.end) > 0);
-  if (overlappingItems.length <= 1) {
-    return { index: 0, total: 1 };
-  }
-  return {
-    index: Math.max(0, overlappingItems.findIndex(({ candidateIndex }) => candidateIndex === index)),
-    total: overlappingItems.length
-  };
+function weekTimedItemKey(type, id, dateValue) {
+  return `${type}:${id}:${dateValue}`;
 }
 
-function applyWeekTimedLaneStyle(element, laneIndex = 0, laneTotal = 1) {
-  if (!element || laneTotal <= 1) {
+function buildWeekTimedLayouts(days) {
+  const layouts = new Map();
+  days.forEach((day) => {
+    const items = [
+      ...groupsForDate(day)
+        .filter(groupVisibleToCurrentSession)
+        .filter(groupPassesAgendaFilters)
+        .map((group) => ({
+          key: weekTimedItemKey("group", group.id, day),
+          start: group.start,
+          end: groupEnd(group)
+        })),
+      ...appointments
+        .filter((item) => (item.date || selectedDate) === day)
+        .filter(appointmentVisibleToCurrentSession)
+        .filter(appointmentPassesAgendaFilters)
+        .map((appointment) => ({
+          key: weekTimedItemKey("appointment", appointment.id, day),
+          start: appointment.start,
+          end: appointmentEnd(appointment)
+        }))
+    ];
+    assignOverlapColumns(items).forEach((layout, key) => layouts.set(key, layout));
+  });
+  return layouts;
+}
+
+function groupOverlappingAppointments(items) {
+  const sorted = [...items]
+    .filter((item) => isValidTimeValue(item.start) && isValidTimeValue(item.end) && minutes(item.end) > minutes(item.start))
+    .sort((first, second) => (
+      minutes(first.start) - minutes(second.start)
+        || minutes(first.end) - minutes(second.end)
+        || String(first.key || "").localeCompare(String(second.key || ""), "es")
+    ));
+  const groups = [];
+  let currentGroup = [];
+  let currentEnd = -1;
+  sorted.forEach((item) => {
+    const start = minutes(item.start);
+    const end = minutes(item.end);
+    if (!currentGroup.length || start < currentEnd) {
+      currentGroup.push(item);
+      currentEnd = Math.max(currentEnd, end);
+      return;
+    }
+    groups.push(currentGroup);
+    currentGroup = [item];
+    currentEnd = end;
+  });
+  if (currentGroup.length) {
+    groups.push(currentGroup);
+  }
+  return groups;
+}
+
+function assignOverlapColumns(items) {
+  const layouts = new Map();
+  groupOverlappingAppointments(items).forEach((group) => {
+    const columns = [];
+    const assigned = [];
+    group.forEach((item) => {
+      const start = minutes(item.start);
+      const end = minutes(item.end);
+      let column = columns.findIndex((columnEnd) => columnEnd <= start);
+      if (column === -1) {
+        column = columns.length;
+        columns.push(end);
+      } else {
+        columns[column] = end;
+      }
+      assigned.push({ item, column });
+    });
+    const totalColumns = Math.max(1, columns.length);
+    assigned.forEach(({ item, column }) => {
+      layouts.set(item.key, { column, columns: totalColumns });
+    });
+  });
+  return layouts;
+}
+
+function applyWeekTimedLayoutStyle(element, columnIndex = 0, columnTotal = 1) {
+  if (!element || columnTotal <= 1) {
     return;
   }
-  const laneWidth = 100 / laneTotal;
-  element.style.setProperty("--event-left", `calc(${laneIndex * laneWidth}% + 4px)`);
-  element.style.setProperty("--event-right", `calc(${(laneTotal - laneIndex - 1) * laneWidth}% + 4px)`);
+  const columnWidth = 100 / columnTotal;
+  element.style.setProperty("--event-left", `calc(${columnIndex * columnWidth}% + 4px)`);
+  element.style.setProperty("--event-right", `calc(${(columnTotal - columnIndex - 1) * columnWidth}% + 4px)`);
 }
 
 function appointmentMoveConflict(candidate, movingAppointmentId) {
@@ -5385,32 +5503,7 @@ function appointmentMoveConflict(candidate, movingAppointmentId) {
   if (isOutsidePractitionerHours(practitioner, candidate.start, candidateEnd, candidate.date || selectedDate)) {
     return "La nueva hora queda fuera de la jornada laboral del profesional.";
   }
-  const block = availabilityBlockFor(candidate.practitionerId, candidate.date || selectedDate, candidate.start, candidateEnd);
-  if (block) {
-    return `El profesional tiene ${availabilityBlockLabel(block)}.`;
-  }
-  const appointmentConflict = appointments.find((appointment) => {
-    if (String(appointment.id) === String(movingAppointmentId) || !isBlockingAppointmentStatus(appointment.status)) {
-      return false;
-    }
-    const sameDate = (appointment.date || selectedDate) === (candidate.date || selectedDate);
-    const timeConflict = overlaps(candidate.start, candidateEnd, appointment.start, appointmentEnd(appointment));
-    const sameResource = appointment.practitionerId === candidate.practitionerId
-      || appointment.roomId === candidate.roomId
-      || appointment.patientId === candidate.patientId;
-    return sameDate && timeConflict && sameResource;
-  });
-  if (appointmentConflict) {
-    return `Conflicto con ${byId(patients, appointmentConflict.patientId)?.name || "otra cita"} a las ${appointmentConflict.start}.`;
-  }
-  const groupConflict = groupsForDate(candidate.date || selectedDate).find((group) => (
-    (group.practitionerId === candidate.practitionerId || group.roomId === candidate.roomId)
-      && overlaps(candidate.start, candidateEnd, group.start, groupEnd(group))
-  ));
-  if (groupConflict) {
-    return `Conflicto con la sesion grupal ${groupConflict.name} a las ${groupConflict.start}.`;
-  }
-  return "";
+  return appointmentScheduleConflict(candidate, movingAppointmentId)?.message || "";
 }
 
 function clearAppointmentDropFeedback() {
@@ -10374,31 +10467,12 @@ function buildAppointmentCandidates(candidate, form) {
 }
 
 function appointmentConflictDetails(candidate) {
-  const service = byId(services, candidate.serviceId);
-  const end = addMinutes(candidate.start, service?.duration || 60);
-  const availabilityBlock = availabilityBlockFor(candidate.practitionerId, candidate.date, candidate.start, end);
-  if (availabilityBlock) {
+  const conflict = appointmentScheduleConflict(candidate);
+  if (conflict) {
     return {
-      type: "availability",
+      type: conflict.type,
       item: candidate,
-      label: `${candidate.date} ${candidate.start}: ${availabilityBlockLabel(availabilityBlock)}`
-    };
-  }
-  const appointmentConflict = findConflict(candidate);
-  if (appointmentConflict) {
-    const patient = byId(patients, appointmentConflict.patientId)?.name || "otra cita";
-    return {
-      type: "appointment",
-      item: candidate,
-      label: `${candidate.date} ${candidate.start}: conflicto con ${patient} a las ${appointmentConflict.start}`
-    };
-  }
-  const groupConflict = findGroupConflict(candidate);
-  if (groupConflict) {
-    return {
-      type: "group",
-      item: candidate,
-      label: `${candidate.date} ${candidate.start}: bloqueado por ${groupConflict.name} a las ${groupConflict.start}`
+      label: `${candidate.date} ${candidate.start}: ${conflict.message}`
     };
   }
   return null;
@@ -10965,20 +11039,10 @@ function setupAppointmentDetail() {
       status: nextStatus
     };
     if (!finalStatusIsCancelled) {
-      const availabilityBlock = availabilityBlockFor(nextPractitionerId, nextDate, scheduleCandidate.start, scheduleCandidate.end);
-      const appointmentConflict = findConflict(scheduleCandidate, selectedAppointmentId);
-      const groupConflict = groupsForDate(nextDate).find((group) => (
-        (group.practitionerId === nextPractitionerId || group.roomId === nextRoomId)
-          && overlaps(scheduleCandidate.start, scheduleCandidate.end, group.start, groupEnd(group))
-      ));
-      if (availabilityBlock || appointmentConflict || groupConflict) {
-        const conflictText = availabilityBlock
-          ? availabilityBlockLabel(availabilityBlock)
-          : appointmentConflict
-            ? `Conflicto con ${byId(patients, appointmentConflict.patientId)?.name || "otra cita"} a las ${appointmentConflict.start}.`
-            : `Conflicto con la sesión grupal ${groupConflict.name} a las ${groupConflict.start}.`;
+      const conflict = appointmentScheduleConflict(scheduleCandidate, selectedAppointmentId);
+      if (conflict) {
         if (detailError) {
-          detailError.textContent = conflictText;
+          detailError.textContent = conflict.message;
           detailError.classList.add("visible");
         }
         return;

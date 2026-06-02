@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-week-minutes-20260602";
+const KLINIA_CACHE = "klinia-agenda-overlaps-20260602";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260602-week-minutes",
-  "./app.js?v=20260602-week-minutes",
+  "./styles.css?v=20260602-agenda-overlaps",
+  "./app.js?v=20260602-agenda-overlaps",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

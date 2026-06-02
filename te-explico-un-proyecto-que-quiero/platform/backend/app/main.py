@@ -94,7 +94,7 @@ from .schemas import (
     PlanOut,
     TokenOut,
 )
-from .security import create_access_token, hash_password, verify_login_password, verify_password
+from .security import create_access_token, hash_password, verify_login_password
 
 
 settings = get_settings()
@@ -406,6 +406,111 @@ def status_is_cancelled(value: AppointmentStatus | str | None) -> bool:
     return value == AppointmentStatus.cancelled or str(value or "") == AppointmentStatus.cancelled.value
 
 
+WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def weekday_key_for_date(value: str) -> str:
+    try:
+        return WEEKDAY_KEYS[datetime.strptime(value, "%Y-%m-%d").weekday()]
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid appointment date") from exc
+
+
+def clinic_data_json(db: Session, clinic_id: str, key: str, default):
+    blob = db.scalar(select(ClinicDataBlob).where(ClinicDataBlob.clinic_id == clinic_id, ClinicDataBlob.key == key))
+    if not blob or not blob.data_json:
+        return default
+    try:
+        return json.loads(blob.data_json)
+    except json.JSONDecodeError:
+        return default
+
+
+def group_occurs_on_backend_date(group: dict, date: str) -> bool:
+    if group.get("active") is False:
+        return False
+    days = group.get("days") if isinstance(group.get("days"), list) else []
+    if weekday_key_for_date(date) not in days:
+        return False
+    date_from = group.get("dateFrom") or group.get("date_from")
+    date_to = group.get("dateTo") or group.get("date_to")
+    if date_from and date < str(date_from):
+        return False
+    if date_to and date > str(date_to):
+        return False
+    return True
+
+
+def group_instance_for_backend_date(group: dict, date: str, overrides: list[dict]) -> dict:
+    override = next((item for item in overrides if item.get("groupId") == group.get("id") and item.get("date") == date), None)
+    if not override:
+        return group
+    next_group = dict(group)
+    if override.get("practitionerId"):
+        next_group["practitionerId"] = override.get("practitionerId")
+    if override.get("start"):
+        next_group["start"] = override.get("start")
+    return next_group
+
+
+def group_backend_end(db: Session, clinic_id: str, group: dict) -> str:
+    start = str(group.get("start") or "")
+    if not start:
+        return "00:00"
+    service_id = group.get("serviceId") or group.get("service_id")
+    service = db.scalar(select(Service).where(Service.id == service_id, Service.clinic_id == clinic_id)) if service_id else None
+    duration = max(1, int(service.duration_minutes if service else 60))
+    return minutes_to_time(time_to_minutes(start) + duration)
+
+
+def group_backend_patient_ids(group: dict, group_dropins: list[dict], date: str) -> set[str]:
+    group_id = group.get("id")
+    patient_ids = {str(item) for item in (group.get("patientIds") or group.get("patient_ids") or []) if item}
+    patient_ids.update(
+        str(item.get("patientId"))
+        for item in group_dropins
+        if item.get("groupId") == group_id and item.get("date") == date and item.get("patientId")
+    )
+    return patient_ids
+
+
+def validate_appointment_against_group_sessions(
+    db: Session,
+    clinic_id: str,
+    *,
+    date: str,
+    start: str,
+    end: str,
+    practitioner_id: str,
+    room_id: str,
+    patient_id: str,
+) -> None:
+    groups = clinic_data_json(db, clinic_id, "groups", [])
+    if not isinstance(groups, list) or not groups:
+        return
+    group_dropins = clinic_data_json(db, clinic_id, "group-dropins", [])
+    if not isinstance(group_dropins, list):
+        group_dropins = []
+    overrides = clinic_data_json(db, clinic_id, "group-session-overrides", [])
+    if not isinstance(overrides, list):
+        overrides = []
+    for base_group in groups:
+        if not isinstance(base_group, dict) or not group_occurs_on_backend_date(base_group, date):
+            continue
+        group = group_instance_for_backend_date(base_group, date, overrides)
+        group_start = str(group.get("start") or "")
+        if not group_start:
+            continue
+        group_end = group_backend_end(db, clinic_id, group)
+        if not intervals_overlap(start, end, group_start, group_end):
+            continue
+        same_practitioner = str(group.get("practitionerId") or "") == practitioner_id
+        same_room = str(group.get("roomId") or "") == room_id
+        same_patient = patient_id in group_backend_patient_ids(group, group_dropins, date)
+        if same_practitioner or same_room or same_patient:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Appointment overlaps a group session")
+
+
 def validate_appointment_schedule(
     db: Session,
     clinic_id: str,
@@ -438,6 +543,16 @@ def validate_appointment_schedule(
             existing_end = appointment_end_from_service(appointment.start, existing_service) if existing_service else minutes_to_time(time_to_minutes(appointment.start) + 60)
         if intervals_overlap(start, end, appointment.start, existing_end):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Appointment overlaps an existing appointment")
+    validate_appointment_against_group_sessions(
+        db,
+        clinic_id,
+        date=date,
+        start=start,
+        end=end,
+        practitioner_id=practitioner_id,
+        room_id=room_id,
+        patient_id=patient_id,
+    )
 
 
 CLINIC_DATA_DEFAULTS = {
@@ -1071,7 +1186,7 @@ def logout(request: Request, user: User = Depends(current_user), db: Session = D
 
 @app.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
 def change_password(payload: PasswordChangeIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> None:
-    if not verify_password(payload.current_password, user.password_hash):
+    if not verify_login_password(payload.current_password, user.password_hash):
         audit_action(db, user, "change-password", "user", user.id, {"reason": "invalid_current_password"}, result="failure", request=request)
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid current password")
