@@ -256,8 +256,7 @@ const backendSyncedClinicDataKeys = new Set([
   "reminder-settings",
   "availability-blocks",
   "permissions",
-  "clinic-logo",
-  "audit-log"
+  "clinic-logo"
 ]);
 
 function saveSyncedClinicState(key, value) {
@@ -283,7 +282,7 @@ function appendAuditLog(action, detail = {}) {
     },
     ...auditLog
   ].slice(0, 500);
-  saveSyncedClinicState("audit-log", auditLog);
+  saveClinicState("audit-log", auditLog);
 }
 
 function isDemoClinic() {
@@ -773,6 +772,7 @@ let billingFilterState = loadState("billing-filter-state", {
   sort: "desc",
   page: 1
 });
+let lastBillingReport = null;
 let pendingImportSnapshot = null;
 let pendingImportAnalysis = null;
 
@@ -4088,6 +4088,19 @@ function patientPackCounters(pack) {
   };
 }
 
+function updatePatientPackRemainingPreview(form = $("#patient-pack-form")) {
+  if (!form?.elements?.remaining) {
+    return;
+  }
+  const sessions = Math.max(1, Number(form.elements.sessions?.value || 1));
+  const requestedUsed = Math.max(0, Number(form.elements.used?.value || 0));
+  const used = Math.min(sessions, requestedUsed);
+  if (form.elements.used && requestedUsed !== used) {
+    form.elements.used.value = used;
+  }
+  form.elements.remaining.value = Math.max(0, sessions - used);
+}
+
 function isPatientPackExpired(pack) {
   return Boolean(pack?.expiresAt && pack.expiresAt < todayIso());
 }
@@ -6167,7 +6180,7 @@ function renderPatientDetail() {
       <article class="compact-item action-card patient-pack-card">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
-          <span>${remaining} disponibles de ${item.sessions} - ${expired ? "Caducado - " : remaining <= 0 ? "Agotado - " : ""}${item.price} EUR - ${packServiceLabel(item)} - ${patientPackExpiryLabel(item)} ${item.invoice ? "- Facturable" : ""}${item.invoiceGenerated ? ` - ${item.invoiceNumber || "Factura generada"}` : ""}</span>
+          <span>${remaining} disponibles de ${item.sessions} (${Number(item.used || 0)} utilizadas) - ${expired ? "Caducado - " : remaining <= 0 ? "Agotado - " : ""}${item.price} EUR - ${packServiceLabel(item)} - ${patientPackExpiryLabel(item)} ${item.invoice ? "- Facturable" : ""}${item.invoiceGenerated ? ` - ${item.invoiceNumber || "Factura generada"}` : ""}</span>
         </div>
         <div class="compact-actions">
           <button class="secondary-button compact-inline-button" type="button" data-edit-patient-pack="${item.id}">Editar</button>
@@ -6814,6 +6827,13 @@ function renderBilling() {
   const sortedRows = allRows
     .slice()
     .sort((a, b) => (billingFilterState.sort === "asc" ? 1 : -1) * a.sortKey.localeCompare(b.sortKey));
+  lastBillingReport = {
+    range,
+    rows: sortedRows,
+    totals: { paid, pending, cash, card, lost },
+    sort: billingFilterState.sort || "desc",
+    generatedAt: new Date().toISOString()
+  };
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   billingFilterState.page = Math.min(Math.max(1, Number(billingFilterState.page || 1)), totalPages);
@@ -6871,6 +6891,117 @@ function renderBilling() {
   $$("[data-delete-manual-billing]").forEach((button) => {
     button.addEventListener("click", () => deleteManualBillingMovement(button.dataset.deleteManualBilling));
   });
+}
+
+function billingReportRangeLabel(report = lastBillingReport) {
+  const range = report?.range || billingFilterRange();
+  if (range.start === range.end) {
+    return formatShortDate(range.start);
+  }
+  return `${formatShortDate(range.start)} - ${formatShortDate(range.end)}`;
+}
+
+function pdfText(value, maxLength = 120) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function pdfEscape(value) {
+  return pdfText(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function buildSimplePdf(lines) {
+  const cleanLines = lines.map((line) => pdfText(line, 132));
+  const pages = [];
+  const maxLinesPerPage = 48;
+  for (let index = 0; index < cleanLines.length; index += maxLinesPerPage) {
+    pages.push(cleanLines.slice(index, index + maxLinesPerPage));
+  }
+  if (!pages.length) {
+    pages.push(["Sin movimientos."]);
+  }
+  const pageIds = pages.map((_, index) => 4 + index * 2);
+  const contentIds = pages.map((_, index) => 5 + index * 2);
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+  ];
+  pages.forEach((pageLines, index) => {
+    const content = [
+      "BT",
+      "/F1 10 Tf",
+      "40 800 Td",
+      "14 TL",
+      ...pageLines.map((line) => `(${pdfEscape(line)}) Tj T*`),
+      "ET"
+    ].join("\n");
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentIds[index]} 0 R >>`);
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets[index + 1] = pdf.length;
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefAt = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index += 1) {
+    pdf += `${String(offsets[index]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
+  return pdf;
+}
+
+function downloadBlobFile(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBillingPdfReport() {
+  if (!lastBillingReport) {
+    renderBilling();
+  }
+  const report = lastBillingReport || { rows: [], totals: {}, range: billingFilterRange() };
+  const totals = report.totals || {};
+  const lines = [
+    `Klinia - Informe de facturacion`,
+    `Clinica: ${clinic.name || "Clinica"}`,
+    `Periodo: ${billingReportRangeLabel(report)}`,
+    `Generado: ${new Date().toLocaleString("es-ES")}`,
+    `Orden: ${report.sort === "asc" ? "Mas antiguos" : "Mas recientes"}`,
+    "",
+    `Cobrado: ${Number(totals.paid || 0)} EUR`,
+    `Pendiente: ${Number(totals.pending || 0)} EUR`,
+    `Efectivo: ${Number(totals.cash || 0)} EUR`,
+    `Tarjeta: ${Number(totals.card || 0)} EUR`,
+    `Cancelado/no facturable: ${Number(totals.lost || 0)} EUR`,
+    "",
+    "Movimientos",
+    "Fecha hora | Concepto | Paciente | Profesional | Cobro | Importe"
+  ];
+  if (!report.rows?.length) {
+    lines.push("Sin movimientos para el filtro seleccionado.");
+  } else {
+    report.rows.forEach((row) => {
+      lines.push(`${row.sortKey || ""} | ${row.concept || ""} | ${row.patient || ""} | ${row.practitioner || ""} | ${row.paymentText || row.statusText || ""} | ${row.amount || 0} EUR`);
+    });
+  }
+  const pdf = buildSimplePdf(lines);
+  const safeRange = `${report.range?.start || todayIso()}_${report.range?.end || report.range?.start || todayIso()}`.replace(/[^0-9_-]/g, "");
+  downloadBlobFile(`facturacion-${safeRange}.pdf`, new Blob([pdf], { type: "application/pdf" }));
 }
 
 function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
@@ -8654,7 +8785,6 @@ async function hydrateFromApi(options = {}) {
     permissionSettings = normalizePermissionSettings(await syncClinicDataCollection("permissions", permissionSettings, defaultPermissionSettings, normalizePermissionSettings));
     availabilityBlocks = await syncClinicDataCollection("availability-blocks", availabilityBlocks, [], (value) => Array.isArray(value) ? value : []);
     clinicLogo = await syncClinicDataCollection("clinic-logo", clinicLogo, "", (value) => typeof value === "string" ? value : "");
-    auditLog = await syncClinicDataCollection("audit-log", auditLog, [], (value) => Array.isArray(value) ? value : []);
     syncPatientPackUsageFromAppointments({ persist: true });
     selectedPatientId = patients.some((patient) => String(patient.id) === String(selectedPatientId))
       ? selectedPatientId
@@ -8680,7 +8810,6 @@ async function hydrateFromApi(options = {}) {
     saveClinicState("permissions", permissionSettings);
     saveSyncedClinicState("availability-blocks", availabilityBlocks);
     saveClinicState("clinic-logo", clinicLogo);
-    saveClinicState("audit-log", auditLog);
     backendLastSyncAt = Date.now();
     if (options.render !== false) {
       renderAppointmentFormOptions();
@@ -12727,6 +12856,7 @@ function setupPatientConsentsAndPacks() {
     const form = event.currentTarget;
     const pack = byId(patientPacks, form.dataset.editingPatientPackId);
     if (!pack) return;
+    updatePatientPackRemainingPreview(form);
     const sessions = Math.max(1, Number(form.elements.sessions.value || 1));
     const actualUsed = patientPackActualUsedCount(pack);
     const usedInput = Math.max(0, Number(form.elements.used.value || 0));
@@ -12781,6 +12911,11 @@ function setupPatientConsentsAndPacks() {
     $("#patient-pack-dialog").close();
     renderPatientDetail();
     renderBilling();
+  });
+  ["sessions", "used"].forEach((fieldName) => {
+    $("#patient-pack-form")?.elements?.[fieldName]?.addEventListener("input", () => {
+      updatePatientPackRemainingPreview();
+    });
   });
 
   $("#invoice-patient-pack")?.addEventListener("click", () => {
@@ -12859,6 +12994,7 @@ function openPatientPackDialog(packId) {
   form.elements.name.value = pack.name || "";
   form.elements.sessions.value = pack.sessions || 1;
   form.elements.used.value = Number(pack.used || 0);
+  updatePatientPackRemainingPreview(form);
   form.elements.price.value = Number(pack.price || 0);
   if (form.elements.expiresAt) {
     form.elements.expiresAt.value = pack.expiresAt || "";
@@ -13153,6 +13289,9 @@ function setupBillingControls() {
   $("#apply-billing-filters")?.addEventListener("click", sync);
   $("#add-manual-billing")?.addEventListener("click", () => {
     openManualBillingDialog();
+  });
+  $("#download-billing-pdf")?.addEventListener("click", () => {
+    downloadBillingPdfReport();
   });
   $("#manual-billing-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
