@@ -5626,6 +5626,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
     : item
   );
   saveClinicState("appointments", appointments);
+  syncReminderLinksFromAppointments();
   selectedDate = dateValue;
   saveState("selected-date", selectedDate);
   renderAll();
@@ -7662,6 +7663,64 @@ function buildReminderHistory() {
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
 }
 
+function syncReminderLinksFromAppointments({ persist = true } = {}) {
+  const now = new Date().toISOString();
+  const actionById = new Map(dedupeReminderActions(reminderActions).map((item) => [String(item.id), item]));
+  const nextActions = [];
+  const activeAppointmentIds = new Set(appointments.map((appointment) => String(appointment.id)));
+  const activeSlots = appointments.flatMap(reminderSlotsForAppointment);
+  const activeSlotIds = new Set(activeSlots.map((slot) => String(slot.id)));
+
+  reminderActions.forEach((action) => {
+    const appointment = byId(appointments, action.appointmentId);
+    if (!appointment || !activeAppointmentIds.has(String(action.appointmentId))) {
+      return;
+    }
+    const current = reminderWithCurrentAppointment(action);
+    if (!current) {
+      return;
+    }
+    const status = normalizeAppointmentStatus(appointment.status) === "cancelled" && !isFinalReminderStatus(action.status)
+      ? "cancelled"
+      : current.status;
+    nextActions.push({
+      ...current,
+      status,
+      updatedAt: status === action.status ? current.updatedAt : now
+    });
+  });
+
+  activeSlots.forEach((slot) => {
+    const existing = actionById.get(String(slot.id));
+    if (existing && isFinalReminderStatus(existing.status)) {
+      return;
+    }
+    if (nextActions.some((item) => String(item.id) === String(slot.id))) {
+      return;
+    }
+    nextActions.push({
+      ...slot,
+      status: existing?.status || "pending",
+      message: reminderMessage(slot),
+      createdAt: existing?.createdAt || now,
+      updatedAt: existing?.updatedAt || now
+    });
+  });
+
+  const next = dedupeReminderActions(nextActions)
+    .filter((item) => activeSlotIds.has(String(item.id)) || isFinalReminderStatus(item.status));
+  if (JSON.stringify(next) === JSON.stringify(reminderActions)) {
+    return reminderActions;
+  }
+  reminderActions = next;
+  if (persist) {
+    saveSyncedClinicState("reminder-actions", reminderActions);
+  } else {
+    saveClinicState("reminder-actions", reminderActions);
+  }
+  return reminderActions;
+}
+
 function saveReminderAction(reminder, status) {
   const normalizedStatus = status === "confirmed" ? "sent" : status;
   const finalStatus = isFinalReminderStatus(normalizedStatus);
@@ -7715,6 +7774,9 @@ function openReminderWhatsApp(reminder) {
 function openAppointmentFromReminder(reminder) {
   const appointment = byId(appointments, reminder.appointmentId);
   if (!appointment) {
+    reminderActions = reminderActions.filter((item) => String(item.appointmentId) !== String(reminder.appointmentId));
+    saveSyncedClinicState("reminder-actions", reminderActions);
+    renderAll();
     showNotice("Cita no encontrada", "Este recordatorio ya no tiene una cita activa asociada.", { variant: "warning" });
     return;
   }
@@ -7835,6 +7897,7 @@ function renderAutomations() {
   if (!pendingList || !historyList) {
     return;
   }
+  syncReminderLinksFromAppointments({ persist: false });
   const queue = buildReminderQueue();
   const history = buildReminderHistory();
   const today = todayIso();
@@ -9058,6 +9121,7 @@ async function hydrateFromApi(options = {}) {
     availabilityBlocks = await syncClinicDataCollection("availability-blocks", availabilityBlocks, [], (value) => Array.isArray(value) ? value : []);
     clinicLogo = await syncClinicDataCollection("clinic-logo", clinicLogo, "", (value) => typeof value === "string" ? value : "");
     syncPatientPackUsageFromAppointments({ persist: true });
+    syncReminderLinksFromAppointments({ persist: true });
     selectedPatientId = patients.some((patient) => String(patient.id) === String(selectedPatientId))
       ? selectedPatientId
       : patients[0]?.id || null;
@@ -10665,6 +10729,7 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
   }
   appointments = [...appointments, ...items];
   saveClinicState("appointments", appointments);
+  syncReminderLinksFromAppointments();
   selectedDate = items[0]?.date || selectedDate;
   saveState("selected-date", selectedDate);
   dialog.close();
@@ -11275,6 +11340,7 @@ function setupAppointmentDetail() {
         return updatedAppointment;
       });
       saveClinicState("appointments", appointments);
+      syncReminderLinksFromAppointments();
       syncPatientPackUsageFromAppointments({ persist: true });
       $("#appointment-detail-dialog").close();
       renderAll();
