@@ -1384,6 +1384,11 @@ body:not([data-active-section="agenda"]) .worker-color-legend {
   display: none;
 }
 
+body[data-active-section="agenda"][data-calendar-mode="month"] .metrics-grid,
+body[data-active-section="agenda"][data-calendar-mode="month"] .worker-color-legend {
+  display: none;
+}
+
 .content-section {
   display: none;
   min-width: 0;
@@ -1667,10 +1672,11 @@ textarea {
   overflow: visible;
   padding: 7px;
   position: relative;
+  z-index: 0;
 }
 
 .week-stack-cell.has-timed-items {
-  z-index: 6;
+  z-index: 8;
 }
 
 .week-empty-slot {
@@ -1878,6 +1884,7 @@ textarea {
   height: max(34px, var(--event-height, 100%));
   min-height: 34px;
   overflow: hidden;
+  z-index: 8;
 }
 
 .week-appointment.timed-block {

@@ -7514,6 +7514,13 @@ function reminderKey(appointmentId, windowKey) {
   return `${appointmentId}:${windowKey}`;
 }
 
+function reminderWindowSlots() {
+  return [
+    { windowKey: "24h", label: "Pendiente 24h", hoursBefore: 24 },
+    { windowKey: "2h", label: "Pendiente 2h", hoursBefore: 2 }
+  ];
+}
+
 function formatDateTimeForReminder(date) {
   return new Intl.DateTimeFormat("es-ES", {
     day: "2-digit",
@@ -7542,6 +7549,26 @@ function reminderMessage(reminder) {
     .replaceAll("{{servicio}}", service?.name || "servicio");
 }
 
+function reminderSlotFromAppointment(appointment, slot) {
+  const appointmentAt = appointmentDateTime(appointment);
+  const patient = byId(patients, appointment.patientId);
+  const sendAt = new Date(appointmentAt.getTime() - Number(slot.hoursBefore || 0) * 60 * 60 * 1000);
+  return {
+    id: reminderKey(appointment.id, slot.windowKey),
+    appointmentId: appointment.id,
+    windowKey: slot.windowKey,
+    label: slot.label,
+    sendAt: sendAt.toISOString(),
+    date: appointment.date || selectedDate,
+    start: appointment.start,
+    patientId: appointment.patientId,
+    practitionerId: appointment.practitionerId,
+    serviceId: appointment.serviceId,
+    phone: patient?.phone || "",
+    patientName: patient?.name || "Paciente"
+  };
+}
+
 function reminderSlotsForAppointment(appointment) {
   if (normalizeAppointmentStatus(appointment.status) !== "confirmed") {
     return [];
@@ -7550,28 +7577,28 @@ function reminderSlotsForAppointment(appointment) {
   if (!patient?.phone) {
     return [];
   }
-  const appointmentAt = appointmentDateTime(appointment);
-  const slots = [
-    { windowKey: "24h", label: "Pendiente 24h", hoursBefore: 24 },
-    { windowKey: "2h", label: "Pendiente 2h", hoursBefore: 2 }
-  ];
-  return slots.map((slot) => {
-    const sendAt = new Date(appointmentAt.getTime() - slot.hoursBefore * 60 * 60 * 1000);
-    return {
-      id: reminderKey(appointment.id, slot.windowKey),
-      appointmentId: appointment.id,
-      windowKey: slot.windowKey,
-      label: slot.label,
-      sendAt: sendAt.toISOString(),
-      date: appointment.date || selectedDate,
-      start: appointment.start,
-      patientId: appointment.patientId,
-      practitionerId: appointment.practitionerId,
-      serviceId: appointment.serviceId,
-      phone: patient.phone,
-      patientName: patient.name
-    };
-  });
+  return reminderWindowSlots().map((slot) => reminderSlotFromAppointment(appointment, slot));
+}
+
+function reminderWithCurrentAppointment(reminder) {
+  const appointment = byId(appointments, reminder.appointmentId);
+  if (!appointment) {
+    return null;
+  }
+  const slot = reminderWindowSlots().find((item) => item.windowKey === reminder.windowKey)
+    || { windowKey: reminder.windowKey || "manual", label: reminder.label || "Recordatorio", hoursBefore: 0 };
+  const current = reminderSlotFromAppointment(appointment, slot);
+  const status = normalizeAppointmentStatus(appointment.status) === "cancelled"
+    ? "cancelled"
+    : reminder.status;
+  return {
+    ...reminder,
+    ...current,
+    status,
+    createdAt: reminder.createdAt,
+    updatedAt: reminder.updatedAt,
+    message: reminderMessage(current)
+  };
 }
 
 function reminderActionFor(id) {
@@ -7579,7 +7606,7 @@ function reminderActionFor(id) {
 }
 
 function isFinalReminderStatus(status) {
-  return ["sent", "failed"].includes(status === "confirmed" ? "sent" : status);
+  return ["sent", "failed", "cancelled"].includes(status === "confirmed" ? "sent" : status);
 }
 
 function hasFinalReminderForSlot(reminderId) {
@@ -7611,7 +7638,7 @@ function buildReminderQueue() {
     .filter((slot) => !isFinalReminderStatus(reminderActionFor(slot.id)?.status))
     .map((slot) => {
       const action = reminderActionFor(slot.id);
-      return { ...slot, ...(action || {}), status: action?.status || "pending" };
+      return { ...(action || {}), ...slot, status: action?.status || "pending", message: reminderMessage(slot) };
     })
     .sort((a, b) => new Date(a.sendAt) - new Date(b.sendAt));
 
@@ -7627,6 +7654,8 @@ function buildReminderQueue() {
 function buildReminderHistory() {
   const activeAppointmentIds = new Set(appointments.map((item) => String(item.id)));
   return dedupeReminderActions(reminderActions)
+    .map((item) => reminderWithCurrentAppointment(item))
+    .filter(Boolean)
     .filter((item) => isFinalReminderStatus(item.status))
     .filter((item) => activeAppointmentIds.has(String(item.appointmentId)))
     .slice()
@@ -7683,6 +7712,21 @@ function openReminderWhatsApp(reminder) {
   prepareReminderWhatsApp(reminder, { openWindow: true });
 }
 
+function openAppointmentFromReminder(reminder) {
+  const appointment = byId(appointments, reminder.appointmentId);
+  if (!appointment) {
+    showNotice("Cita no encontrada", "Este recordatorio ya no tiene una cita activa asociada.", { variant: "warning" });
+    return;
+  }
+  selectedDate = appointment.date || selectedDate;
+  calendarMode = "day";
+  saveState("selected-date", selectedDate);
+  saveState("calendar-mode", calendarMode);
+  setActiveSection("agenda");
+  renderAll();
+  openAppointmentDetail(appointment.id);
+}
+
 function dueReminderQueue() {
   const now = Date.now();
   return buildReminderQueue()
@@ -7722,7 +7766,8 @@ function renderReminderCard(reminder, mode = "pending") {
     pending: reminder.label || "Pendiente",
     prepared: "Preparado",
     sent: "Enviado",
-    failed: "Fallido"
+    failed: "Fallido",
+    cancelled: "Cita cancelada"
   }[reminder.status === "confirmed" ? "sent" : reminder.status] || reminder.status;
 
   article.innerHTML = `
@@ -7739,16 +7784,21 @@ function renderReminderCard(reminder, mode = "pending") {
     actions.className = "reminder-actions";
     const whatsappLabel = reminder.status === "prepared" ? "Abrir WhatsApp" : "Preparar WhatsApp";
     actions.innerHTML = `
+      <button class="secondary-button" type="button" data-reminder-action="appointment">Abrir cita</button>
       <button class="primary-button" type="button" data-reminder-action="whatsapp">${whatsappLabel}</button>
       <button class="secondary-button" type="button" data-reminder-action="sent">Enviado</button>
       <button class="secondary-button danger" type="button" data-reminder-action="failed">Fallido</button>
     `;
     actions.querySelectorAll("button").forEach((button) => {
       button.addEventListener("click", () => {
+        const action = button.dataset.reminderAction;
+        if (action === "appointment") {
+          openAppointmentFromReminder(reminder);
+          return;
+        }
         actions.querySelectorAll("button").forEach((item) => {
           item.disabled = true;
         });
-        const action = button.dataset.reminderAction;
         if (action === "whatsapp") {
           openReminderWhatsApp(reminder);
         } else {
@@ -7758,6 +7808,12 @@ function renderReminderCard(reminder, mode = "pending") {
     });
     article.append(actions);
   } else if (mode === "history") {
+    const openAppointment = document.createElement("button");
+    openAppointment.className = "secondary-button";
+    openAppointment.type = "button";
+    openAppointment.textContent = "Abrir cita";
+    openAppointment.addEventListener("click", () => openAppointmentFromReminder(reminder));
+    article.append(openAppointment);
     const reopen = document.createElement("button");
     reopen.className = "secondary-button";
     reopen.type = "button";
@@ -7821,6 +7877,20 @@ function renderMetrics() {
   const revenueAppointments = visible.filter(appointmentIsCharged);
   const revenue = revenueAppointments.reduce((total, item) => total + appointmentRevenueAmount(item), 0);
   const occupancy = occupancyReportForRange(calendarRange());
+  const visiblePractitionerCount = selectedAgendaPractitioners().length;
+  const appointmentTitle = calendarMode === "week"
+    ? "Citas semanales"
+    : calendarMode === "month"
+      ? "Citas en el periodo"
+      : "Citas hoy";
+  if ($("#metric-appointments-title")) {
+    $("#metric-appointments-title").textContent = appointmentTitle;
+  }
+  if ($("#metric-appointments-detail")) {
+    $("#metric-appointments-detail").textContent = visiblePractitionerCount === 1
+      ? "1 profesional en filtro"
+      : `${visiblePractitionerCount} profesionales en filtro`;
+  }
   $("#metric-appointments").textContent = visible.length;
   if ($("#metric-occupancy")) {
     $("#metric-occupancy").textContent = `${occupancy.percent}%`;
@@ -8578,6 +8648,7 @@ function renderAll() {
   $$(".calendar-mode").forEach((button) => {
     button.classList.toggle("selected", button.dataset.mode === calendarMode);
   });
+  document.body.dataset.calendarMode = calendarMode;
   renderMetrics();
   renderSchedule();
   renderNextList();
@@ -13405,11 +13476,13 @@ function setupFilters() {
     }
     saveState("selected-practitioner-ids", selectedPractitionerIds);
     renderFilters();
+    renderMetrics();
     renderSession();
     renderSchedule();
     renderNextList();
   });
   $("#filter-room").addEventListener("change", () => {
+    renderMetrics();
     renderSchedule();
     renderNextList();
   });

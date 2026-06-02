@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-appointment-duration-20260602";
+const KLINIA_CACHE = "klinia-agenda-reminders-20260602";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260602-appointment-duration",
-  "./app.js?v=20260602-appointment-duration",
+  "./styles.css?v=20260602-agenda-reminders",
+  "./app.js?v=20260602-agenda-reminders",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
