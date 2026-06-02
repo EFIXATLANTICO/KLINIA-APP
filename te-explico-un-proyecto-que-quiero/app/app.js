@@ -5488,12 +5488,17 @@ function assignOverlapColumns(items) {
 }
 
 function applyWeekTimedLayoutStyle(element, columnIndex = 0, columnTotal = 1) {
-  if (!element || columnTotal <= 1) {
+  if (!element) {
+    return;
+  }
+  element.classList.toggle("is-overlap-compact", columnTotal > 3);
+  element.dataset.overlapColumns = String(columnTotal);
+  if (columnTotal <= 1) {
     return;
   }
   const columnWidth = 100 / columnTotal;
-  element.style.setProperty("--event-left", `calc(${columnIndex * columnWidth}% + 4px)`);
-  element.style.setProperty("--event-right", `calc(${(columnTotal - columnIndex - 1) * columnWidth}% + 4px)`);
+  element.style.setProperty("--event-left", `calc(${columnIndex * columnWidth}% + 3px)`);
+  element.style.setProperty("--event-right", `calc(${(columnTotal - columnIndex - 1) * columnWidth}% + 3px)`);
 }
 
 function appointmentMoveConflict(candidate, movingAppointmentId) {

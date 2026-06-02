@@ -1667,6 +1667,7 @@ textarea {
   overflow: visible;
   padding: 7px;
   position: relative;
+  contain: layout;
 }
 
 .week-stack-cell.has-timed-items {
@@ -1755,6 +1756,7 @@ textarea {
   position: relative;
   z-index: 3;
   width: 100%;
+  box-sizing: border-box;
   border: 1px solid transparent;
   border-left: 5px solid var(--worker-color, var(--accent));
   border-radius: 6px;
@@ -1784,6 +1786,11 @@ textarea {
 .week-appointment strong,
 .week-appointment span {
   display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .week-appointment time {
@@ -1877,6 +1884,26 @@ textarea {
 .week-appointment.timed-block {
   left: var(--event-left, 7px);
   right: var(--event-right, 7px);
+  max-width: calc(100% - var(--event-left, 7px) - var(--event-right, 7px));
+  box-sizing: border-box;
+  padding: 6px;
+  isolation: isolate;
+}
+
+.week-appointment.timed-block.is-overlap-compact {
+  border-left-width: 4px;
+  padding: 5px;
+}
+
+.week-appointment.timed-block.is-overlap-compact time {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.week-appointment.timed-block.is-overlap-compact strong,
+.week-appointment.timed-block.is-overlap-compact span {
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .appointment[draggable="true"],
