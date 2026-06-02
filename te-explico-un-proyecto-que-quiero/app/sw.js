@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-week-columns-20260602";
+const KLINIA_CACHE = "klinia-appointment-duration-20260602";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260602-week-columns",
-  "./app.js?v=20260602-week-columns",
+  "./styles.css?v=20260602-appointment-duration",
+  "./app.js?v=20260602-appointment-duration",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

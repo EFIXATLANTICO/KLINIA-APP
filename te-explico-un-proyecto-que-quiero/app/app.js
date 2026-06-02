@@ -3946,8 +3946,24 @@ function appointmentsForSelectedDay() {
 }
 
 function appointmentEnd(appointment) {
+  if (appointment?.end && isValidTimeValue(appointment.end) && minutes(appointment.end) > minutes(appointment.start || "00:00")) {
+    return appointment.end;
+  }
   const service = byId(services, appointment.serviceId);
-  return addMinutes(appointment.start, Number(service?.duration || 0) || (appointment.end ? minutesBetween(appointment.start, appointment.end) : 60));
+  return addMinutes(appointment.start, Number(service?.duration || 0) || 60);
+}
+
+function appointmentDurationMinutes(appointment) {
+  if (appointment?.start && appointmentEnd(appointment)) {
+    return Math.max(5, minutesBetween(appointment.start, appointmentEnd(appointment)));
+  }
+  const service = byId(services, appointment?.serviceId);
+  return Number(service?.duration || 60);
+}
+
+function formDurationMinutes(form, fallback = 60) {
+  const value = Number(form?.elements?.duration?.value || fallback);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function statusLabel(status) {
@@ -4423,8 +4439,7 @@ function groupPassesAgendaFilters(group) {
 }
 
 function findGroupConflict(candidate) {
-  const service = byId(services, candidate.serviceId);
-  const candidateEnd = addMinutes(candidate.start, service?.duration || 60);
+  const candidateEnd = appointmentEnd(candidate);
   const dateValue = candidate.date || selectedDate;
   return groupsForDate(candidate.date || selectedDate).find((group) => {
     const samePractitioner = group.practitionerId === candidate.practitionerId;
@@ -4712,8 +4727,7 @@ function isBlockingAppointmentStatus(status) {
 }
 
 function findConflict(candidate, ignoredAppointmentId = "") {
-  const service = byId(services, candidate.serviceId);
-  const candidateEnd = addMinutes(candidate.start, service?.duration || 60);
+  const candidateEnd = appointmentEnd(candidate);
 
   return appointments.find((appointment) => {
     if (String(appointment.id) === String(ignoredAppointmentId) || !isBlockingAppointmentStatus(appointment.status)) {
@@ -4729,8 +4743,7 @@ function findConflict(candidate, ignoredAppointmentId = "") {
 }
 
 function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
-  const service = byId(services, candidate.serviceId);
-  const end = addMinutes(candidate.start, service?.duration || 60);
+  const end = appointmentEnd(candidate);
   const availabilityBlock = availabilityBlockFor(candidate.practitionerId, candidate.date || selectedDate, candidate.start, end);
   if (availabilityBlock) {
     return {
@@ -4770,8 +4783,7 @@ function isWithinAvailability(appointment) {
   if (!practitioner) {
     return true;
   }
-  const service = byId(services, appointment.serviceId);
-  const end = addMinutes(appointment.start, service?.duration || 60);
+  const end = appointmentEnd(appointment);
   return !isOutsidePractitionerHours(practitioner, appointment.start, end, appointment.date || selectedDate)
     && !availabilityBlockFor(practitioner.id, appointment.date || selectedDate, appointment.start, end);
 }
@@ -4845,9 +4857,6 @@ function fillSelect(select, items, label = "name", allLabel = "") {
 }
 
 function selectedAgendaPractitioners() {
-  if (isPractitionerSession()) {
-    return practitioners;
-  }
   const savedIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
   if (selectedPractitionerIds.includes("all") || !savedIds.length) {
     return practitioners;
@@ -4871,10 +4880,6 @@ function renderFilters() {
   fillSelect($("#worker-profile-select"), practitioners);
   const workerFilter = $("#filter-practitioner");
   const workerMenu = workerFilter.querySelector(".worker-filter-menu");
-  if (isPractitionerSession() && !selectedPractitionerIds.includes("all")) {
-    selectedPractitionerIds = ["all"];
-    saveState("selected-practitioner-ids", selectedPractitionerIds);
-  }
   const validIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
   if (!selectedPractitionerIds.includes("all") && !validIds.length) {
     selectedPractitionerIds = ["all"];
@@ -4982,7 +4987,7 @@ function appointmentOutsideHoursMessage(form = $("#appointment-form")) {
   if (!practitioner || !start) {
     return "";
   }
-  const end = addMinutes(start, service?.duration || 60);
+  const end = addMinutes(start, formDurationMinutes(form, service?.duration || 60));
   return isOutsidePractitionerHours(practitioner, start, end, dateValue)
     ? `Está creando una cita fuera de horario o fuera de los dias de atencion. Horario habitual: ${practitionerAvailabilityLabel(practitioner)}.`
     : "";
@@ -4997,8 +5002,16 @@ function updateAppointmentDurationPreview(form = $("#appointment-form")) {
     preview.textContent = "";
     return;
   }
-  const duration = Number(service.duration || 60);
+  const duration = formDurationMinutes(form, service.duration || 60);
   preview.textContent = `Duración del servicio: ${duration} min. La cita quedará ${start} - ${addMinutes(start, duration)}.`;
+}
+
+function setAppointmentFormDurationFromService(form = $("#appointment-form")) {
+  const service = byId(services, form?.elements?.service?.value);
+  if (form?.elements?.duration && service) {
+    form.elements.duration.value = Number(service.duration || 60);
+  }
+  updateAppointmentOutsideHoursWarning(form);
 }
 
 function updateAppointmentOutsideHoursWarning(form = $("#appointment-form")) {
@@ -5502,8 +5515,7 @@ function applyWeekTimedLayoutStyle(element, columnIndex = 0, columnTotal = 1) {
 }
 
 function appointmentMoveConflict(candidate, movingAppointmentId) {
-  const service = byId(services, candidate.serviceId);
-  const candidateEnd = addMinutes(candidate.start, service?.duration || 60);
+  const candidateEnd = appointmentEnd(candidate);
   const practitioner = byId(practitioners, candidate.practitionerId);
   if (isOutsidePractitionerHours(practitioner, candidate.start, candidateEnd, candidate.date || selectedDate)) {
     return "La nueva hora queda fuera de la jornada laboral del profesional.";
@@ -5600,7 +5612,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
     await showNotice("No se puede mover la cita", validation.message, { variant: "warning" });
     return;
   }
-  let movedAppointment = { ...appointment, date: dateValue, start: hour, end: addMinutes(hour, byId(services, appointment.serviceId)?.duration || 60), movedAt: new Date().toISOString(), movedBy: currentSessionName() };
+  let movedAppointment = { ...appointment, date: dateValue, start: hour, end: addMinutes(hour, appointmentDurationMinutes(appointment)), movedAt: new Date().toISOString(), movedBy: currentSessionName() };
   if (backendDataEnabled()) {
     try {
       movedAppointment = await saveAppointmentToBackend(movedAppointment, appointment.id);
@@ -7266,9 +7278,53 @@ function billableAppointments() {
   return appointments.filter(appointmentIsCharged);
 }
 
-function groupCompletedSessionsForPractitioner(practitioner) {
+function performanceFilterRange() {
+  const mode = $("#performance-range-mode")?.value || "month";
+  if (mode === "day") {
+    const day = $("#performance-day")?.value || selectedDate || todayIso();
+    return { mode, start: day, end: day, label: `Día ${formatShortDate(day)}` };
+  }
+  if (mode === "range") {
+    const start = $("#performance-date-from")?.value || monthStartIso(selectedDate || todayIso());
+    const end = $("#performance-date-to")?.value || todayIso();
+    return start <= end
+      ? { mode, start, end, label: `${formatShortDate(start)} a ${formatShortDate(end)}` }
+      : { mode, start: end, end: start, label: `${formatShortDate(end)} a ${formatShortDate(start)}` };
+  }
+  const month = $("#performance-month")?.value || (selectedDate || todayIso()).slice(0, 7);
+  const start = `${month}-01`;
+  return { mode: "month", start, end: monthEndIso(start), label: formatMonthYear(start) };
+}
+
+function ensurePerformanceFilterDefaults() {
+  const current = selectedDate || todayIso();
+  if ($("#performance-day") && !$("#performance-day").value) {
+    $("#performance-day").value = current;
+  }
+  if ($("#performance-month") && !$("#performance-month").value) {
+    $("#performance-month").value = current.slice(0, 7);
+  }
+  if ($("#performance-date-from") && !$("#performance-date-from").value) {
+    $("#performance-date-from").value = monthStartIso(current);
+  }
+  if ($("#performance-date-to") && !$("#performance-date-to").value) {
+    $("#performance-date-to").value = monthEndIso(current);
+  }
+  const mode = $("#performance-range-mode")?.value || "month";
+  $("#performance-day")?.classList.toggle("hidden", mode !== "day");
+  $("#performance-month")?.classList.toggle("hidden", mode !== "month");
+  $("#performance-date-from")?.classList.toggle("hidden", mode !== "range");
+  $("#performance-date-to")?.classList.toggle("hidden", mode !== "range");
+}
+
+function dateInRange(dateValue, range) {
+  return dateValue >= range.start && dateValue <= range.end;
+}
+
+function groupCompletedSessionsForPractitioner(practitioner, range = performanceFilterRange()) {
   return groupCompletions
     .filter((entry) => entry.practitionerId === practitioner.id)
+    .filter((entry) => dateInRange(entry.date || selectedDate, range))
     .map((entry) => {
       const group = groups.find((item) => item.id === entry.groupId);
       const service = group ? groupService(group) : byId(services, entry.serviceId);
@@ -7292,7 +7348,7 @@ function practitionerOccupancyReport(practitioner, range = calendarRange()) {
     .filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed")
     .filter((appointment) => appointment.practitionerId === practitioner.id)
     .filter((appointment) => (appointment.date || selectedDate) >= range.start && (appointment.date || selectedDate) <= range.end)
-    .reduce((total, appointment) => total + (byId(services, appointment.serviceId)?.duration || 60), 0);
+    .reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0);
   const groupMinutes = days.reduce((total, dateValue) => (
     total + groupsForDate(dateValue)
       .filter((group) => group.practitionerId === practitioner.id)
@@ -7306,20 +7362,22 @@ function practitionerOccupancyReport(practitioner, range = calendarRange()) {
   };
 }
 
-function practitionerReport(practitioner) {
-  const ownAppointments = billableAppointments().filter((appointment) => appointment.practitionerId === practitioner.id);
-  const ownGroupSessions = groupCompletedSessionsForPractitioner(practitioner);
+function practitionerReport(practitioner, range = performanceFilterRange()) {
+  const ownAppointments = billableAppointments()
+    .filter((appointment) => appointment.practitionerId === practitioner.id)
+    .filter((appointment) => dateInRange(appointment.date || selectedDate, range));
+  const ownGroupSessions = groupCompletedSessionsForPractitioner(practitioner, range);
   const appointmentRevenue = ownAppointments.reduce((total, appointment) => total + appointmentRevenueAmount(appointment), 0);
   const groupRevenue = ownGroupSessions.reduce((total, session) => total + Number(session.revenue || 0), 0);
   const revenue = appointmentRevenue + groupRevenue;
-  const minutesBooked = ownAppointments.reduce((total, appointment) => total + (byId(services, appointment.serviceId)?.duration || 60), 0)
+  const minutesBooked = ownAppointments.reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0)
     + ownGroupSessions.reduce((total, session) => total + (session.duration || 60), 0);
   const billableItems = ownAppointments.length + ownGroupSessions.length;
   const averageTicket = billableItems ? Math.round(revenue / billableItems) : 0;
   const appointmentPayout = ownAppointments.reduce((total, appointment) => total + serviceCommissionAmount(appointment, practitioner), 0);
   const groupPayout = ownGroupSessions.reduce((total, session) => total + Number(session.payout || 0), 0);
   const payout = appointmentPayout + groupPayout;
-  const occupancy = practitionerOccupancyReport(practitioner).percent;
+  const occupancy = practitionerOccupancyReport(practitioner, range).percent;
 
   return {
     practitioner,
@@ -7334,6 +7392,8 @@ function practitionerReport(practitioner) {
 }
 
 function renderPerformance() {
+  ensurePerformanceFilterDefaults();
+  const range = performanceFilterRange();
   const selectedWorker = isOwner()
     ? byId(practitioners, $("#worker-profile-select").value) || practitioners[0]
     : currentPractitioner();
@@ -7356,8 +7416,8 @@ function renderPerformance() {
     $("#owner-report-table").innerHTML = `<tr><td colspan="4">Sin trabajadores en esta clinica.</td></tr>`;
     return;
   }
-  const workerReport = practitionerReport(selectedWorker);
-  const allReports = practitioners.map(practitionerReport).sort((a, b) => b.revenue - a.revenue);
+  const workerReport = practitionerReport(selectedWorker, range);
+  const allReports = practitioners.map((practitioner) => practitionerReport(practitioner, range)).sort((a, b) => b.revenue - a.revenue);
   const totalRevenue = allReports.reduce((total, report) => total + report.revenue, 0);
   const totalAppointments = allReports.reduce((total, report) => total + report.appointments.length + (report.groupSessions?.length || 0), 0);
   const topReport = allReports[0];
@@ -7373,7 +7433,7 @@ function renderPerformance() {
     <div>
       <span>Perfil de trabajador</span>
       <strong>${selectedWorker.name}</strong>
-      <p>${selectedWorker.specialty}</p>
+      <p>${selectedWorker.specialty} · ${range.label}</p>
     </div>
     <div>
       <span>Facturacion</span>
@@ -7392,6 +7452,8 @@ function renderPerformance() {
 
   $("#worker-billing").innerHTML = `
     <article><span>Sesiones facturables</span><strong>${workerReport.appointments.length + (workerReport.groupSessions?.length || 0)}</strong></article>
+    <article><span>Producción total</span><strong>${workerReport.revenue} EUR</strong></article>
+    <article><span>Comisión estimada</span><strong>${workerReport.payout} EUR</strong></article>
     <article><span>Ticket medio</span><strong>${workerReport.averageTicket} EUR</strong></article>
     <article><span>Servicios con comisión</span><strong>${Object.values(selectedWorker.serviceCommissions || {}).filter((item) => item?.enabled).length}</strong></article>
   `;
@@ -10537,6 +10599,9 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
   dialog.close();
   form.reset();
   form.elements.start.value = "12:00";
+  if (form.elements.duration) {
+    form.elements.duration.value = byId(services, form.elements.service?.value)?.duration || 60;
+  }
   if (form.elements.groupAttendees) {
     form.elements.groupAttendees.value = 1;
   }
@@ -10563,12 +10628,19 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
 function openAppointmentDialog(defaults = {}) {
   const dialog = $("#appointment-dialog");
   const form = $("#appointment-form");
+  if ($("#appointment-detail-dialog")?.open) {
+    $("#appointment-detail-dialog").close();
+  }
+  selectedAppointmentId = "";
   form.reset();
   form.querySelector(".modal-header h2").textContent = "Nueva cita";
   renderAppointmentFormOptions();
   form.elements.date.value = defaults.date || selectedDate;
   form.elements.start.value = defaults.start || "12:00";
   form.elements.status.value = "confirmed";
+  if (form.elements.duration) {
+    form.elements.duration.value = byId(services, form.elements.service?.value)?.duration || 60;
+  }
   if (form.elements.groupAttendees) {
     form.elements.groupAttendees.value = 1;
   }
@@ -10609,12 +10681,13 @@ function blockAgendaFromAppointmentForm() {
   const practitionerId = form.elements.practitioner.value || practitioners[0]?.id;
   const start = form.elements.start.value || "12:00";
   const service = byId(services, form.elements.service.value);
+  const duration = formDurationMinutes(form, service?.duration || 60);
   $("#appointment-dialog").close();
   openUnavailabilityDialog({
     practitionerId,
     date: form.elements.date.value || selectedDate,
     start,
-    end: addMinutes(start, service?.duration || 60),
+    end: addMinutes(start, duration),
     allDay: false
   });
 }
@@ -10629,12 +10702,12 @@ function setupDialog() {
   });
 
   form.elements.service.addEventListener("change", () => {
+    setAppointmentFormDurationFromService(form);
     updateAppointmentGroupAttendeesVisibility(form);
     updateAppointmentPackOptions(form);
-    updateAppointmentOutsideHoursWarning(form);
     resetRecurrenceReview();
   });
-  ["date", "start", "practitioner", "room", "patient"].forEach((fieldName) => {
+  ["date", "start", "duration", "practitioner", "room", "patient"].forEach((fieldName) => {
     form.elements[fieldName]?.addEventListener("change", () => {
       if (fieldName === "date" && form.elements.repeatEndDate && (!form.elements.repeatEndDate.value || form.elements.repeatEndDate.value < form.elements.date.value)) {
         form.elements.repeatEndDate.value = addDaysIso(form.elements.date.value, 21);
@@ -10689,7 +10762,7 @@ function setupDialog() {
 
     const practitioner = byId(practitioners, candidate.practitionerId);
     const candidateService = byId(services, candidate.serviceId);
-    const candidateEnd = addMinutes(candidate.start, candidateService?.duration || 60);
+    const candidateEnd = addMinutes(candidate.start, formDurationMinutes(form, candidateService?.duration || 60));
     candidate.end = candidateEnd;
     const outsideHours = isOutsidePractitionerHours(practitioner, candidate.start, candidateEnd, candidate.date || selectedDate);
     if (outsideHours) {
@@ -10727,6 +10800,9 @@ function openAppointmentDetail(appointmentId) {
   if (!appointment) {
     return;
   }
+  if ($("#appointment-dialog")?.open) {
+    $("#appointment-dialog").close();
+  }
 
   selectedAppointmentId = appointmentId;
   const form = $("#appointment-detail-form");
@@ -10740,6 +10816,9 @@ function openAppointmentDetail(appointmentId) {
   fillSelect(form.elements.room, rooms);
   form.elements.date.value = appointment.date || selectedDate;
   form.elements.start.value = appointment.start || "12:00";
+  if (form.elements.duration) {
+    form.elements.duration.value = appointmentDurationMinutes(appointment);
+  }
   form.elements.service.value = appointment.serviceId || "";
   form.elements.practitioner.value = appointment.practitionerId || "";
   form.elements.room.value = appointment.roomId || "";
@@ -10826,12 +10905,12 @@ function updateAppointmentDetailDuration(form = $("#appointment-detail-form")) {
   if (!form) return;
   const service = byId(services, form.elements.service?.value);
   const start = form.elements.start?.value || "00:00";
-  const duration = Number(service?.duration || 60);
+  const duration = formDurationMinutes(form, service?.duration || 60);
   const end = isValidTimeValue(start) ? addMinutes(start, duration) : "";
   const label = $("#appointment-detail-duration");
   if (label) {
     label.textContent = service
-      ? `Duración del servicio: ${duration} min. La cita quedará ${start} - ${end}.`
+      ? `Duración: ${duration} min. La cita quedará ${start} - ${end}.`
       : "Selecciona un servicio para calcular la hora final.";
   }
 }
@@ -10985,9 +11064,17 @@ async function generateInvoiceForAppointment(appointment) {
 }
 
 function setupAppointmentDetail() {
-  ["date", "start", "service", "practitioner", "room"].forEach((fieldName) => {
+  ["date", "start", "duration", "practitioner", "room"].forEach((fieldName) => {
     $("#appointment-detail-form")?.elements[fieldName]?.addEventListener("change", () => updateAppointmentDetailDuration());
     $("#appointment-detail-form")?.elements[fieldName]?.addEventListener("input", () => updateAppointmentDetailDuration());
+  });
+  $("#appointment-detail-form")?.elements.service?.addEventListener("change", (event) => {
+    const form = $("#appointment-detail-form");
+    const service = byId(services, event.target.value);
+    if (form?.elements.duration && service) {
+      form.elements.duration.value = Number(service.duration || 60);
+    }
+    updateAppointmentDetailDuration(form);
   });
   $("#appointment-detail-form")?.elements.status?.addEventListener("change", (event) => {
     $("#appointment-detail-form")?.querySelector(".cancelled-by-field")?.classList.toggle("hidden", event.target.value !== "cancelled");
@@ -11026,6 +11113,7 @@ function setupAppointmentDetail() {
     const nextPractitionerId = form.elements.practitioner?.value || existingAppointment.practitionerId;
     const nextRoomId = form.elements.room?.value || existingAppointment.roomId;
     const nextService = byId(services, nextServiceId);
+    const nextDuration = formDurationMinutes(form, nextService?.duration || appointmentDurationMinutes(existingAppointment));
     if (!nextDate || !isValidTimeValue(nextStart) || !nextServiceId || !nextPractitionerId || !nextRoomId) {
       if (detailError) {
         detailError.textContent = "Revisa día, hora, servicio, profesional y sala antes de guardar.";
@@ -11037,7 +11125,7 @@ function setupAppointmentDetail() {
       ...existingAppointment,
       date: nextDate,
       start: nextStart,
-      end: addMinutes(nextStart, nextService?.duration || 60),
+      end: addMinutes(nextStart, nextDuration),
       serviceId: nextServiceId,
       practitionerId: nextPractitionerId,
       roomId: nextRoomId,
@@ -13364,6 +13452,11 @@ function setupCalendarControls() {
 
 function setupPerformance() {
   $("#worker-profile-select").addEventListener("change", renderPerformance);
+  $("#performance-range-mode")?.addEventListener("change", () => {
+    ensurePerformanceFilterDefaults();
+    renderPerformance();
+  });
+  $("#apply-performance-filters")?.addEventListener("click", renderPerformance);
 
   $$(".performance-mode").forEach((button) => {
     button.addEventListener("click", () => {

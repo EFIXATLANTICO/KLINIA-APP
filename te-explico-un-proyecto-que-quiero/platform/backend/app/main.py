@@ -398,6 +398,18 @@ def appointment_end_from_service(start: str, service: Service) -> str:
     return minutes_to_time(end_minutes)
 
 
+def appointment_end_from_payload(start: str, requested_end: str | None, service: Service) -> str:
+    if not requested_end:
+        return appointment_end_from_service(start, service)
+    start_minutes = time_to_minutes(start)
+    end_minutes = time_to_minutes(requested_end)
+    if end_minutes <= start_minutes:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Appointment end must be after start")
+    if end_minutes >= 24 * 60:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Appointment cannot end after midnight")
+    return minutes_to_time(end_minutes)
+
+
 def intervals_overlap(first_start: str, first_end: str, second_start: str, second_end: str) -> bool:
     return time_to_minutes(first_start) < time_to_minutes(second_end) and time_to_minutes(second_start) < time_to_minutes(first_end)
 
@@ -2795,7 +2807,7 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
 
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
-    end = appointment_end_from_service(payload.start, service)
+    end = appointment_end_from_payload(payload.start, payload.end, service)
     validate_appointment_schedule(
         db,
         user.clinic_id,
@@ -2848,7 +2860,14 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
     next_start = data.get("start", appointment.start)
     next_status = data.get("status", appointment.status)
     service = clinic_item_or_404(db, Service, next_service_id, user.clinic_id)
-    data["end"] = appointment_end_from_service(next_start, service)
+    requested_end = data.get("end")
+    if not requested_end and next_service_id == appointment.service_id:
+        if next_start == appointment.start:
+            requested_end = appointment.end
+        elif appointment.end:
+            current_duration = max(1, time_to_minutes(appointment.end) - time_to_minutes(appointment.start))
+            requested_end = minutes_to_time(time_to_minutes(next_start) + current_duration)
+    data["end"] = appointment_end_from_payload(next_start, requested_end, service)
     if not status_is_cancelled(next_status):
         validate_appointment_schedule(
             db,

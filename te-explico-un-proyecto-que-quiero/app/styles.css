@@ -1667,7 +1667,6 @@ textarea {
   overflow: visible;
   padding: 7px;
   position: relative;
-  contain: layout;
 }
 
 .week-stack-cell.has-timed-items {
