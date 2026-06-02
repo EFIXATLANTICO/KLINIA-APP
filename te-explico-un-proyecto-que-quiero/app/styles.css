@@ -1664,7 +1664,13 @@ textarea {
 
 .week-stack-cell {
   min-height: 112px;
+  overflow: visible;
   padding: 7px;
+  position: relative;
+}
+
+.week-stack-cell.has-timed-items {
+  z-index: 6;
 }
 
 .week-empty-slot {
@@ -1869,8 +1875,8 @@ textarea {
 }
 
 .week-appointment.timed-block {
-  left: 7px;
-  right: 7px;
+  left: var(--event-left, 7px);
+  right: var(--event-right, 7px);
 }
 
 .appointment[draggable="true"],

@@ -5245,7 +5245,7 @@ function renderPeriodSchedule(schedule) {
 
 function renderWeekSchedule(schedule, days) {
   const visiblePractitioners = selectedAgendaPractitioners();
-  const useTimedWeekBlocks = visiblePractitioners.length === 1;
+  const useTimedWeekBlocks = true;
   schedule.style.gridTemplateColumns = `72px repeat(${days.length}, minmax(190px, 1fr))`;
 
   if (!visiblePractitioners.length) {
@@ -5315,9 +5315,28 @@ function renderWeekSchedule(schedule, days) {
         });
 
       if (hourAppointments.length || hourGroups.length) {
-        hourGroups.forEach((group) => cell.append(renderGroupBlock(group, day, "week", hour, useTimedWeekBlocks)));
-        hourAppointments.forEach((appointment) => {
-          cell.append(renderWeekAppointment(appointment, hour, useTimedWeekBlocks));
+        const timedItems = [
+          ...hourGroups.map((group) => ({
+            start: group.start,
+            end: groupEnd(group),
+            render: () => renderGroupBlock(group, day, "week", hour, useTimedWeekBlocks)
+          })),
+          ...hourAppointments.map((appointment) => ({
+            start: appointment.start,
+            end: appointmentEnd(appointment),
+            render: () => renderWeekAppointment(appointment, hour, useTimedWeekBlocks)
+          }))
+        ];
+        if (useTimedWeekBlocks) {
+          cell.classList.add("has-timed-items");
+        }
+        timedItems.forEach((item, index) => {
+          const block = item.render();
+          if (useTimedWeekBlocks) {
+            const lane = weekTimedLaneFor(item, timedItems, index);
+            applyWeekTimedLaneStyle(block, lane.index, lane.total);
+          }
+          cell.append(block);
         });
         const defaults = slotDefaults(day, hour);
         attachCellQuickCreate(cell, defaults.practitioner, day, hour, defaults.room?.id);
@@ -5335,6 +5354,28 @@ function renderWeekSchedule(schedule, days) {
       schedule.append(cell);
     });
   });
+}
+
+function weekTimedLaneFor(item, items, index) {
+  const overlappingItems = items
+    .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
+    .filter(({ candidate }) => overlappingMinutes(item.start, item.end, candidate.start, candidate.end) > 0);
+  if (overlappingItems.length <= 1) {
+    return { index: 0, total: 1 };
+  }
+  return {
+    index: Math.max(0, overlappingItems.findIndex(({ candidateIndex }) => candidateIndex === index)),
+    total: overlappingItems.length
+  };
+}
+
+function applyWeekTimedLaneStyle(element, laneIndex = 0, laneTotal = 1) {
+  if (!element || laneTotal <= 1) {
+    return;
+  }
+  const laneWidth = 100 / laneTotal;
+  element.style.setProperty("--event-left", `calc(${laneIndex * laneWidth}% + 4px)`);
+  element.style.setProperty("--event-right", `calc(${(laneTotal - laneIndex - 1) * laneWidth}% + 4px)`);
 }
 
 function appointmentMoveConflict(candidate, movingAppointmentId) {
