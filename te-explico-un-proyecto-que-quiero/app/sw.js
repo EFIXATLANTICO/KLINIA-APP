@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-agenda-conflicts-20260603";
+const KLINIA_CACHE = "klinia-week-readable-20260603";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260603-agenda-conflicts",
-  "./app.js?v=20260603-agenda-conflicts",
+  "./styles.css?v=20260603-week-readable",
+  "./app.js?v=20260603-week-readable",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -3746,13 +3746,23 @@ function groupStartsInsideSlot(group, slotStart) {
   return startsInsideSlot(group.start || "00:00", slotStart);
 }
 
-function applyTimedBlockStyle(element, start, end, slotStart) {
+const scheduleSlotHeightPx = 112;
+
+function applyTimedBlockStyle(element, start, end, slotStart, options = {}) {
   const slotMinutes = 60;
   const offset = Math.max(0, Math.min(slotMinutes, minutes(start) - minutes(slotStart)));
   const duration = Math.max(15, minutesBetween(start, end));
   element.classList.add("timed-block");
   element.style.setProperty("--event-offset", `${(offset / slotMinutes) * 100}%`);
   element.style.setProperty("--event-height", `${(duration / slotMinutes) * 100}%`);
+  if (options.pixelPosition) {
+    const slotHeight = Number(options.slotHeightPx || scheduleSlotHeightPx);
+    const minHeight = Number(options.minHeightPx || 42);
+    element.classList.add("timed-block-pixels");
+    element.style.setProperty("--event-offset-px", `${Math.round((offset / slotMinutes) * slotHeight)}px`);
+    element.style.setProperty("--event-height-px", `${Math.round((duration / slotMinutes) * slotHeight)}px`);
+    element.style.setProperty("--event-min-height", `${minHeight}px`);
+  }
 }
 
 function overlappingMinutes(firstStart, firstEnd, secondStart, secondEnd) {
@@ -5434,6 +5444,7 @@ function renderPeriodSchedule(schedule) {
 function renderWeekSchedule(schedule, days) {
   const visiblePractitioners = selectedAgendaPractitioners();
   const useTimedWeekBlocks = true;
+  const weekTimedOptions = { pixelPosition: true, slotHeightPx: scheduleSlotHeightPx, minHeightPx: 44 };
   const weekTimedLayouts = buildWeekTimedLayouts(days);
   schedule.style.gridTemplateColumns = `72px repeat(${days.length}, minmax(190px, 1fr))`;
 
@@ -5509,13 +5520,13 @@ function renderWeekSchedule(schedule, days) {
             key: weekTimedItemKey("group", group.id, day),
             start: group.start,
             end: groupEnd(group),
-            render: () => renderGroupBlock(group, day, "week", hour, useTimedWeekBlocks)
+            render: () => renderGroupBlock(group, day, "week", hour, useTimedWeekBlocks, weekTimedOptions)
           })),
           ...hourAppointments.map((appointment) => ({
             key: weekTimedItemKey("appointment", appointment.id, day),
             start: appointment.start,
             end: appointmentEnd(appointment),
-            render: () => renderWeekAppointment(appointment, hour, useTimedWeekBlocks)
+            render: () => renderWeekAppointment(appointment, hour, useTimedWeekBlocks, weekTimedOptions)
           }))
         ];
         if (useTimedWeekBlocks) {
@@ -5765,7 +5776,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
   showToast("Cita movida.");
 }
 
-function renderWeekAppointment(appointment, slotStart = slotStartForTime(appointment.start || "00:00"), useTimedBlock = true) {
+function renderWeekAppointment(appointment, slotStart = slotStartForTime(appointment.start || "00:00"), useTimedBlock = true, timedOptions = {}) {
   const patient = byId(patients, appointment.patientId);
   const service = byId(services, appointment.serviceId);
   const room = byId(rooms, appointment.roomId);
@@ -5781,8 +5792,9 @@ function renderWeekAppointment(appointment, slotStart = slotStartForTime(appoint
     <strong>${patient?.name || "Paciente no encontrado"}</strong>
     <span>${service?.name || "Servicio"} - ${room?.name || "Sala"}</span>
   `;
+  button.title = `${appointment.start} - ${appointmentEnd(appointment)} · ${patient?.name || "Paciente no encontrado"} · ${service?.name || "Servicio"} · ${practitioner?.name || "Profesional"}`;
   if (useTimedBlock) {
-    applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart);
+    applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart, timedOptions);
   }
   setupAppointmentDrag(button, appointment);
   button.addEventListener("click", () => {
@@ -5906,7 +5918,7 @@ function renderCellQuickAdd(practitioner, date, hour, className = "cell-quick-ad
   return button;
 }
 
-function renderGroupBlock(group, dateValue = selectedDate, mode = "day", slotStart = slotStartForTime(group.start || "00:00"), useTimedBlock = true) {
+function renderGroupBlock(group, dateValue = selectedDate, mode = "day", slotStart = slotStartForTime(group.start || "00:00"), useTimedBlock = true, timedOptions = {}) {
   const service = groupService(group);
   const room = byId(rooms, group.roomId);
   const practitioner = byId(practitioners, group.practitionerId);
@@ -5916,14 +5928,20 @@ function renderGroupBlock(group, dateValue = selectedDate, mode = "day", slotSta
   const workerColor = practitioner?.color || "#168776";
   card.style.setProperty("--worker-color", workerColor);
   card.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.16));
-  card.innerHTML = `
+  card.innerHTML = mode === "week" ? `
+    <time><i></i>${group.start} - ${groupEnd(group)} - ${practitioner?.name || "Profesional"}</time>
+    <strong>${group.name}</strong>
+    <span>${service?.name || "Servicio grupal"} - ${groupEnrollmentLabel(group, dateValue)}</span>
+    ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
+  ` : `
     <strong><i></i>${group.name}</strong>
     <span>${service?.name || "Servicio grupal"} - ${groupEnrollmentLabel(group, dateValue)}</span>
     <span>${dateValue} · ${group.start} - ${groupEnd(group)} - ${room?.name || "Sala"}</span>
     ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
   `;
+  card.title = `${group.start} - ${groupEnd(group)} · ${group.name} · ${service?.name || "Servicio grupal"} · ${practitioner?.name || "Profesional"}`;
   if (useTimedBlock) {
-    applyTimedBlockStyle(card, group.start, groupEnd(group), slotStart);
+    applyTimedBlockStyle(card, group.start, groupEnd(group), slotStart, timedOptions);
   }
   card.addEventListener("click", () => showGroupSummary(group, dateValue));
   return card;

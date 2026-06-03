@@ -1663,20 +1663,22 @@ textarea {
   position: sticky;
   left: 0;
   z-index: 1;
-  min-height: 112px;
+  height: var(--schedule-hour-height, 112px);
+  min-height: var(--schedule-hour-height, 112px);
   font-weight: 800;
 }
 
 .week-stack-cell {
-  min-height: 112px;
+  height: var(--schedule-hour-height, 112px);
+  min-height: var(--schedule-hour-height, 112px);
   overflow: visible;
   padding: 7px;
   position: relative;
-  z-index: 0;
+  z-index: auto;
 }
 
 .week-stack-cell.has-timed-items {
-  z-index: 12;
+  z-index: auto;
 }
 
 .week-empty-slot {
@@ -1897,6 +1899,13 @@ textarea {
   display: grid;
   align-content: start;
   gap: 2px;
+  z-index: 14;
+}
+
+.week-appointment.timed-block.timed-block-pixels {
+  top: var(--event-offset-px, 0px);
+  height: max(var(--event-min-height, 44px), var(--event-height-px, var(--schedule-hour-height, 112px)));
+  min-height: var(--event-min-height, 44px);
 }
 
 .week-appointment.timed-block.is-overlap-compact {
