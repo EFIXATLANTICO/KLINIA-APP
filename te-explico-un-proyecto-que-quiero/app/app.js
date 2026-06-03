@@ -3748,11 +3748,23 @@ function groupStartsInsideSlot(group, slotStart) {
 
 const scheduleSlotHeightPx = 112;
 
+function timedBlockSizeClass(duration, options = {}) {
+  const slotHeight = Number(options.slotHeightPx || scheduleSlotHeightPx);
+  const minHeight = Number(options.minHeightPx || 34);
+  const visualHeight = Math.max(minHeight, (duration / 60) * slotHeight);
+  if (visualHeight < 42) return "event-size-tiny";
+  if (visualHeight < 62) return "event-size-small";
+  if (visualHeight < 90) return "event-size-medium";
+  return "event-size-large";
+}
+
 function applyTimedBlockStyle(element, start, end, slotStart, options = {}) {
   const slotMinutes = 60;
   const offset = Math.max(0, Math.min(slotMinutes, minutes(start) - minutes(slotStart)));
   const duration = Math.max(15, minutesBetween(start, end));
   element.classList.add("timed-block");
+  element.classList.remove("event-size-tiny", "event-size-small", "event-size-medium", "event-size-large");
+  element.classList.add(timedBlockSizeClass(duration, options));
   element.style.setProperty("--event-offset", `${(offset / slotMinutes) * 100}%`);
   element.style.setProperty("--event-height", `${(duration / slotMinutes) * 100}%`);
   if (options.pixelPosition) {
@@ -5788,9 +5800,11 @@ function renderWeekAppointment(appointment, slotStart = slotStartForTime(appoint
   button.style.setProperty("--worker-color", workerColor);
   button.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.14));
   button.innerHTML = `
-    <time><i></i>${appointment.start} - ${appointmentEnd(appointment)} - ${practitioner?.name || "Profesional"}</time>
-    <strong>${patient?.name || "Paciente no encontrado"}</strong>
-    <span>${service?.name || "Servicio"} - ${room?.name || "Sala"}</span>
+    <time class="appointment-time"><i></i>${appointment.start} - ${appointmentEnd(appointment)}</time>
+    <strong class="appointment-patient">${patient?.name || "Paciente no encontrado"}</strong>
+    <span class="appointment-worker">${practitioner?.name || "Profesional"}</span>
+    <span class="appointment-service">${service?.name || "Servicio"}</span>
+    <span class="appointment-room">${room?.name || "Sala"}</span>
   `;
   button.title = `${appointment.start} - ${appointmentEnd(appointment)} · ${patient?.name || "Paciente no encontrado"} · ${service?.name || "Servicio"} · ${practitioner?.name || "Profesional"}`;
   if (useTimedBlock) {
@@ -5816,9 +5830,13 @@ function renderAppointment(appointment, slotStart = slotStartForTime(appointment
   button.style.setProperty("--worker-color", workerColor);
   button.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.14));
   button.innerHTML = `
-    <strong><i></i>${appointment.start} - ${appointmentEnd(appointment)} - ${patient?.name || "Paciente no encontrado"}</strong>
-    <span>${service?.name || "Servicio"} - ${room?.name || "Sala"} - ${statusLabel(appointment.status)}</span>
+    <time class="appointment-time"><i></i>${appointment.start} - ${appointmentEnd(appointment)}</time>
+    <strong class="appointment-patient">${patient?.name || "Paciente no encontrado"}</strong>
+    <span class="appointment-worker">${practitioner?.name || "Profesional"}</span>
+    <span class="appointment-service">${service?.name || "Servicio"}</span>
+    <span class="appointment-room">${room?.name || "Sala"} - ${statusLabel(appointment.status)}</span>
   `;
+  button.title = `${appointment.start} - ${appointmentEnd(appointment)} · ${patient?.name || "Paciente no encontrado"} · ${service?.name || "Servicio"} · ${room?.name || "Sala"} · ${statusLabel(appointment.status)}`;
   applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart);
   setupAppointmentDrag(button, appointment);
   button.addEventListener("click", () => {
@@ -5929,14 +5947,18 @@ function renderGroupBlock(group, dateValue = selectedDate, mode = "day", slotSta
   card.style.setProperty("--worker-color", workerColor);
   card.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.16));
   card.innerHTML = mode === "week" ? `
-    <time><i></i>${group.start} - ${groupEnd(group)} - ${practitioner?.name || "Profesional"}</time>
-    <strong>${group.name}</strong>
-    <span>${service?.name || "Servicio grupal"} - ${groupEnrollmentLabel(group, dateValue)}</span>
+    <time class="appointment-time"><i></i>${group.start} - ${groupEnd(group)}</time>
+    <strong class="appointment-patient">${group.name}</strong>
+    <span class="appointment-worker">${practitioner?.name || "Profesional"}</span>
+    <span class="appointment-service">${service?.name || "Servicio grupal"}</span>
+    <span class="appointment-room">${room?.name || "Sala"} - ${groupEnrollmentLabel(group, dateValue)}</span>
     ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
   ` : `
-    <strong><i></i>${group.name}</strong>
-    <span>${service?.name || "Servicio grupal"} - ${groupEnrollmentLabel(group, dateValue)}</span>
-    <span>${dateValue} · ${group.start} - ${groupEnd(group)} - ${room?.name || "Sala"}</span>
+    <time class="appointment-time"><i></i>${group.start} - ${groupEnd(group)}</time>
+    <strong class="appointment-patient">${group.name}</strong>
+    <span class="appointment-worker">${practitioner?.name || "Profesional"}</span>
+    <span class="appointment-service">${service?.name || "Servicio grupal"} - ${groupEnrollmentLabel(group, dateValue)}</span>
+    <span class="appointment-room">${room?.name || "Sala"} - ${dateValue}</span>
     ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
   `;
   card.title = `${group.start} - ${groupEnd(group)} · ${group.name} · ${service?.name || "Servicio grupal"} · ${practitioner?.name || "Profesional"}`;

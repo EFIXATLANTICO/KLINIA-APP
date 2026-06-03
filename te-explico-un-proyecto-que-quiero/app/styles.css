@@ -1770,6 +1770,8 @@ textarea {
   background: var(--worker-bg, #e7f3f0);
   padding: 7px;
   text-align: left;
+  align-content: start;
+  gap: 2px;
 }
 
 .week-stack-cell .week-appointment + .week-appointment {
@@ -1791,16 +1793,21 @@ textarea {
 
 .week-appointment time,
 .week-appointment strong,
-.week-appointment span {
+.week-appointment span,
+.appointment time,
+.appointment strong,
+.appointment span {
   display: block;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.18;
 }
 
-.week-appointment time {
+.week-appointment time,
+.appointment time {
   color: var(--worker-color, var(--accent));
   font-weight: 800;
 }
@@ -1875,6 +1882,8 @@ textarea {
   padding: 8px;
   min-height: 52px;
   text-align: left;
+  align-content: start;
+  gap: 2px;
 }
 
 .appointment.timed-block,
@@ -1897,9 +1906,11 @@ textarea {
   padding: 6px;
   isolation: isolate;
   display: grid;
-  align-content: start;
-  gap: 2px;
   z-index: 14;
+}
+
+.appointment.timed-block {
+  display: grid;
 }
 
 .week-appointment.timed-block.timed-block-pixels {
@@ -1952,15 +1963,55 @@ body.dragging-appointment .schedule-cell {
   opacity: 0.58;
 }
 
-.appointment strong,
 .appointment span {
-  display: block;
-}
-
-.appointment span {
-  margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.appointment-worker,
+.appointment-service,
+.appointment-room {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.appointment.timed-block.event-size-tiny,
+.week-appointment.timed-block.event-size-tiny {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.appointment.timed-block.event-size-tiny .appointment-patient,
+.appointment.timed-block.event-size-tiny .appointment-worker,
+.appointment.timed-block.event-size-tiny .appointment-service,
+.appointment.timed-block.event-size-tiny .appointment-room,
+.appointment.timed-block.event-size-tiny .session-exception-badge,
+.week-appointment.timed-block.event-size-tiny .appointment-patient,
+.week-appointment.timed-block.event-size-tiny .appointment-worker,
+.week-appointment.timed-block.event-size-tiny .appointment-service,
+.week-appointment.timed-block.event-size-tiny .appointment-room,
+.week-appointment.timed-block.event-size-tiny .session-exception-badge {
+  display: none;
+}
+
+.appointment.timed-block.event-size-small .appointment-worker,
+.appointment.timed-block.event-size-small .appointment-service,
+.appointment.timed-block.event-size-small .appointment-room,
+.appointment.timed-block.event-size-small .session-exception-badge,
+.week-appointment.timed-block.event-size-small .appointment-worker,
+.week-appointment.timed-block.event-size-small .appointment-service,
+.week-appointment.timed-block.event-size-small .appointment-room,
+.week-appointment.timed-block.event-size-small .session-exception-badge {
+  display: none;
+}
+
+.appointment.timed-block.event-size-medium .appointment-worker,
+.appointment.timed-block.event-size-medium .appointment-room,
+.appointment.timed-block.event-size-medium .session-exception-badge,
+.week-appointment.timed-block.event-size-medium .appointment-worker,
+.week-appointment.timed-block.event-size-medium .appointment-room,
+.week-appointment.timed-block.event-size-medium .session-exception-badge {
+  display: none;
 }
 
 .availability-block {

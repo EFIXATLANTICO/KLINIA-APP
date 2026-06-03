@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-week-readable-20260603";
+const KLINIA_CACHE = "klinia-card-readability-20260603";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260603-week-readable",
-  "./app.js?v=20260603-week-readable",
+  "./styles.css?v=20260603-card-readability",
+  "./app.js?v=20260603-card-readability",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
