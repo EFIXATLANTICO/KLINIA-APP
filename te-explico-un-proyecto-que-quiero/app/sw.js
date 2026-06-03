@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-day-card-legibility-20260603";
+const KLINIA_CACHE = "klinia-agenda-today-start-20260603";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260603-day-card-legibility",
-  "./app.js?v=20260603-day-card-legibility",
+  "./styles.css?v=20260603-agenda-today-start",
+  "./app.js?v=20260603-agenda-today-start",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

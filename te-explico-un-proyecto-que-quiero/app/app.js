@@ -141,6 +141,12 @@ function saveState(key, value) {
     return;
   }
 
+  if (key === "selected-date") {
+    localStorage.removeItem("klinia:selected-date");
+    localStorage.removeItem("clinicaflow:selected-date");
+    return;
+  }
+
   localStorage.setItem(`klinia:${key}`, JSON.stringify(value));
 }
 
@@ -724,7 +730,7 @@ let selectedClinicalNoteId = null;
 const authMaxAgeMs = 8 * 60 * 60 * 1000;
 const savedAuthAt = Number(loadState("authenticated-at", 0));
 let isAuthenticated = Boolean(loadState("authenticated", false)) && Date.now() - savedAuthAt < authMaxAgeMs;
-let selectedDate = loadState("selected-date", todayIso());
+let selectedDate = todayIso();
 let calendarMode = loadState("calendar-mode", "day");
 let selectedPractitionerIds = loadState("selected-practitioner-ids", ["all"]);
 let activeSection = loadState("active-section", "agenda");
