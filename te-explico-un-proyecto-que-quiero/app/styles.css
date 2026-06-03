@@ -1676,7 +1676,7 @@ textarea {
 }
 
 .week-stack-cell.has-timed-items {
-  z-index: 8;
+  z-index: 12;
 }
 
 .week-empty-slot {
@@ -1894,6 +1894,9 @@ textarea {
   box-sizing: border-box;
   padding: 6px;
   isolation: isolate;
+  display: grid;
+  align-content: start;
+  gap: 2px;
 }
 
 .week-appointment.timed-block.is-overlap-compact {

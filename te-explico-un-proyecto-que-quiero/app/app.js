@@ -3795,13 +3795,13 @@ function canViewClinicAgenda() {
 function appointmentVisibleToCurrentSession(appointment) {
   if (!appointment) return false;
   if (canViewClinicAgenda()) return true;
-  return !isPractitionerSession() || appointment.practitionerId === currentSession.practitionerId;
+  return !isPractitionerSession() || String(appointment.practitionerId) === String(currentSession.practitionerId);
 }
 
 function groupVisibleToCurrentSession(group) {
   if (!group) return false;
   if (canViewClinicAgenda()) return true;
-  return !isPractitionerSession() || group.practitionerId === currentSession.practitionerId;
+  return !isPractitionerSession() || String(group.practitionerId) === String(currentSession.practitionerId);
 }
 
 function canManageOperations() {
@@ -3863,7 +3863,7 @@ function visibleAppointments() {
   if (canViewClinicAgenda()) {
     return ranged;
   }
-  return ranged.filter((appointment) => appointment.practitionerId === currentSession.practitionerId);
+  return ranged.filter((appointment) => String(appointment.practitionerId) === String(currentSession.practitionerId));
 }
 
 function dateOnly(value) {
@@ -4402,13 +4402,13 @@ function groupExpectedSessionsInMonth(group, dateValue = selectedDate) {
 }
 
 function groupSessionOverrideFor(groupId, dateValue) {
-  return groupSessionOverrides.find((item) => item.groupId === groupId && item.date === dateValue);
+  return groupSessionOverrides.find((item) => String(item.groupId) === String(groupId) && item.date === dateValue);
 }
 
 function groupInstanceForDate(group, dateValue) {
   const override = groupSessionOverrideFor(group.id, dateValue);
   const overrideIsValid = override
-    && practitioners.some((practitioner) => practitioner.id === override.practitionerId)
+    && practitioners.some((practitioner) => String(practitioner.id) === String(override.practitionerId))
     && /^\d{2}:\d{2}$/.test(String(override.start || ""));
   return {
     ...group,
@@ -4431,10 +4431,10 @@ function groupsForDate(dateValue) {
 }
 
 function groupPassesAgendaFilters(group) {
-  const workerIds = selectedAgendaPractitioners().map((item) => item.id);
+  const workerIds = selectedAgendaPractitioners().map((item) => String(item.id));
   const roomFilter = $("#filter-room")?.value || "all";
-  const visibleByPractitioner = workerIds.includes(group.practitionerId);
-  const visibleByRoom = roomFilter === "all" || group.roomId === roomFilter;
+  const visibleByPractitioner = workerIds.includes(String(group.practitionerId));
+  const visibleByRoom = roomFilter === "all" || String(group.roomId) === String(roomFilter);
   return group.active !== false && visibleByPractitioner && visibleByRoom;
 }
 
@@ -4442,12 +4442,12 @@ function findGroupConflict(candidate) {
   const candidateEnd = appointmentEnd(candidate);
   const dateValue = candidate.date || selectedDate;
   return groupsForDate(candidate.date || selectedDate).find((group) => {
-    const samePractitioner = group.practitionerId === candidate.practitionerId;
-    const sameRoom = group.roomId === candidate.roomId;
+    const samePractitioner = String(group.practitionerId) === String(candidate.practitionerId);
+    const sameRoom = String(group.roomId) === String(candidate.roomId);
     const samePatient = Boolean(candidate.patientId)
       && (
-        (group.patientIds || []).includes(candidate.patientId)
-          || groupDropInsFor(group, dateValue).some((entry) => entry.patientId === candidate.patientId)
+        (group.patientIds || []).some((patientId) => String(patientId) === String(candidate.patientId))
+          || groupDropInsFor(group, dateValue).some((entry) => String(entry.patientId) === String(candidate.patientId))
       );
     const timeConflict = overlaps(candidate.start, candidateEnd, group.start, groupEnd(group));
     return timeConflict && (samePractitioner || sameRoom || samePatient);
@@ -4455,11 +4455,11 @@ function findGroupConflict(candidate) {
 }
 
 function groupDropInsFor(group, dateValue = selectedDate) {
-  return groupDropIns.filter((entry) => entry.groupId === group.id && entry.date === dateValue);
+  return groupDropIns.filter((entry) => String(entry.groupId) === String(group.id) && entry.date === dateValue);
 }
 
 function groupCompletionFor(group, dateValue = selectedDate) {
-  return groupCompletions.find((entry) => entry.groupId === group.id && entry.date === dateValue);
+  return groupCompletions.find((entry) => String(entry.groupId) === String(group.id) && entry.date === dateValue);
 }
 
 function isGroupCompleted(group, dateValue = selectedDate) {
@@ -4563,7 +4563,7 @@ function availabilityBlocksFor(practitionerId, dateValue) {
   return availabilityBlocks.filter((block) => {
     const startDate = block.date;
     const endDate = block.endDate || block.date;
-    return block.practitionerId === practitionerId && dateValue >= startDate && dateValue <= endDate;
+    return String(block.practitionerId) === String(practitionerId) && dateValue >= startDate && dateValue <= endDate;
   });
 }
 
@@ -4576,6 +4576,98 @@ function availabilityBlockOverlaps(block, start, end) {
 function availabilityBlockFor(practitionerId, dateValue, start, end) {
   return availabilityBlocksFor(practitionerId, dateValue)
     .find((block) => availabilityBlockOverlaps(block, start, end));
+}
+
+function minuteWithinPractitionerHours(practitioner, minuteValue, dateValue = selectedDate) {
+  if (dateValue && !clinicWorksOnDate(dateValue)) {
+    return false;
+  }
+  const ranges = practitionerAvailabilityRanges(practitioner);
+  if (!ranges.length) {
+    return true;
+  }
+  return ranges.some(([start, end]) => minuteValue >= minutes(start) && minuteValue < minutes(end));
+}
+
+function availabilityBlockForMinute(practitionerId, dateValue, minuteValue) {
+  return availabilityBlocksFor(practitionerId, dateValue)
+    .find((block) => {
+      const start = block.allDay ? 0 : minutes(block.start || "00:00");
+      const end = block.allDay ? 24 * 60 : minutes(block.end || "23:59");
+      return minuteValue >= start && minuteValue < end;
+    });
+}
+
+function scheduleCellMinuteSegments(practitioner, dateValue, start, end, showAvailability = false) {
+  const startMinute = minutes(start);
+  const endMinute = minutes(end);
+  if (!practitioner || endMinute <= startMinute) {
+    return [];
+  }
+  const segments = [];
+  let currentState = "";
+  let currentStart = startMinute;
+  for (let minuteValue = startMinute; minuteValue < endMinute; minuteValue += 1) {
+    const state = availabilityBlockForMinute(practitioner.id, dateValue, minuteValue)
+      ? "absence"
+      : minuteWithinPractitionerHours(practitioner, minuteValue, dateValue)
+        ? (showAvailability ? "available" : "normal")
+        : "outside";
+    if (!currentState) {
+      currentState = state;
+      currentStart = minuteValue;
+    } else if (state !== currentState) {
+      segments.push({ state: currentState, start: currentStart, end: minuteValue });
+      currentState = state;
+      currentStart = minuteValue;
+    }
+  }
+  if (currentState) {
+    segments.push({ state: currentState, start: currentStart, end: endMinute });
+  }
+  return segments;
+}
+
+function applyMinuteAvailabilityBackground(cell, practitioner, dateValue, start, end, showAvailability = false) {
+  const segments = scheduleCellMinuteSegments(practitioner, dateValue, start, end, showAvailability);
+  if (!segments.length) {
+    cell.style.removeProperty("background");
+    return null;
+  }
+  const slotStart = minutes(start);
+  const slotDuration = Math.max(1, minutes(end) - slotStart);
+  const colors = {
+    normal: "transparent",
+    available: "#f3fbf6",
+    outside: "#f7f8f4",
+    absence: "#fff4f2"
+  };
+  const hasOutside = segments.some((segment) => segment.state === "outside");
+  const hasAvailable = segments.some((segment) => segment.state === "available");
+  const hasAbsence = segments.some((segment) => segment.state === "absence");
+  cell.classList.toggle("outside-hours", hasOutside);
+  cell.classList.toggle("available-hours", hasAvailable);
+  cell.classList.toggle("absence-hours", hasAbsence);
+  if (hasAbsence) {
+    cell.dataset.availabilityState = "absence";
+  } else if (hasAvailable) {
+    cell.dataset.availabilityState = "available";
+  } else if (hasOutside) {
+    cell.dataset.availabilityState = "outside";
+  } else {
+    delete cell.dataset.availabilityState;
+  }
+  if (segments.length === 1 && segments[0].state === "normal") {
+    cell.style.removeProperty("background");
+    return { hasOutside, hasAvailable, hasAbsence };
+  }
+  const stops = segments.map((segment) => {
+    const from = ((segment.start - slotStart) / slotDuration) * 100;
+    const to = ((segment.end - slotStart) / slotDuration) * 100;
+    return `${colors[segment.state]} ${from.toFixed(2)}% ${to.toFixed(2)}%`;
+  });
+  cell.style.background = `linear-gradient(to bottom, ${stops.join(", ")})`;
+  return { hasOutside, hasAvailable, hasAbsence };
 }
 
 function availableMinutesForPractitionerDay(practitioner, dateValue) {
@@ -4648,28 +4740,28 @@ function groupSessionExceptionConflict(baseGroup, dateValue, candidate) {
   const end = addMinutes(candidate.start, service?.duration || 60);
   const practitioner = byId(practitioners, candidate.practitionerId);
   if (isOutsidePractitionerHours(practitioner, candidate.start, end, dateValue)) {
-    return "El horario elegido queda fuera de la jornada laboral del trabajador.";
+    return `Conflicto: la sesion queda fuera del horario laboral de ${practitioner?.name || "este profesional"}. Horario habitual: ${practitionerAvailabilityLabel(practitioner)}.`;
   }
   const block = availabilityBlockFor(candidate.practitionerId, dateValue, candidate.start, end);
   if (block) {
-    return `El trabajador tiene ${availabilityBlockLabel(block)}.`;
+    return `Conflicto: horario bloqueado para ${practitioner?.name || "este profesional"} (${availabilityBlockLabel(block)}).`;
   }
   const appointmentConflict = appointments.find((appointment) => (
     isBlockingAppointmentStatus(appointment.status)
       && (appointment.date || selectedDate) === dateValue
-      && (appointment.practitionerId === candidate.practitionerId || appointment.roomId === baseGroup.roomId)
+      && (String(appointment.practitionerId) === String(candidate.practitionerId) || String(appointment.roomId) === String(baseGroup.roomId))
       && overlaps(candidate.start, end, appointment.start, appointmentEnd(appointment))
   ));
   if (appointmentConflict) {
-    return `Conflicto con ${byId(patients, appointmentConflict.patientId)?.name || "otra cita"} a las ${appointmentConflict.start}.`;
+    return appointmentConflictMessage(candidate, appointmentConflict);
   }
   const groupConflict = groupsForDate(dateValue).find((group) => (
-    group.id !== baseGroup.id
-      && (group.practitionerId === candidate.practitionerId || group.roomId === baseGroup.roomId)
+    String(group.id) !== String(baseGroup.id)
+      && (String(group.practitionerId) === String(candidate.practitionerId) || String(group.roomId) === String(baseGroup.roomId))
       && overlaps(candidate.start, end, group.start, groupEnd(group))
   ));
   if (groupConflict) {
-    return `Conflicto con la sesion grupal ${groupConflict.name} a las ${groupConflict.start}.`;
+    return groupConflictMessage(candidate, groupConflict);
   }
   return "";
 }
@@ -4678,7 +4770,7 @@ function saveGroupSessionOverride(groupId, dateValue, values) {
   const baseGroup = groupBaseById(groupId);
   const practitionerId = values.practitionerId;
   const start = values.start;
-  if (baseGroup && practitionerId === baseGroup.practitionerId && start === baseGroup.start) {
+  if (baseGroup && String(practitionerId) === String(baseGroup.practitionerId) && start === baseGroup.start) {
     clearGroupSessionOverride(groupId, dateValue);
     return;
   }
@@ -4701,7 +4793,7 @@ function saveGroupSessionOverride(groupId, dateValue, values) {
 }
 
 function clearGroupSessionOverride(groupId, dateValue) {
-  groupSessionOverrides = groupSessionOverrides.filter((item) => !(item.groupId === groupId && item.date === dateValue));
+  groupSessionOverrides = groupSessionOverrides.filter((item) => !(String(item.groupId) === String(groupId) && item.date === dateValue));
   saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
 }
 
@@ -4734,21 +4826,69 @@ function findConflict(candidate, ignoredAppointmentId = "") {
       return false;
     }
     const sameDate = (appointment.date || selectedDate) === (candidate.date || selectedDate);
-    const samePractitioner = appointment.practitionerId === candidate.practitionerId;
-    const sameRoom = appointment.roomId === candidate.roomId;
-    const samePatient = appointment.patientId === candidate.patientId;
+    const samePractitioner = String(appointment.practitionerId) === String(candidate.practitionerId);
+    const sameRoom = String(appointment.roomId) === String(candidate.roomId);
+    const samePatient = String(appointment.patientId) === String(candidate.patientId);
     const timeConflict = overlaps(candidate.start, candidateEnd, appointment.start, appointmentEnd(appointment));
     return sameDate && timeConflict && (samePractitioner || sameRoom || samePatient);
   });
 }
 
+function appointmentConflictMessage(candidate, appointmentConflict) {
+  const conflictEnd = appointmentEnd(appointmentConflict);
+  const practitioner = byId(practitioners, appointmentConflict.practitionerId);
+  const room = byId(rooms, appointmentConflict.roomId);
+  const patient = byId(patients, appointmentConflict.patientId);
+  if (String(appointmentConflict.practitionerId) === String(candidate.practitionerId)) {
+    return `Conflicto: el profesional ${practitioner?.name || "seleccionado"} ya tiene una cita de ${appointmentConflict.start} a ${conflictEnd}.`;
+  }
+  if (String(appointmentConflict.roomId) === String(candidate.roomId)) {
+    return `Conflicto: la ${room?.name || "sala seleccionada"} ya está ocupada de ${appointmentConflict.start} a ${conflictEnd}.`;
+  }
+  if (String(appointmentConflict.patientId) === String(candidate.patientId)) {
+    return `Conflicto: el paciente ${patient?.name || "seleccionado"} ya tiene una cita asignada de ${appointmentConflict.start} a ${conflictEnd}.`;
+  }
+  return `Conflicto: existe otra cita de ${appointmentConflict.start} a ${conflictEnd}.`;
+}
+
+function groupConflictMessage(candidate, groupConflict) {
+  const groupEndTime = groupEnd(groupConflict);
+  const practitioner = byId(practitioners, groupConflict.practitionerId);
+  const room = byId(rooms, groupConflict.roomId);
+  const patientInGroup = Boolean(candidate.patientId)
+    && (
+      (groupConflict.patientIds || []).some((patientId) => String(patientId) === String(candidate.patientId))
+        || groupDropInsFor(groupConflict, candidate.date || selectedDate).some((entry) => String(entry.patientId) === String(candidate.patientId))
+    );
+  if (patientInGroup) {
+    return `Conflicto: el paciente ya está inscrito en la sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+  }
+  if (String(groupConflict.practitionerId) === String(candidate.practitionerId)) {
+    return `Conflicto: el profesional ${practitioner?.name || "seleccionado"} ya tiene la sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+  }
+  if (String(groupConflict.roomId) === String(candidate.roomId)) {
+    return `Conflicto: la ${room?.name || "sala seleccionada"} ya está ocupada por la sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+  }
+  return `Conflicto: sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+}
+
 function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
   const end = appointmentEnd(candidate);
+  const practitioner = byId(practitioners, candidate.practitionerId);
+  if (isOutsidePractitionerHours(practitioner, candidate.start, end, candidate.date || selectedDate)) {
+    return {
+      type: "outside-hours",
+      message: clinicWorksOnDate(candidate.date || selectedDate)
+        ? `Conflicto: la cita queda fuera del horario laboral de ${practitioner?.name || "este profesional"}. Horario habitual: ${practitionerAvailabilityLabel(practitioner)}.`
+        : "Conflicto: la clínica no tiene atención configurada para ese día.",
+      item: practitioner
+    };
+  }
   const availabilityBlock = availabilityBlockFor(candidate.practitionerId, candidate.date || selectedDate, candidate.start, end);
   if (availabilityBlock) {
     return {
       type: "availability",
-      message: availabilityBlockLabel(availabilityBlock),
+      message: `Conflicto: horario bloqueado para ${practitioner?.name || "este profesional"} (${availabilityBlockLabel(availabilityBlock)}).`,
       item: availabilityBlock
     };
   }
@@ -4756,22 +4896,15 @@ function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
   if (appointmentConflict) {
     return {
       type: "appointment",
-      message: `Conflicto con ${byId(patients, appointmentConflict.patientId)?.name || "otra cita"} a las ${appointmentConflict.start}.`,
+      message: appointmentConflictMessage(candidate, appointmentConflict),
       item: appointmentConflict
     };
   }
   const groupConflict = findGroupConflict(candidate);
   if (groupConflict) {
-    const patientInGroup = Boolean(candidate.patientId)
-      && (
-        (groupConflict.patientIds || []).includes(candidate.patientId)
-          || groupDropInsFor(groupConflict, candidate.date || selectedDate).some((entry) => entry.patientId === candidate.patientId)
-      );
     return {
       type: "group",
-      message: patientInGroup
-        ? `El paciente ya está inscrito en la sesión grupal ${groupConflict.name} a las ${groupConflict.start}.`
-        : `Conflicto con la sesión grupal ${groupConflict.name} a las ${groupConflict.start}.`,
+      message: groupConflictMessage(candidate, groupConflict),
       item: groupConflict
     };
   }
@@ -4798,11 +4931,11 @@ function practitionerIsFreeAt(practitioner, dateValue, hour) {
     && !appointments.some((appointment) => (
       isBlockingAppointmentStatus(appointment.status)
         && (appointment.date || selectedDate) === dateValue
-        && appointment.practitionerId === practitioner.id
+        && String(appointment.practitionerId) === String(practitioner.id)
         && overlaps(hour, end, appointment.start, appointmentEnd(appointment))
     ))
     && !groupsForDate(dateValue).some((group) => (
-      group.practitionerId === practitioner.id
+      String(group.practitionerId) === String(practitioner.id)
         && overlaps(hour, end, group.start, groupEnd(group))
     ));
 }
@@ -4812,12 +4945,12 @@ function practitionerHasBlockingItemAt(practitioner, dateValue, hour) {
   return Boolean(availabilityBlockFor(practitioner.id, dateValue, hour, end))
     || appointments.some((appointment) => (
       (appointment.date || selectedDate) === dateValue
-        && appointment.practitionerId === practitioner.id
+        && String(appointment.practitionerId) === String(practitioner.id)
         && isBlockingAppointmentStatus(appointment.status)
         && overlaps(hour, end, appointment.start, appointmentEnd(appointment))
     ))
     || groupsForDate(dateValue).some((group) => (
-      group.practitionerId === practitioner.id
+      String(group.practitionerId) === String(practitioner.id)
         && overlaps(hour, end, group.start, groupEnd(group))
     ));
 }
@@ -4827,11 +4960,11 @@ function roomIsFreeAt(room, dateValue, hour) {
   return !appointments.some((appointment) => (
     isBlockingAppointmentStatus(appointment.status)
       && (appointment.date || selectedDate) === dateValue
-      && appointment.roomId === room.id
+      && String(appointment.roomId) === String(room.id)
       && overlaps(hour, end, appointment.start, appointmentEnd(appointment))
   ))
     && !groupsForDate(dateValue).some((group) => (
-      group.roomId === room.id && overlaps(hour, end, group.start, groupEnd(group))
+      String(group.roomId) === String(room.id) && overlaps(hour, end, group.start, groupEnd(group))
     ));
 }
 
@@ -4857,21 +4990,21 @@ function fillSelect(select, items, label = "name", allLabel = "") {
 }
 
 function selectedAgendaPractitioners() {
-  const savedIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
+  const savedIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => String(item.id) === String(id)));
   if (selectedPractitionerIds.includes("all") || !savedIds.length) {
     return practitioners;
   }
-  return practitioners.filter((item) => savedIds.includes(item.id));
+  return practitioners.filter((item) => savedIds.some((id) => String(id) === String(item.id)));
 }
 
 function appointmentPassesAgendaFilters(appointment) {
   if (!isBlockingAppointmentStatus(appointment.status)) {
     return false;
   }
-  const workerIds = selectedAgendaPractitioners().map((item) => item.id);
+  const workerIds = selectedAgendaPractitioners().map((item) => String(item.id));
   const roomFilter = $("#filter-room").value || "all";
-  const visibleByPractitioner = workerIds.includes(appointment.practitionerId);
-  const visibleByRoom = roomFilter === "all" || appointment.roomId === roomFilter;
+  const visibleByPractitioner = workerIds.includes(String(appointment.practitionerId));
+  const visibleByRoom = roomFilter === "all" || String(appointment.roomId) === String(roomFilter);
   return visibleByPractitioner && visibleByRoom;
 }
 
@@ -5028,11 +5161,12 @@ function updateAppointmentOutsideHoursWarning(form = $("#appointment-form")) {
 function applyScheduleCellAvailability(cell, practitioner, dateValue, start, end, showAvailability = false) {
   const outsideHours = isOutsidePractitionerHours(practitioner, start, end, dateValue);
   const availabilityBlock = availabilityBlockFor(practitioner.id, dateValue, start, end);
+  const minuteState = applyMinuteAvailabilityBackground(cell, practitioner, dateValue, start, end, showAvailability);
   if (availabilityBlock) {
     cell.classList.add("availability-blocked-cell");
     cell.title = availabilityBlockLabel(availabilityBlock);
   }
-  if (outsideHours || availabilityBlock) {
+  if ((outsideHours || availabilityBlock) && !minuteState) {
     cell.classList.add("outside-hours");
   }
   if (!showAvailability) {
@@ -5040,15 +5174,13 @@ function applyScheduleCellAvailability(cell, practitioner, dateValue, start, end
   }
 
   if (availabilityBlock) {
-    cell.classList.add("absence-hours");
     cell.dataset.availabilityState = "absence";
     return availabilityBlock;
   }
   if (!outsideHours) {
-    cell.classList.add("available-hours");
     cell.dataset.availabilityState = "available";
     cell.title = "Disponible en jornada laboral";
-  } else {
+  } else if (!minuteState?.hasAvailable) {
     cell.dataset.availabilityState = "outside";
   }
   return availabilityBlock;
@@ -5124,9 +5256,9 @@ function renderSchedule() {
       const availabilityBlock = applyScheduleCellAvailability(cell, practitioner, selectedDate, hour, cellEnd, singlePractitionerVisible);
       setupAppointmentDropTarget(cell, selectedDate, hour, practitioner.id);
       const hourGroups = groupsForDate(selectedDate)
-        .filter((group) => groupStartsInsideSlot(group, hour) && group.practitionerId === practitioner.id)
+        .filter((group) => groupStartsInsideSlot(group, hour) && String(group.practitionerId) === String(practitioner.id))
         .filter(groupPassesAgendaFilters);
-      const hourAppointments = dayAppointments.filter((item) => appointmentStartsInsideSlot(item, hour) && item.practitionerId === practitioner.id && appointmentPassesAgendaFilters(item));
+      const hourAppointments = dayAppointments.filter((item) => appointmentStartsInsideSlot(item, hour) && String(item.practitionerId) === String(practitioner.id) && appointmentPassesAgendaFilters(item));
 
       if (hourGroups.length || hourAppointments.length) {
         hourGroups.forEach((group) => cell.append(renderGroupBlock(group, selectedDate, "day", hour)));
@@ -5722,12 +5854,12 @@ function renderWeekScheduleGrid(schedule, days) {
         const cell = document.createElement("div");
         cell.className = "schedule-cell week-cell";
         const appointment = appointments
-          .filter((item) => (item.date || selectedDate) === day && item.start === hour && item.practitionerId === practitioner.id)
+          .filter((item) => (item.date || selectedDate) === day && appointmentStartsInsideSlot(item, hour) && String(item.practitionerId) === String(practitioner.id))
           .filter(appointmentVisibleToCurrentSession)
           .filter(appointmentPassesAgendaFilters)[0];
 
         if (appointment) {
-          cell.append(renderAppointment(appointment));
+          cell.append(renderAppointment(appointment, hour));
         } else {
           cell.append(renderWeekEmptySlot(practitioner, day, hour));
         }
@@ -6649,7 +6781,7 @@ function renderSettings() {
   $$("[data-delete-room]").forEach((button) => button.addEventListener("click", () => deleteRoomById(button.dataset.deleteRoom)));
 
   const upcomingBlocks = availabilityBlocks
-    .filter((block) => !isPractitionerSession() || block.practitionerId === currentSession.practitionerId)
+    .filter((block) => !isPractitionerSession() || String(block.practitionerId) === String(currentSession.practitionerId))
     .slice()
     .sort((a, b) => `${a.date} ${a.start || ""}`.localeCompare(`${b.date} ${b.start || ""}`))
     .slice(0, 12);
@@ -7324,10 +7456,10 @@ function dateInRange(dateValue, range) {
 
 function groupCompletedSessionsForPractitioner(practitioner, range = performanceFilterRange()) {
   return groupCompletions
-    .filter((entry) => entry.practitionerId === practitioner.id)
+    .filter((entry) => String(entry.practitionerId) === String(practitioner.id))
     .filter((entry) => dateInRange(entry.date || selectedDate, range))
     .map((entry) => {
-      const group = groups.find((item) => item.id === entry.groupId);
+      const group = groups.find((item) => String(item.id) === String(entry.groupId));
       const service = group ? groupService(group) : byId(services, entry.serviceId);
       const room = byId(rooms, entry.roomId);
       return {
@@ -7347,12 +7479,12 @@ function practitionerOccupancyReport(practitioner, range = calendarRange()) {
   ), 0);
   const appointmentMinutes = appointments
     .filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed")
-    .filter((appointment) => appointment.practitionerId === practitioner.id)
+    .filter((appointment) => String(appointment.practitionerId) === String(practitioner.id))
     .filter((appointment) => (appointment.date || selectedDate) >= range.start && (appointment.date || selectedDate) <= range.end)
     .reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0);
   const groupMinutes = days.reduce((total, dateValue) => (
     total + groupsForDate(dateValue)
-      .filter((group) => group.practitionerId === practitioner.id)
+      .filter((group) => String(group.practitionerId) === String(practitioner.id))
       .reduce((dayTotal, group) => dayTotal + (groupService(group)?.duration || 60), 0)
   ), 0);
   const bookedMinutes = appointmentMinutes + groupMinutes;
@@ -7365,7 +7497,7 @@ function practitionerOccupancyReport(practitioner, range = calendarRange()) {
 
 function practitionerReport(practitioner, range = performanceFilterRange()) {
   const ownAppointments = billableAppointments()
-    .filter((appointment) => appointment.practitionerId === practitioner.id)
+    .filter((appointment) => String(appointment.practitionerId) === String(practitioner.id))
     .filter((appointment) => dateInRange(appointment.date || selectedDate, range));
   const ownGroupSessions = groupCompletedSessionsForPractitioner(practitioner, range);
   const appointmentRevenue = ownAppointments.reduce((total, appointment) => total + appointmentRevenueAmount(appointment), 0);
@@ -10845,6 +10977,8 @@ function setupDialog() {
   });
   ["date", "start", "duration", "practitioner", "room", "patient"].forEach((fieldName) => {
     form.elements[fieldName]?.addEventListener("change", () => {
+      $("#form-error")?.classList.remove("visible");
+      if ($("#form-error")) $("#form-error").textContent = "";
       if (fieldName === "date" && form.elements.repeatEndDate && (!form.elements.repeatEndDate.value || form.elements.repeatEndDate.value < form.elements.date.value)) {
         form.elements.repeatEndDate.value = addDaysIso(form.elements.date.value, 21);
       }
@@ -10854,7 +10988,12 @@ function setupDialog() {
       }
       resetRecurrenceReview();
     });
-    form.elements[fieldName]?.addEventListener("input", () => updateAppointmentOutsideHoursWarning(form));
+    form.elements[fieldName]?.addEventListener("input", () => {
+      $("#form-error")?.classList.remove("visible");
+      if ($("#form-error")) $("#form-error").textContent = "";
+      updateAppointmentOutsideHoursWarning(form);
+      resetRecurrenceReview();
+    });
   });
   form.elements.repeatEnabled?.addEventListener("change", () => {
     $("#appointment-repeat-options")?.classList.toggle("hidden", !form.elements.repeatEnabled.checked);
@@ -11960,7 +12099,7 @@ function setupGroupDialog() {
       if (existing.active === false) return false;
       const sharesDay = existing.days.some((day) => group.days.includes(day));
       const sharesDateRange = groupDateRangesOverlap(existing, group);
-      const sameResource = existing.roomId === group.roomId || existing.practitionerId === group.practitionerId;
+      const sameResource = String(existing.roomId) === String(group.roomId) || String(existing.practitionerId) === String(group.practitionerId);
       return sharesDay && sharesDateRange && sameResource && overlaps(group.start, groupEnd(group), existing.start, groupEnd(existing));
     });
     if (conflict) {
@@ -12294,15 +12433,15 @@ async function deletePractitionerById(practitionerId) {
   const practitioner = byId(practitioners, practitionerId);
   if (!practitioner || !canManageClinic()) return;
   const activeAppointments = appointments.filter((appointment) => (
-    appointment.practitionerId === practitionerId
+    String(appointment.practitionerId) === String(practitionerId)
       && normalizeAppointmentStatus(appointment.status) !== "cancelled"
   ));
   const cancelledAppointments = appointments.filter((appointment) => (
-    appointment.practitionerId === practitionerId
+    String(appointment.practitionerId) === String(practitionerId)
       && normalizeAppointmentStatus(appointment.status) === "cancelled"
   ));
-  const activeGroups = groups.filter((group) => group.practitionerId === practitionerId && group.active !== false);
-  const activeOverrides = groupSessionOverrides.filter((override) => override.practitionerId === practitionerId);
+  const activeGroups = groups.filter((group) => String(group.practitionerId) === String(practitionerId) && group.active !== false);
+  const activeOverrides = groupSessionOverrides.filter((override) => String(override.practitionerId) === String(practitionerId));
   if (activeAppointments.length || activeGroups.length || activeOverrides.length) {
     await showNotice(
       "No se puede eliminar",
@@ -12450,7 +12589,7 @@ async function deleteAvailabilityBlockById(blockId) {
   });
   if (!confirmed) return;
   availabilityBlocks = availabilityBlocks.filter((item) => item.id !== blockId);
-  saveClinicState("availability-blocks", availabilityBlocks);
+  saveSyncedClinicState("availability-blocks", availabilityBlocks);
   renderAll();
   showToast("Ausencia eliminada.");
 }
@@ -12512,7 +12651,7 @@ function setupUnavailabilityDialog() {
       reason: form.elements.reason.value.trim()
     };
     availabilityBlocks = [...availabilityBlocks, block];
-    saveClinicState("availability-blocks", availabilityBlocks);
+    saveSyncedClinicState("availability-blocks", availabilityBlocks);
     dialog.close();
     renderAll();
   });
