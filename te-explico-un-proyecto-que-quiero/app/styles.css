@@ -1977,16 +1977,14 @@ body.dragging-appointment .schedule-cell {
 
 .appointment.timed-block.event-size-tiny,
 .week-appointment.timed-block.event-size-tiny {
-  padding-top: 5px;
-  padding-bottom: 5px;
+  gap: 0;
+  padding: 3px 6px;
 }
 
-.appointment.timed-block.event-size-tiny .appointment-patient,
 .appointment.timed-block.event-size-tiny .appointment-worker,
 .appointment.timed-block.event-size-tiny .appointment-service,
 .appointment.timed-block.event-size-tiny .appointment-room,
 .appointment.timed-block.event-size-tiny .session-exception-badge,
-.week-appointment.timed-block.event-size-tiny .appointment-patient,
 .week-appointment.timed-block.event-size-tiny .appointment-worker,
 .week-appointment.timed-block.event-size-tiny .appointment-service,
 .week-appointment.timed-block.event-size-tiny .appointment-room,
@@ -1994,15 +1992,37 @@ body.dragging-appointment .schedule-cell {
   display: none;
 }
 
+.appointment.timed-block.event-size-tiny .appointment-time,
+.appointment.timed-block.event-size-tiny .appointment-patient,
+.week-appointment.timed-block.event-size-tiny .appointment-time,
+.week-appointment.timed-block.event-size-tiny .appointment-patient {
+  font-size: 11px;
+  line-height: 1.08;
+}
+
+.appointment.timed-block.event-size-small,
+.week-appointment.timed-block.event-size-small {
+  gap: 1px;
+  padding: 5px 6px;
+}
+
 .appointment.timed-block.event-size-small .appointment-worker,
-.appointment.timed-block.event-size-small .appointment-service,
 .appointment.timed-block.event-size-small .appointment-room,
 .appointment.timed-block.event-size-small .session-exception-badge,
 .week-appointment.timed-block.event-size-small .appointment-worker,
-.week-appointment.timed-block.event-size-small .appointment-service,
 .week-appointment.timed-block.event-size-small .appointment-room,
 .week-appointment.timed-block.event-size-small .session-exception-badge {
   display: none;
+}
+
+.appointment.timed-block.event-size-small .appointment-time,
+.appointment.timed-block.event-size-small .appointment-patient,
+.appointment.timed-block.event-size-small .appointment-service,
+.week-appointment.timed-block.event-size-small .appointment-time,
+.week-appointment.timed-block.event-size-small .appointment-patient,
+.week-appointment.timed-block.event-size-small .appointment-service {
+  font-size: 11.5px;
+  line-height: 1.1;
 }
 
 .appointment.timed-block.event-size-medium .appointment-worker,
