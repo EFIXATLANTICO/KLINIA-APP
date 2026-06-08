@@ -4975,6 +4975,10 @@ function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
   return null;
 }
 
+function isBlockingAppointmentConflict(conflict) {
+  return Boolean(conflict) && conflict.type !== "outside-hours";
+}
+
 function isWithinAvailability(appointment) {
   const practitioner = byId(practitioners, appointment.practitionerId);
   if (!practitioner) {
@@ -11027,7 +11031,7 @@ function buildAppointmentCandidates(candidate, form) {
 
 function appointmentConflictDetails(candidate) {
   const conflict = appointmentScheduleConflict(candidate);
-  if (conflict) {
+  if (isBlockingAppointmentConflict(conflict)) {
     return {
       type: conflict.type,
       item: candidate,
@@ -11669,7 +11673,7 @@ function setupAppointmentDetail() {
     };
     if (!finalStatusIsCancelled) {
       const conflict = appointmentScheduleConflict(scheduleCandidate, selectedAppointmentId);
-      if (conflict) {
+      if (isBlockingAppointmentConflict(conflict)) {
         if (detailError) {
           detailError.textContent = conflict.message;
           detailError.classList.add("visible");

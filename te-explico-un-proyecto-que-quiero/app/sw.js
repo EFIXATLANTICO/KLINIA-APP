@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-unified-patient-field-20260608";
+const KLINIA_CACHE = "klinia-outside-hours-warning-only-20260608";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260608-unified-patient-field",
-  "./app.js?v=20260608-unified-patient-field",
+  "./styles.css?v=20260608-outside-hours-warning-only",
+  "./app.js?v=20260608-outside-hours-warning-only",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
