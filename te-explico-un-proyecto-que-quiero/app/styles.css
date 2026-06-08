@@ -1791,6 +1791,28 @@ textarea {
   opacity: 0.58;
 }
 
+.appointment.is-payment-pending::after,
+.week-appointment.is-payment-pending::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 2;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d08a2e;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 0 0 5px rgba(208, 138, 46, 0.16);
+  pointer-events: none;
+}
+
+.appointment.cancelled.is-payment-pending::after,
+.appointment.no_show.is-payment-pending::after,
+.week-appointment.cancelled.is-payment-pending::after,
+.week-appointment.no_show.is-payment-pending::after {
+  display: none;
+}
+
 .week-appointment time,
 .week-appointment strong,
 .week-appointment span,
@@ -2122,6 +2144,7 @@ body.dragging-appointment .schedule-cell {
 }
 
 .two-month-day {
+  position: relative;
   min-height: 64px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2144,6 +2167,18 @@ body.dragging-appointment .schedule-cell {
 .two-month-day.today {
   border-color: #9dcac0;
   background: #effaf6;
+}
+
+.two-month-day.has-unpaid-appointments::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d08a2e;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
 }
 
 .two-month-day.past {
@@ -2944,6 +2979,22 @@ dialog::backdrop {
 .modal-form label > select {
   color: var(--ink);
   font-size: 15px;
+}
+
+.appointment-patient-search-field {
+  margin-top: -6px;
+}
+
+.appointment-patient-search-field .form-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.appointment-patient-search-field .appointment-patient-create-ready {
+  color: var(--accent);
+  font-weight: 800;
 }
 
 .form-row label {

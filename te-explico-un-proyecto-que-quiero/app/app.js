@@ -4080,6 +4080,14 @@ function appointmentPaymentStatus(appointment) {
   return appointment?.invoiceGenerated ? "card" : "unpaid";
 }
 
+function appointmentNeedsPaymentIndicator(appointment) {
+  if (!appointment) return false;
+  const status = normalizeAppointmentStatus(appointment.status);
+  if (["cancelled", "no_show"].includes(status)) return false;
+  if (appointment.patientPackId || appointment.plannedPatientPackId) return false;
+  return appointmentPaymentStatus(appointment) === "unpaid";
+}
+
 function paymentStatusLabel(value) {
   return {
     cash: "Efectivo",
@@ -5126,11 +5134,138 @@ function renderAppointmentFormOptions() {
   const form = $("#appointment-form");
   const safeServices = services.filter((service) => service.active);
   fillSelect(form.elements.patient, patients);
+  renderAppointmentPatientSuggestions(form);
   fillSelect(form.elements.practitioner, practitioners);
   fillSelect(form.elements.room, rooms);
   fillSelect(form.elements.service, safeServices);
   updateAppointmentGroupAttendeesVisibility(form);
   updateAppointmentOutsideHoursWarning(form);
+}
+
+function normalizePatientSearchName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function findPatientByExactName(value) {
+  const normalized = normalizePatientSearchName(value);
+  if (!normalized) return null;
+  return patients.find((patient) => normalizePatientSearchName(patient.name) === normalized) || null;
+}
+
+function similarPatientsByName(value) {
+  const normalized = normalizePatientSearchName(value);
+  if (normalized.length < 3) return [];
+  const tokens = normalized.split(" ").filter((token) => token.length > 2);
+  return patients
+    .filter((patient) => {
+      const patientName = normalizePatientSearchName(patient.name);
+      return patientName.includes(normalized) || tokens.some((token) => patientName.includes(token));
+    })
+    .slice(0, 4);
+}
+
+function renderAppointmentPatientSuggestions(form = $("#appointment-form")) {
+  const datalist = $("#appointment-patient-suggestions");
+  if (!form || !datalist) return;
+  datalist.innerHTML = patients
+    .map((patient) => `<option value="${escapeHtml(patient.name || "")}">${escapeHtml(patient.phone || patient.email || "")}</option>`)
+    .join("");
+  updateAppointmentPatientCreateHint(form);
+}
+
+function resetAppointmentPatientQuickCreate(form = $("#appointment-form")) {
+  if (!form) return;
+  if (form.elements.patientSearch) {
+    form.elements.patientSearch.value = "";
+  }
+  delete form.dataset.quickPatientCreated;
+  updateAppointmentPatientCreateHint(form);
+}
+
+function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
+  const hint = $("#appointment-patient-create-hint");
+  const input = form?.elements.patientSearch;
+  if (!hint || !input) return;
+  const value = input.value.trim();
+  if (!value) {
+    hint.textContent = "Selecciona un paciente existente o escribe uno nuevo para crearlo al guardar.";
+    hint.classList.remove("appointment-patient-create-ready");
+    return;
+  }
+  const exact = findPatientByExactName(value);
+  if (exact) {
+    hint.textContent = `Paciente existente: ${exact.name}. Se usará esta ficha.`;
+    hint.classList.remove("appointment-patient-create-ready");
+    form.elements.patient.value = exact.id;
+    updateAppointmentPackOptions(form);
+    return;
+  }
+  const similar = similarPatientsByName(value);
+  hint.textContent = value.length < 3
+    ? "Escribe al menos 3 caracteres para crear un paciente nuevo."
+    : `Crear paciente: ${value}${similar.length ? ` · Coincidencias parecidas: ${similar.map((patient) => patient.name).join(", ")}` : ""}`;
+  hint.classList.toggle("appointment-patient-create-ready", value.length >= 3);
+}
+
+function buildQuickPatientFromName(name) {
+  const cleanName = name.trim().replace(/\s+/g, " ");
+  const [firstName = "", ...rest] = cleanName.split(" ");
+  return {
+    id: `patient-${Date.now()}`,
+    name: cleanName,
+    firstName,
+    lastName: rest.join(" "),
+    phone: "",
+    email: "",
+    dni: "",
+    municipality: "",
+    city: "",
+    postalCode: "",
+    alert: "Sin alertas relevantes",
+    status: "Activo",
+    last: "Alta rapida desde cita"
+  };
+}
+
+async function resolveAppointmentFormPatient(form = $("#appointment-form")) {
+  delete form.dataset.quickPatientCreated;
+  const typedName = form.elements.patientSearch?.value.trim() || "";
+  if (!typedName) {
+    return form.elements.patient?.value || "";
+  }
+  if (typedName.length < 3) {
+    throw new Error("Escribe al menos 3 caracteres para crear o buscar un paciente.");
+  }
+  const existing = findPatientByExactName(typedName);
+  if (existing) {
+    form.elements.patient.value = existing.id;
+    return existing.id;
+  }
+
+  const localPatient = buildQuickPatientFromName(typedName);
+  let savedPatient;
+  try {
+    savedPatient = await savePatientToBackend(localPatient, "");
+  } catch (error) {
+    throw new Error(`No se pudo crear el paciente "${typedName}": ${error.message}`);
+  }
+
+  if (!patients.some((patient) => String(patient.id) === String(savedPatient.id))) {
+    patients = [...patients, savedPatient];
+  }
+  saveClinicState("patients", patients);
+  renderAppointmentFormOptions();
+  form.elements.patient.value = savedPatient.id;
+  form.elements.patientSearch.value = savedPatient.name;
+  form.dataset.quickPatientCreated = savedPatient.name;
+  updateAppointmentPackOptions(form);
+  return savedPatient.id;
 }
 
 function updateAppointmentGroupAttendeesVisibility(form = $("#appointment-form")) {
@@ -5376,14 +5511,22 @@ function renderTwoMonthPlanner(schedule, range) {
         .filter((appointment) => (appointment.date || selectedDate) === dateValue)
         .filter(appointmentVisibleToCurrentSession)
         .filter(appointmentPassesAgendaFilters).length;
+      const unpaidCount = appointments
+        .filter((appointment) => (appointment.date || selectedDate) === dateValue)
+        .filter(appointmentVisibleToCurrentSession)
+        .filter(appointmentPassesAgendaFilters)
+        .filter(appointmentNeedsPaymentIndicator).length;
       const groupCount = groupsForDate(dateValue)
         .filter(groupVisibleToCurrentSession)
         .filter(groupPassesAgendaFilters).length;
       const canNavigate = dateValue >= todayIso();
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `two-month-day ${dateValue === todayIso() ? "today" : ""} ${!canNavigate ? "past" : ""}`;
+      button.className = `two-month-day ${dateValue === todayIso() ? "today" : ""} ${!canNavigate ? "past" : ""} ${unpaidCount ? "has-unpaid-appointments" : ""}`;
       button.disabled = !canNavigate;
+      if (unpaidCount) {
+        button.title = `${unpaidCount} cita(s) pendiente(s) de cobro`;
+      }
       button.innerHTML = `
         <strong>${new Intl.DateTimeFormat("es-ES", { day: "2-digit" }).format(dateOnly(dateValue))}</strong>
         <span>${count + groupCount ? `${count + groupCount} citas` : "Libre"}</span>
@@ -5830,6 +5973,8 @@ function renderWeekAppointment(appointment, slotStart = slotStartForTime(appoint
   const button = document.createElement("button");
   button.type = "button";
   button.className = `week-appointment ${appointment.status}`;
+  button.classList.toggle("is-payment-pending", appointmentNeedsPaymentIndicator(appointment));
+  button.dataset.paymentStatus = appointmentPaymentStatus(appointment);
   const workerColor = practitioner?.color || "#168776";
   button.style.setProperty("--worker-color", workerColor);
   button.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.14));
@@ -5860,6 +6005,8 @@ function renderAppointment(appointment, slotStart = slotStartForTime(appointment
   const button = document.createElement("button");
   button.type = "button";
   button.className = `appointment ${appointment.status}`;
+  button.classList.toggle("is-payment-pending", appointmentNeedsPaymentIndicator(appointment));
+  button.dataset.paymentStatus = appointmentPaymentStatus(appointment);
   const workerColor = practitioner?.color || "#168776";
   button.style.setProperty("--worker-color", workerColor);
   button.style.setProperty("--worker-bg", hexToRgba(workerColor, 0.14));
@@ -10924,11 +11071,14 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
       items = await Promise.all(items.map((item) => saveAppointmentToBackend(item, item.id)));
     } catch (error) {
       const errorBox = $("#form-error");
+      const quickPatientMessage = form?.dataset.quickPatientCreated
+        ? `Paciente "${form.dataset.quickPatientCreated}" creado. `
+        : "";
       if (errorBox) {
-        errorBox.textContent = `No se pudo guardar la cita en backend: ${error.message}`;
+        errorBox.textContent = `${quickPatientMessage}No se pudo guardar la cita en backend: ${error.message}`;
         errorBox.classList.add("visible");
       } else {
-        showToast(`No se pudo guardar la cita en backend: ${error.message}`, "error");
+        showToast(`${quickPatientMessage}No se pudo guardar la cita en backend: ${error.message}`, "error");
       }
       return;
     }
@@ -10950,6 +11100,7 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
   if (form.elements.patientPack) {
     form.elements.patientPack.value = "";
   }
+  resetAppointmentPatientQuickCreate(form);
   if (form.elements.repeatEnabled) {
     form.elements.repeatEnabled.checked = false;
     $("#appointment-repeat-options")?.classList.add("hidden");
@@ -10977,6 +11128,7 @@ function openAppointmentDialog(defaults = {}) {
   form.reset();
   form.querySelector(".modal-header h2").textContent = "Nueva cita";
   renderAppointmentFormOptions();
+  resetAppointmentPatientQuickCreate(form);
   form.elements.date.value = defaults.date || selectedDate;
   form.elements.start.value = defaults.start || "12:00";
   form.elements.status.value = "confirmed";
@@ -11043,6 +11195,17 @@ function setupDialog() {
     openAppointmentDialog();
   });
 
+  form.elements.patientSearch?.addEventListener("input", () => {
+    $("#form-error")?.classList.remove("visible");
+    if ($("#form-error")) $("#form-error").textContent = "";
+    updateAppointmentPatientCreateHint(form);
+    resetRecurrenceReview();
+  });
+  form.elements.patientSearch?.addEventListener("change", () => {
+    updateAppointmentPatientCreateHint(form);
+    resetRecurrenceReview();
+  });
+
   form.elements.service.addEventListener("change", () => {
     setAppointmentFormDurationFromService(form);
     updateAppointmentGroupAttendeesVisibility(form);
@@ -11055,6 +11218,11 @@ function setupDialog() {
       if ($("#form-error")) $("#form-error").textContent = "";
       if (fieldName === "date" && form.elements.repeatEndDate && (!form.elements.repeatEndDate.value || form.elements.repeatEndDate.value < form.elements.date.value)) {
         form.elements.repeatEndDate.value = addDaysIso(form.elements.date.value, 21);
+      }
+      if (fieldName === "patient" && form.elements.patientSearch) {
+        const selectedPatient = byId(patients, form.elements.patient.value);
+        form.elements.patientSearch.value = selectedPatient?.name || "";
+        updateAppointmentPatientCreateHint(form);
       }
       updateAppointmentOutsideHoursWarning(form);
       if (fieldName === "patient" || fieldName === "service") {
@@ -11086,10 +11254,18 @@ function setupDialog() {
     event.preventDefault();
     $("#form-error").classList.remove("visible");
     $("#form-error").textContent = "";
+    let resolvedPatientId = "";
+    try {
+      resolvedPatientId = await resolveAppointmentFormPatient(form);
+    } catch (error) {
+      $("#form-error").textContent = error.message;
+      $("#form-error").classList.add("visible");
+      return;
+    }
     const candidate = {
       id: `local-${Date.now()}`,
       date: form.elements.date.value || selectedDate,
-      patientId: form.elements.patient.value,
+      patientId: resolvedPatientId,
       practitionerId: form.elements.practitioner.value,
       roomId: form.elements.room.value,
       serviceId: form.elements.service.value,
@@ -11130,11 +11306,18 @@ function setupDialog() {
       .map(appointmentConflictDetails)
       .filter(Boolean);
     if (conflicts.length) {
+      const quickPatientPrefix = form.dataset.quickPatientCreated
+        ? `Paciente "${form.dataset.quickPatientCreated}" creado. `
+        : "";
       const available = candidates.filter((item) => !conflicts.some((conflict) => conflict.item.id === item.id));
       if (candidates.length > 1) {
         renderRecurrenceReview(available, conflicts);
+        if (quickPatientPrefix) {
+          $("#form-error").textContent = `${quickPatientPrefix}Revisa los conflictos antes de guardar las citas disponibles.`;
+          $("#form-error").classList.add("visible");
+        }
       } else {
-        $("#form-error").textContent = conflicts[0].label;
+        $("#form-error").textContent = `${quickPatientPrefix}${conflicts[0].label}`;
         $("#form-error").classList.add("visible");
       }
       return;
