@@ -147,7 +147,11 @@ function saveState(key, value) {
     return;
   }
 
-  localStorage.setItem(`klinia:${key}`, JSON.stringify(value));
+  try {
+    localStorage.setItem(`klinia:${key}`, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`Klinia local state cache skipped for ${key}`, error);
+  }
 }
 
 function slugifyClinicName(value) {
@@ -242,10 +246,24 @@ function saveClinicState(key, value) {
     return;
   }
 
-  localStorage.setItem(
-    `klinia:${clinicStateKey(key)}`,
-    JSON.stringify(scopeClinicValue(key, value, activeClinicKey))
-  );
+  if (backendDataEnabled() && key === "appointments") {
+    try {
+      localStorage.removeItem(`klinia:${clinicStateKey(key)}`);
+      localStorage.removeItem(`clinicaflow:${clinicStateKey(key)}`);
+    } catch (error) {
+      console.warn("Klinia appointments cache cleanup skipped.", error);
+    }
+    return;
+  }
+
+  try {
+    localStorage.setItem(
+      `klinia:${clinicStateKey(key)}`,
+      JSON.stringify(scopeClinicValue(key, value, activeClinicKey))
+    );
+  } catch (error) {
+    console.warn(`Klinia clinic cache skipped for ${key}`, error);
+  }
 }
 
 const backendSyncedClinicDataKeys = new Set([
@@ -3276,6 +3294,16 @@ function apiManualBillingMovementToUi(item) {
     source: meta.source || "",
     groupMonthlyKey: meta.groupMonthlyKey || ""
   };
+}
+
+async function refreshManualBillingMovementsFromBackend() {
+  if (!backendDataEnabled()) {
+    return manualBillingMovements;
+  }
+  const items = await backendOptionalCollection("/manual-billing-movements");
+  manualBillingMovements = items.map(apiManualBillingMovementToUi);
+  saveClinicState("manual-billing-movements", manualBillingMovements);
+  return manualBillingMovements;
 }
 
 function uiManualBillingMovementToApi(item) {
@@ -13823,13 +13851,28 @@ function setupBillingControls() {
   $("#manual-billing-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    if (form.dataset.saving === "true") {
+      return;
+    }
+    const submitButton = $("#manual-billing-submit");
+    const originalSubmitLabel = submitButton?.textContent || "Guardar";
+    const errorBox = $("#manual-billing-error");
+    errorBox?.classList.remove("visible");
+    if (errorBox) errorBox.textContent = "";
     const amount = Number(form.elements.amount.value || 0);
     const concept = form.elements.concept.value.trim();
     const paymentMethod = form.elements.paymentMethod?.value || "";
     if (!form.elements.date.value || !concept || amount <= 0 || !paymentMethod) {
-      $("#manual-billing-error").textContent = "Indica fecha, concepto, método e importe mayor que cero.";
-      $("#manual-billing-error").classList.add("visible");
+      if (errorBox) {
+        errorBox.textContent = "Indica fecha, concepto, método e importe mayor que cero.";
+        errorBox.classList.add("visible");
+      }
       return;
+    }
+    form.dataset.saving = "true";
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Guardando...";
     }
     const editingMovementId = form.dataset.editingMovementId || "";
     const existingMovement = editingMovementId ? manualBillingMovements.find((item) => String(item.id) === String(editingMovementId)) : null;
@@ -13848,8 +13891,15 @@ function setupBillingControls() {
     try {
       movement = await saveManualBillingMovementToBackend(movement, editingMovementId);
     } catch (error) {
-      $("#manual-billing-error").textContent = `No se pudo guardar en backend: ${error.message}`;
-      $("#manual-billing-error").classList.add("visible");
+      if (errorBox) {
+        errorBox.textContent = `No se pudo guardar en backend: ${error.message}`;
+        errorBox.classList.add("visible");
+      }
+      form.dataset.saving = "";
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalSubmitLabel;
+      }
       return;
     }
     manualBillingMovements = [movement, ...manualBillingMovements.filter((item) => item.id !== movement.id && item.id !== editingMovementId)];
@@ -13859,8 +13909,23 @@ function setupBillingControls() {
     form.dataset.groupMonthlyKey = "";
     form.dataset.source = "";
     $("#manual-billing-dialog").close();
+    form.dataset.saving = "";
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalSubmitLabel;
+    }
+    if (backendDataEnabled()) {
+      try {
+        await refreshManualBillingMovementsFromBackend();
+      } catch (error) {
+        console.warn("Klinia manual billing refresh failed after save.", error);
+        showToast("Cobro guardado. No se pudo refrescar desde backend; actualiza la vista si no aparece.", "warning");
+      }
+    }
     renderBilling();
-    showToast(editingMovementId ? "Movimiento actualizado." : "Movimiento de facturacion guardado.");
+    showToast(editingMovementId
+      ? "Movimiento actualizado."
+      : (movement.source === "group-monthly-fee" ? "Cobro de cuota guardado." : "Movimiento de facturacion guardado."));
   });
 }
 

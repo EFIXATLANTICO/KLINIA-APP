@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-agenda-today-start-20260603";
+const KLINIA_CACHE = "klinia-backend-save-guard-20260608";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260603-agenda-today-start",
-  "./app.js?v=20260603-agenda-today-start",
+  "./styles.css?v=20260608-backend-save-guard",
+  "./app.js?v=20260608-backend-save-guard",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
