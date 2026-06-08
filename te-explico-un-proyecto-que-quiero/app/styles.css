@@ -2981,8 +2981,12 @@ dialog::backdrop {
   font-size: 15px;
 }
 
-.appointment-patient-search-field {
-  margin-top: -6px;
+.appointment-patient-unified-field {
+  margin-top: 0;
+}
+
+.appointment-patient-hidden-select {
+  display: none !important;
 }
 
 .appointment-patient-search-field .form-help {

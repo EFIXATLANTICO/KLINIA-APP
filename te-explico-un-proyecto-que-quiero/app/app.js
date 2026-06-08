@@ -5194,8 +5194,10 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
   if (!hint || !input) return;
   const value = input.value.trim();
   if (!value) {
-    hint.textContent = "Selecciona un paciente existente o escribe uno nuevo para crearlo al guardar.";
+    if (form.elements.patient) form.elements.patient.value = "";
+    hint.textContent = "Busca un paciente existente o escribe uno nuevo para crearlo al guardar.";
     hint.classList.remove("appointment-patient-create-ready");
+    updateAppointmentPackOptions(form);
     return;
   }
   const exact = findPatientByExactName(value);
@@ -5207,6 +5209,8 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
     return;
   }
   const similar = similarPatientsByName(value);
+  if (form.elements.patient) form.elements.patient.value = "";
+  updateAppointmentPackOptions(form);
   hint.textContent = value.length < 3
     ? "Escribe al menos 3 caracteres para crear un paciente nuevo."
     : `Crear paciente: ${value}${similar.length ? ` · Coincidencias parecidas: ${similar.map((patient) => patient.name).join(", ")}` : ""}`;

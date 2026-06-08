@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-agenda-payments-patients-20260608";
+const KLINIA_CACHE = "klinia-unified-patient-field-20260608";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260608-agenda-payments-patients",
-  "./app.js?v=20260608-agenda-payments-patients",
+  "./styles.css?v=20260608-unified-patient-field",
+  "./app.js?v=20260608-unified-patient-field",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
