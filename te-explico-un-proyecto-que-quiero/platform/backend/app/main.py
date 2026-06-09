@@ -695,6 +695,74 @@ def validate_appointment_schedule(
     )
 
 
+def appointment_payment_movement(db: Session, clinic_id: str, appointment_id: str) -> ManualBillingMovement | None:
+    items = db.scalars(
+        select(ManualBillingMovement).where(
+            ManualBillingMovement.clinic_id == clinic_id,
+            ManualBillingMovement.type == "charge",
+        )
+    )
+    for item in items:
+        metadata = parse_metadata_json(item.metadata_json)
+        if metadata.get("source") == "appointment-payment" and str(metadata.get("appointmentId") or "") == str(appointment_id):
+            return item
+    return None
+
+
+def sync_appointment_payment_movement(db: Session, user: User, appointment: Appointment, service: Service) -> None:
+    metadata = parse_metadata_json(appointment.metadata_json)
+    payment_status = str(metadata.get("paymentStatus") or metadata.get("paymentMethod") or "").strip().lower()
+    existing = appointment_payment_movement(db, appointment.clinic_id, appointment.id)
+    if status_is_cancelled(appointment.status) or payment_status not in {"cash", "card"}:
+        if existing:
+            audit_action(db, user, "delete-appointment-payment-movement", "manual-billing-movement", existing.id, {"appointment_id": appointment.id})
+            db.delete(existing)
+        return
+
+    paid_at = str(metadata.get("paymentPaidAt") or datetime.now(UTC).isoformat())
+    amount_cents = int(metadata.get("paymentAmountCents") or service.price_cents or 0)
+    metadata.update(
+        {
+            "paymentStatus": payment_status,
+            "paymentMethod": payment_status,
+            "paymentPaidAt": paid_at,
+            "paymentAmountCents": amount_cents,
+            "paymentCollectedBy": metadata.get("paymentCollectedBy") or user.name,
+            "paymentCollectedByUserId": metadata.get("paymentCollectedByUserId") or user.id,
+        }
+    )
+    appointment.metadata_json = json.dumps(metadata, ensure_ascii=True)
+    movement_metadata = {
+        "source": "appointment-payment",
+        "appointmentId": appointment.id,
+        "paymentMethod": payment_status,
+        "paidAt": paid_at,
+    }
+    concept = f"Cobro cita {appointment.date} {appointment.start}"
+    if existing:
+        existing.date = appointment.date
+        existing.amount_cents = amount_cents
+        existing.concept = concept
+        existing.created_by_name = user.name
+        existing.user_id = user.id
+        existing.metadata_json = json.dumps(movement_metadata, ensure_ascii=True)
+        audit_action(db, user, "update-appointment-payment-movement", "manual-billing-movement", existing.id, {"appointment_id": appointment.id})
+    else:
+        movement = ManualBillingMovement(
+            clinic_id=appointment.clinic_id,
+            user_id=user.id,
+            type="charge",
+            date=appointment.date,
+            amount_cents=amount_cents,
+            concept=concept,
+            created_by_name=user.name,
+            metadata_json=json.dumps(movement_metadata, ensure_ascii=True),
+        )
+        db.add(movement)
+        db.flush()
+        audit_action(db, user, "create-appointment-payment-movement", "manual-billing-movement", movement.id, {"appointment_id": appointment.id})
+
+
 CLINIC_DATA_DEFAULTS = {
     "groups": "[]",
     "group-dropins": "[]",
@@ -3107,6 +3175,7 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
     appointment = Appointment(clinic_id=user.clinic_id, **values)
     db.add(appointment)
     db.flush()
+    sync_appointment_payment_movement(db, user, appointment, service)
     audit_action(db, user, "create-appointment", "appointment", appointment.id)
     db.commit()
     db.refresh(appointment)
@@ -3167,6 +3236,7 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
     previous_status = appointment.status
     for field, value in data.items():
         setattr(appointment, field, value)
+    sync_appointment_payment_movement(db, user, appointment, service)
     action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
     audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
     db.commit()

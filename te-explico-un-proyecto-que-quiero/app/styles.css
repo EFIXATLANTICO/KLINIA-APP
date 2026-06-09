@@ -192,66 +192,14 @@ body.login-mode .app-shell {
 }
 
 .google-auth-slot {
-  width: 100%;
-  max-width: 360px;
-  min-height: 44px;
-  margin: 0 auto;
-  position: relative;
-}
-
-.google-auth-native {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  opacity: 0;
-  overflow: hidden;
-}
-
-.google-auth-native > div,
-.google-auth-native iframe {
-  width: 100% !important;
-  min-width: 100% !important;
-}
-
-.google-auth-button-face {
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-  color: var(--ink);
+  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  font-weight: 700;
-  box-shadow: 0 1px 0 rgba(16, 35, 31, 0.04);
-  pointer-events: none;
 }
 
-.google-auth-slot:focus-within .google-auth-button-face {
-  border-color: rgba(22, 135, 118, 0.75);
-  box-shadow: 0 0 0 3px rgba(22, 135, 118, 0.16);
-}
-
-.google-auth-button-mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  display: inline-grid;
-  place-items: center;
-  color: #4285f4;
-  background: #ffffff;
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 800;
-}
-
-.google-auth-button-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.google-auth-slot > div {
+  max-width: 100%;
 }
 
 .google-auth-status {

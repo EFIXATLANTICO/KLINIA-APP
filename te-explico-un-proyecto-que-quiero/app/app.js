@@ -3194,29 +3194,6 @@ function loadGoogleScript() {
   return googleScriptLoading;
 }
 
-function googleButtonLabel(context) {
-  if (context === "register") return "Crear cuenta con Google";
-  if (context === "recovery") return "Recuperar con Google";
-  return "Iniciar sesión con Google";
-}
-
-function addNeutralGoogleButtonFace(slot, context) {
-  const face = document.createElement("div");
-  face.className = "google-auth-button-face";
-  face.setAttribute("aria-hidden", "true");
-
-  const mark = document.createElement("span");
-  mark.className = "google-auth-button-mark";
-  mark.textContent = "G";
-
-  const label = document.createElement("span");
-  label.className = "google-auth-button-label";
-  label.textContent = googleButtonLabel(context);
-
-  face.append(mark, label);
-  slot.append(face);
-}
-
 async function initializeGoogleAuth() {
   await loadGoogleAuthConfig();
   const slots = $$(".google-auth-slot");
@@ -3246,28 +3223,24 @@ async function initializeGoogleAuth() {
     slots.forEach((slot) => {
       const context = slot.dataset.googleContext || "login";
       slot.innerHTML = "";
-      slot.classList.add("google-auth-neutral");
       ["click", "mousedown", "touchstart"].forEach((eventName) => {
         slot.addEventListener(eventName, () => {
           googlePendingContext = context;
         }, { passive: true });
       });
-      const nativeButton = document.createElement("div");
-      nativeButton.className = "google-auth-native";
-      slot.append(nativeButton);
-      window.google.accounts.id.renderButton(nativeButton, {
+      window.google.accounts.id.renderButton(slot, {
         type: "standard",
         theme: "outline",
         size: "large",
         shape: "rectangular",
         text: context === "register" ? "signup_with" : "signin_with",
+        logo_alignment: "left",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
         state: context,
         click_listener: () => {
           googlePendingContext = context;
         }
       });
-      addNeutralGoogleButtonFace(slot, context);
       googleAuthLog("renderButton ejecutado", { context });
     });
     $$(".google-auth-status").forEach((item) => {
@@ -3687,6 +3660,11 @@ function uiAppointmentToApi(candidate) {
       "internalNotes",
       "paymentStatus",
       "paymentMethod",
+      "paymentPaidAt",
+      "paymentAmount",
+      "paymentAmountCents",
+      "paymentCollectedBy",
+      "paymentCollectedByUserId",
       "patientPackId",
       "plannedPatientPackId",
       "patientPackUsedAt",
@@ -4504,6 +4482,32 @@ function appointmentPaymentStatus(appointment) {
     return status;
   }
   return appointment?.invoiceGenerated ? "card" : "unpaid";
+}
+
+function appointmentPaymentFields(appointment, nextPaymentStatus) {
+  if (!["cash", "card"].includes(nextPaymentStatus)) {
+    return {
+      paymentStatus: "unpaid",
+      paymentMethod: "",
+      paymentPaidAt: "",
+      paymentAmount: 0,
+      paymentAmountCents: 0,
+      paymentCollectedBy: "",
+      paymentCollectedByUserId: ""
+    };
+  }
+  const previousStatus = appointmentPaymentStatus(appointment);
+  const keepExistingPayment = previousStatus === nextPaymentStatus && appointment?.paymentPaidAt;
+  const amount = Number(appointment?.paymentAmount || servicePrice(appointment) || 0);
+  return {
+    paymentStatus: nextPaymentStatus,
+    paymentMethod: nextPaymentStatus,
+    paymentPaidAt: keepExistingPayment ? appointment.paymentPaidAt : new Date().toISOString(),
+    paymentAmount: amount,
+    paymentAmountCents: Math.round(amount * 100),
+    paymentCollectedBy: appointment?.paymentCollectedBy || currentSessionName(),
+    paymentCollectedByUserId: appointment?.paymentCollectedByUserId || ""
+  };
 }
 
 function appointmentNeedsPaymentIndicator(appointment) {
@@ -7699,7 +7703,7 @@ function renderBilling() {
       };
     });
   const manualRows = manualBillingMovements
-    .filter((movement) => movement.source !== "group-monthly-fee")
+    .filter((movement) => !["group-monthly-fee", "appointment-payment"].includes(movement.source))
     .map((movement) => {
       const createdTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(movement.createdAt || ""))
         ? String(movement.createdAt).slice(11, 16)
@@ -12173,12 +12177,22 @@ function setupAppointmentDetail() {
     const cancelledBy = finalStatusIsCancelled
       ? (form.elements.cancelledBy?.value.trim() || currentSessionName())
       : "";
+    const requestedPaymentStatus = finalStatusIsCancelled || nextPatientPackId || nextPlannedPatientPackId
+      ? "unpaid"
+      : (form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment));
+    const paymentFields = appointmentPaymentFields(
+      { ...existingAppointment, serviceId: nextServiceId, patientPackId: nextPatientPackId, plannedPatientPackId: nextPlannedPatientPackId },
+      requestedPaymentStatus
+    );
     const payload = {
       status: nextStatus,
       internal_notes: form.elements.internalNotes.value.trim() || null
     };
 
     const finish = (updatedAppointment) => {
+      form.dataset.saving = "";
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (submitButton) submitButton.disabled = false;
       appointments = appointments.map((appointment) => {
         if (appointment.id !== selectedAppointmentId) {
           return appointment;
@@ -12202,12 +12216,7 @@ function setupAppointmentDetail() {
       roomId: scheduleCandidate.roomId,
       status: nextStatus,
       internalNotes: form.elements.internalNotes.value.trim(),
-      paymentStatus: nextPatientPackId || nextPlannedPatientPackId
-        ? "unpaid"
-        : (form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment)),
-      paymentMethod: nextPatientPackId || nextPlannedPatientPackId
-        ? ""
-        : (form.elements.paymentStatus?.value || appointmentPaymentStatus(existingAppointment)),
+      ...paymentFields,
       patientPackId: nextPatientPackId,
       plannedPatientPackId: nextPlannedPatientPackId,
       patientPackUsedAt: nextPatientPackId ? (nextPatientPackUsedAt || consumedPatientPackAt || new Date().toISOString()) : "",
@@ -12219,20 +12228,33 @@ function setupAppointmentDetail() {
       cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : ""
     };
 
+    if (form.dataset.saving === "true") {
+      return;
+    }
+    form.dataset.saving = "true";
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     if (backendDataEnabled()) {
       try {
         const savedAppointment = await saveAppointmentToBackend(localUpdate, selectedAppointmentId);
         finish(savedAppointment);
+        if (["cash", "card"].includes(requestedPaymentStatus)) {
+          showToast("Cobro registrado correctamente.");
+        }
       } catch (error) {
         if (detailError) {
           detailError.textContent = `No se pudo actualizar la cita en backend: ${error.message}`;
           detailError.classList.add("visible");
         }
+        form.dataset.saving = "";
+        if (submitButton) submitButton.disabled = false;
       }
       return;
     }
 
     finish(localUpdate);
+    form.dataset.saving = "";
+    if (submitButton) submitButton.disabled = false;
   });
 }
 
