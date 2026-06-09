@@ -767,6 +767,14 @@ let googleConfig = { enabled: false, client_id: "" };
 let googleScriptLoading = null;
 let googlePendingContext = "";
 let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
+const googleScriptSrc = "https://accounts.google.com/gsi/client";
+const googleAuthDebug = (() => {
+  try {
+    return new URLSearchParams(window.location.search).has("googleDebug") || localStorage.getItem("klinia:google-debug") === "1";
+  } catch (error) {
+    return false;
+  }
+})();
 let sessionPacks = normalizeSessionPacks(loadClinicState("session-packs", []));
 let clinicLogo = loadClinicState("clinic-logo", "");
 let patientConsents = loadClinicState("patient-consents", []);
@@ -3068,30 +3076,82 @@ function googleAuthErrorMessage(error) {
   return error?.message || "No se pudo completar el acceso con Google.";
 }
 
+function googleAuthLog(step, detail = undefined) {
+  if (!googleAuthDebug) return;
+  if (detail === undefined) {
+    console.info(`[Klinia Google] ${step}`);
+  } else {
+    console.info(`[Klinia Google] ${step}`, detail);
+  }
+}
+
 async function loadGoogleAuthConfig() {
   try {
     googleConfig = await backendRequest("/auth/google/config", { auth: false, timeoutMs: 10000 });
+    googleAuthLog("config recibida", { enabled: Boolean(googleConfig.enabled), clientId: googleConfig.client_id ? "presente" : "vacío" });
   } catch (error) {
     googleConfig = { enabled: false, client_id: "" };
+    googleAuthLog("config no disponible", error);
   }
   return googleConfig;
 }
 
+function waitForGoogleIdentity(timeoutMs = 9000) {
+  if (window.google?.accounts?.id) {
+    googleAuthLog("window.google disponible");
+    return Promise.resolve();
+  }
+  const startedAt = Date.now();
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      if (window.google?.accounts?.id) {
+        googleAuthLog("window.google disponible tras espera");
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt > timeoutMs) {
+        reject(new Error("Google Identity Services no terminó de inicializarse. Revisa CSP, bloqueadores o caché PWA."));
+        return;
+      }
+      window.setTimeout(check, 120);
+    };
+    check();
+  });
+}
+
 function loadGoogleScript() {
   if (window.google?.accounts?.id) {
+    googleAuthLog("script ya disponible");
     return Promise.resolve();
   }
   if (googleScriptLoading) {
     return googleScriptLoading;
   }
   googleScriptLoading = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("No se pudo cargar Google Identity Services."));
-    document.head.append(script);
+    let script = document.querySelector(`script[src="${googleScriptSrc}"]`);
+    const complete = () => {
+      googleAuthLog("script cargado, esperando window.google");
+      waitForGoogleIdentity().then(resolve).catch((error) => {
+        googleScriptLoading = null;
+        reject(error);
+      });
+    };
+    if (!script) {
+      googleAuthLog("inyectando script GIS");
+      script = document.createElement("script");
+      script.src = googleScriptSrc;
+      script.async = true;
+      script.defer = true;
+      document.head.append(script);
+    } else {
+      googleAuthLog("script GIS ya existe en HTML");
+    }
+    script.addEventListener("load", complete, { once: true });
+    script.addEventListener("error", () => {
+      googleScriptLoading = null;
+      reject(new Error("No se pudo cargar Google Identity Services. Revisa CSP, conexión o bloqueadores del navegador."));
+    }, { once: true });
+    complete();
   });
   return googleScriptLoading;
 }
@@ -3107,7 +3167,13 @@ async function initializeGoogleAuth() {
     return;
   }
   try {
+    $$(".google-auth-status").forEach((item) => {
+      item.textContent = "Cargando Google...";
+    });
     await loadGoogleScript();
+    if (!window.google?.accounts?.id) {
+      throw new Error("Google Identity Services no está disponible en esta página.");
+    }
     window.google.accounts.id.initialize({
       client_id: googleConfig.client_id,
       callback: handleGoogleCredential,
@@ -3115,6 +3181,7 @@ async function initializeGoogleAuth() {
       auto_select: false,
       cancel_on_tap_outside: true
     });
+    googleAuthLog("initialize ejecutado");
     slots.forEach((slot) => {
       slot.innerHTML = "";
       ["click", "mousedown", "touchstart"].forEach((eventName) => {
@@ -3129,10 +3196,18 @@ async function initializeGoogleAuth() {
         shape: "rectangular",
         text: slot.dataset.googleContext === "register" ? "signup_with" : "signin_with",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
-        state: slot.dataset.googleContext || "login"
+        state: slot.dataset.googleContext || "login",
+        click_listener: () => {
+          googlePendingContext = slot.dataset.googleContext || "login";
+        }
       });
+      googleAuthLog("renderButton ejecutado", { context: slot.dataset.googleContext || "login" });
+    });
+    $$(".google-auth-status").forEach((item) => {
+      item.textContent = "";
     });
   } catch (error) {
+    console.warn("[Klinia Google] No se pudo activar Google Identity Services", error);
     $$(".google-auth-status").forEach((item) => {
       item.textContent = error.message || "No se pudo activar Google.";
     });

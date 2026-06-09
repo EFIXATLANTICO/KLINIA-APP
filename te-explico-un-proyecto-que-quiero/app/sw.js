@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-google-auth-20260609";
+const KLINIA_CACHE = "klinia-google-gis-20260609";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260609-google-auth",
-  "./app.js?v=20260609-google-auth",
+  "./styles.css?v=20260609-google-gis",
+  "./app.js?v=20260609-google-gis",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -15,7 +15,8 @@
       body.login-mode .app-shell { display: none !important; }
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
-    <link rel="stylesheet" href="./styles.css?v=20260609-google-auth" />
+    <link rel="preconnect" href="https://accounts.google.com" />
+    <link rel="stylesheet" href="./styles.css?v=20260609-google-gis" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -2604,7 +2605,8 @@
       </form>
     </dialog>
 
-    <script src="./app.js?v=20260609-google-auth"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="./app.js?v=20260609-google-gis"></script>
   </body>
 </html>
 
