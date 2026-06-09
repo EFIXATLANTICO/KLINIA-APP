@@ -2733,6 +2733,44 @@ async function createBackendUserIfAvailable(payload) {
   }
 }
 
+async function updateBackendUserIfAvailable(userId, payload) {
+  const account = currentClinicAccount();
+  if (!backendTokenForAccount(account) || !userId) {
+    return null;
+  }
+  return backendRequest(`/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    account,
+    body: JSON.stringify(payload)
+  });
+}
+
+async function syncPractitionerAccessUserIfAvailable(practitioner, previousPractitioner = {}, password = "") {
+  if (!backendDataEnabled() || !practitioner?.email) {
+    return practitioner;
+  }
+  const accessRole = practitioner.accessRole === "staff" ? "staff" : "practitioner";
+  const userId = practitioner.backendUserId || practitioner.userId || previousPractitioner.backendUserId || previousPractitioner.userId || "";
+  const payload = {
+    name: practitioner.name,
+    email: practitioner.email,
+    role: accessRole,
+    active: practitioner.active !== false,
+    practitioner_id: accessRole === "practitioner" ? practitioner.id : undefined
+  };
+  if (password) {
+    payload.password = password;
+  }
+  const backendUser = userId
+    ? await updateBackendUserIfAvailable(userId, payload)
+    : password
+      ? await createBackendUserIfAvailable(payload)
+      : null;
+  return backendUser?.id
+    ? { ...practitioner, backendUserId: backendUser.id, userId: backendUser.id }
+    : practitioner;
+}
+
 function persistLoginCredentials(form, identifier, password) {
   if (form.elements.remember.checked) {
     saveState("saved-login-credentials", {
@@ -13464,6 +13502,7 @@ function setupConfiguration() {
     }
     form.dataset.saving = "true";
     form.querySelector('button[type="submit"]').disabled = true;
+    const previousPractitioner = byId(practitioners, editingPractitionerId) || {};
     const practitioner = {
       id: editingPractitionerId || `worker-${Date.now()}`,
       name: form.elements.name.value.trim(),
@@ -13496,27 +13535,19 @@ function setupConfiguration() {
     practitioners = editingPractitionerId
       ? practitioners.map((item) => item.id === editingPractitionerId ? savedPractitioner : item)
       : [...practitioners, savedPractitioner];
-    if (savedPractitioner.email && typedPassword) {
+    if (savedPractitioner.email) {
       try {
-        const accessRole = savedPractitioner.accessRole === "staff" ? "staff" : "practitioner";
-        const backendUser = await createBackendUserIfAvailable({
-          name: savedPractitioner.name,
-          email: savedPractitioner.email,
-          password: typedPassword,
-          role: accessRole,
-          active: true,
-          practitioner_id: accessRole === "practitioner" ? savedPractitioner.id : undefined
-        });
-        if (backendUser?.id) {
-          savedPractitioner = { ...savedPractitioner, backendUserId: backendUser.id, userId: backendUser.id };
+        const syncedPractitioner = await syncPractitionerAccessUserIfAvailable(savedPractitioner, previousPractitioner, typedPassword);
+        if (syncedPractitioner.backendUserId || syncedPractitioner.userId) {
+          savedPractitioner = syncedPractitioner;
           practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? savedPractitioner : item);
         }
       } catch (error) {
         $("#practitioner-key-status").textContent = backendTokenForAccount(currentClinicAccount())
-          ? `Trabajador guardado localmente. No se pudo sincronizar usuario backend: ${error.message}`
+          ? `Trabajador guardado. No se pudo sincronizar el acceso backend: ${error.message}`
           : "Trabajador guardado localmente. Inicia sesion backend para crear el usuario real.";
       }
-    } else if (savedPractitioner.email && backendDataEnabled()) {
+    } else if (backendDataEnabled()) {
       $("#practitioner-key-status").textContent = "Trabajador guardado. Genera o introduce una clave para activar su acceso backend.";
     }
     saveClinicState("practitioners", practitioners);

@@ -1938,6 +1938,42 @@ def create_practitioner_access(db: Session, practitioner: Practitioner) -> Super
     )
 
 
+def sync_practitioner_user_from_metadata(db: Session, actor: User, practitioner: Practitioner) -> None:
+    if not practitioner.user_id:
+        return
+    metadata = parse_metadata_json(practitioner.metadata_json)
+    email = normalized_identifier(metadata.get("email") or metadata.get("accessEmail") or metadata.get("loginEmail"))
+    if not email:
+        return
+    target = db.get(User, practitioner.user_id)
+    if not target or target.clinic_id != practitioner.clinic_id:
+        return
+    existing = db.scalar(
+        select(User).where(
+            User.clinic_id == practitioner.clinic_id,
+            func.lower(User.email) == email,
+            User.id != target.id,
+        )
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="User email already exists in this clinic")
+    changed_fields: list[str] = []
+    if target.email.lower() != email:
+        target.email = email
+        target.google_sub = None
+        changed_fields.extend(["email", "google_sub"])
+    if practitioner.name and target.name != practitioner.name:
+        target.name = practitioner.name
+        changed_fields.append("name")
+    access_role = str(metadata.get("accessRole") or "").strip().lower()
+    next_role = UserRole.staff if access_role == "staff" else UserRole.practitioner
+    if target.role != next_role:
+        target.role = next_role
+        changed_fields.append("role")
+    if changed_fields:
+        audit_action(db, actor, "sync-practitioner-user", "user", target.id, {"fields": changed_fields, "practitioner_id": practitioner.id})
+
+
 @app.get("/superadmin/overview", response_model=SuperAdminOverviewOut)
 def superadmin_overview(
     admin: User = Depends(require_superadmin),
@@ -2790,6 +2826,7 @@ def update_practitioner(practitioner_id: str, payload: PractitionerUpdate, user:
         if existing:
             raise HTTPException(status_code=409, detail="Practitioner already exists in this clinic")
     apply_update(practitioner, payload)
+    sync_practitioner_user_from_metadata(db, user, practitioner)
     audit_action(db, user, "update-practitioner", "practitioner", practitioner.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())})
     db.commit()
     db.refresh(practitioner)

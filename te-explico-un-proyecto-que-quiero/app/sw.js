@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-google-gis-20260609";
+const KLINIA_CACHE = "klinia-practitioner-google-20260609";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260609-google-gis",
-  "./app.js?v=20260609-google-gis",
+  "./styles.css?v=20260609-practitioner-google",
+  "./app.js?v=20260609-practitioner-google",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
