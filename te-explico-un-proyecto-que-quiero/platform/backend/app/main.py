@@ -13,6 +13,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from jose import JWTError, jwt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -56,6 +57,13 @@ from .schemas import (
     ClinicSettingsUpdate,
     DemoAccessCreate,
     DemoAccessOut,
+    GoogleAuthOut,
+    GoogleClinicChoiceOut,
+    GoogleConfigOut,
+    GooglePasswordRecoverySetIn,
+    GooglePasswordRecoveryVerifyOut,
+    GoogleProfileOut,
+    GoogleTokenIn,
     LoginIn,
     ManualBillingMovementCreate,
     ManualBillingMovementOut,
@@ -100,6 +108,9 @@ from .security import create_access_token, hash_password, verify_login_password
 settings = get_settings()
 frontend_dir = Path(settings.frontend_dir) if settings.frontend_dir else Path(__file__).resolve().parents[3] / "app"
 logger = logging.getLogger(__name__)
+GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
+GOOGLE_ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
+_google_jwks_cache: dict[str, object] = {"expires_at": 0.0, "keys": []}
 
 app = FastAPI(title=settings.app_name)
 app.state.backend_setup_status = "pending"
@@ -318,6 +329,123 @@ def validate_new_password(password: str | None) -> str:
     if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password is too long")
     return password
+
+
+def google_auth_enabled_or_503() -> None:
+    if not settings.google_client_id:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google login is not configured")
+
+
+def google_public_keys() -> list[dict]:
+    now = time.time()
+    cached_keys = _google_jwks_cache.get("keys") or []
+    if cached_keys and float(_google_jwks_cache.get("expires_at") or 0) > now:
+        return list(cached_keys)
+    try:
+        response = httpx.get(GOOGLE_JWKS_URL, timeout=8)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as error:
+        logger.warning("google jwks fetch failed: %s", error)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not verify Google identity")
+    max_age = 300
+    cache_control = response.headers.get("cache-control", "")
+    for part in cache_control.split(","):
+        part = part.strip().lower()
+        if part.startswith("max-age="):
+            try:
+                max_age = max(60, int(part.split("=", 1)[1]))
+            except ValueError:
+                max_age = 300
+    keys = payload.get("keys") or []
+    _google_jwks_cache["keys"] = keys
+    _google_jwks_cache["expires_at"] = now + max_age
+    return keys
+
+
+def verify_google_id_token(id_token: str) -> dict:
+    google_auth_enabled_or_503()
+    try:
+        header = jwt.get_unverified_header(id_token)
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+    key_id = header.get("kid")
+    key = next((item for item in google_public_keys() if item.get("kid") == key_id), None)
+    if not key:
+        _google_jwks_cache["expires_at"] = 0.0
+        key = next((item for item in google_public_keys() if item.get("kid") == key_id), None)
+    if not key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+    try:
+        claims = jwt.decode(
+            id_token,
+            key,
+            algorithms=["RS256"],
+            audience=settings.google_client_id,
+            options={"verify_at_hash": False},
+        )
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+    if claims.get("iss") not in GOOGLE_ISSUERS:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google issuer")
+    if not claims.get("email_verified"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Google email is not verified")
+    if not claims.get("sub") or not claims.get("email"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incomplete Google identity")
+    return claims
+
+
+def google_choice_for_user(user: User) -> GoogleClinicChoiceOut:
+    return GoogleClinicChoiceOut(
+        clinic_id=user.clinic_id,
+        clinic_name=user.clinic.name if user.clinic else "Klinia",
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+    )
+
+
+def google_auth_response_for_user(user: User) -> GoogleAuthOut:
+    token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)
+    subscription_status = "active" if user.role == UserRole.superadmin else (user.clinic.subscription_status if user.clinic else None)
+    return GoogleAuthOut(
+        access_token=token,
+        clinic_id=user.clinic_id,
+        subscription_status=subscription_status,
+        force_password_change=user.force_password_change,
+        email=user.email,
+        name=user.name,
+    )
+
+
+def google_users_for_email(db: Session, email: str, clinic_id: str | None = None, include_inactive: bool = False) -> list[User]:
+    query = select(User).where(func.lower(User.email) == email.lower())
+    if clinic_id:
+        query = query.where(User.clinic_id == clinic_id)
+    if not include_inactive:
+        query = query.where(User.active.is_(True))
+    return list(db.scalars(query.order_by(User.clinic_id, User.created_at.asc())))
+
+
+def ensure_google_link_for_user(db: Session, user: User, google_sub: str, request: Request, action: str = "link-google-account") -> None:
+    existing_sub = getattr(user, "google_sub", None)
+    if existing_sub and existing_sub != google_sub:
+        audit_action(
+            db,
+            user,
+            "login-google-failed",
+            "auth",
+            user.id,
+            {"reason": "google_sub_mismatch"},
+            result="failure",
+            request=request,
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This user is linked to a different Google account")
+    if not existing_sub:
+        user.google_sub = google_sub
+        audit_action(db, user, action, "user", user.id, {"provider": "google"}, request=request)
 
 
 def normalized_identifier(value: str | None) -> str:
@@ -982,10 +1110,123 @@ def frontend_asset(asset_name: str) -> FileResponse:
     return FileResponse(asset_path)
 
 
+@app.get("/auth/google/config", response_model=GoogleConfigOut)
+def google_config() -> GoogleConfigOut:
+    return GoogleConfigOut(enabled=settings.google_enabled, client_id=settings.google_client_id if settings.google_enabled else None)
+
+
+@app.post("/auth/google/profile", response_model=GoogleProfileOut)
+def google_profile(payload: GoogleTokenIn, request: Request, db: Session = Depends(get_db)) -> GoogleProfileOut:
+    claims = verify_google_id_token(payload.id_token)
+    audit_action(
+        db,
+        None,
+        "google-profile-verified",
+        "auth",
+        metadata={"email": str(claims.get("email") or "").lower()},
+        request=request,
+    )
+    db.commit()
+    return GoogleProfileOut(
+        email=str(claims["email"]).lower(),
+        name=claims.get("name"),
+        google_sub=str(claims["sub"]),
+        email_verified=bool(claims.get("email_verified")),
+    )
+
+
+@app.post("/auth/google/login", response_model=GoogleAuthOut)
+def google_login(payload: GoogleTokenIn, request: Request, db: Session = Depends(get_db)) -> GoogleAuthOut:
+    claims = verify_google_id_token(payload.id_token)
+    email = str(claims["email"]).lower()
+    google_sub = str(claims["sub"])
+    users_all = google_users_for_email(db, email, payload.clinic_id, include_inactive=True)
+    if not users_all:
+        audit_action(db, None, "google-user-not-found", "auth", metadata={"email": email}, result="failure", request=request)
+        audit_action(db, None, "login-google-failed", "auth", metadata={"email": email, "reason": "user_not_found"}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe ningún usuario de Klinia asociado a este correo. Contacta con la dirección de tu clínica.")
+    active_users = [user for user in users_all if user.active]
+    if not active_users:
+        audit_action(db, users_all[0], "google-user-blocked", "auth", users_all[0].id, {"email": email}, result="blocked", request=request)
+        audit_action(db, users_all[0], "login-google-failed", "auth", users_all[0].id, {"reason": "user_blocked"}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Este usuario está bloqueado o desactivado.")
+    if len(active_users) > 1 and not payload.clinic_id:
+        audit_action(db, None, "login-google-clinic-selection-required", "auth", metadata={"email": email}, result="pending", request=request)
+        db.commit()
+        return GoogleAuthOut(
+            requires_clinic_selection=True,
+            choices=[google_choice_for_user(user) for user in active_users],
+            email=email,
+            name=claims.get("name"),
+        )
+    user = active_users[0]
+    ensure_google_link_for_user(db, user, google_sub, request)
+    audit_action(db, user, "login-google-success", "auth", user.id, {"role": user.role.value}, request=request)
+    db.commit()
+    return google_auth_response_for_user(user)
+
+
+@app.post("/auth/google/recovery/verify", response_model=GooglePasswordRecoveryVerifyOut)
+def google_password_recovery_verify(payload: GoogleTokenIn, request: Request, db: Session = Depends(get_db)) -> GooglePasswordRecoveryVerifyOut:
+    claims = verify_google_id_token(payload.id_token)
+    email = str(claims["email"]).lower()
+    audit_action(db, None, "password-recovery-google-started", "auth", metadata={"email": email}, result="requested", request=request)
+    users_all = google_users_for_email(db, email, payload.clinic_id, include_inactive=True)
+    if not users_all:
+        audit_action(db, None, "password-recovery-google-user-not-found", "auth", metadata={"email": email}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe ningún usuario de Klinia asociado a este correo.")
+    active_users = [user for user in users_all if user.active]
+    if not active_users:
+        audit_action(db, users_all[0], "password-recovery-google-user-blocked", "auth", users_all[0].id, {"email": email}, result="blocked", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Este usuario está bloqueado o desactivado.")
+    db.commit()
+    return GooglePasswordRecoveryVerifyOut(
+        email=email,
+        name=claims.get("name"),
+        requires_clinic_selection=len(active_users) > 1 and not payload.clinic_id,
+        choices=[google_choice_for_user(user) for user in active_users],
+    )
+
+
+@app.post("/auth/google/recovery/password", status_code=status.HTTP_204_NO_CONTENT)
+def google_password_recovery_set(payload: GooglePasswordRecoverySetIn, request: Request, db: Session = Depends(get_db)) -> None:
+    claims = verify_google_id_token(payload.id_token)
+    email = str(claims["email"]).lower()
+    google_sub = str(claims["sub"])
+    users_all = google_users_for_email(db, email, payload.clinic_id, include_inactive=True)
+    if not users_all:
+        audit_action(db, None, "password-recovery-google-user-not-found", "auth", metadata={"email": email}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No existe ningún usuario de Klinia asociado a este correo.")
+    active_users = [user for user in users_all if user.active]
+    if not active_users:
+        audit_action(db, users_all[0], "password-recovery-google-user-blocked", "auth", users_all[0].id, {"email": email}, result="blocked", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Este usuario está bloqueado o desactivado.")
+    if len(active_users) > 1 and not payload.clinic_id:
+        audit_action(db, None, "password-recovery-google-failed", "auth", metadata={"email": email, "reason": "clinic_selection_required"}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Clinic selection required for this email")
+    user = active_users[0]
+    ensure_google_link_for_user(db, user, google_sub, request, action="link-google-account")
+    user.password_hash = hash_password(validate_new_password(payload.new_password))
+    user.force_password_change = False
+    audit_action(db, user, "password-recovery-google-success", "user", user.id, {"provider": "google"}, request=request)
+    db.commit()
+
+
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
     email = str(payload.email).lower()
     password = validate_new_password(payload.password)
+    google_claims = verify_google_id_token(payload.google_id_token) if payload.google_id_token else None
+    google_sub = str(google_claims.get("sub")) if google_claims else None
+    if google_claims and str(google_claims.get("email") or "").lower() != email:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Google email does not match registration email")
     existing = db.scalar(
         select(Clinic).where(
             (func.lower(Clinic.email) == email)
@@ -1001,6 +1242,8 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
             )
         )
         if owner and verify_login_password(password, owner.password_hash):
+            if google_sub:
+                ensure_google_link_for_user(db, owner, google_sub, request)
             audit_action(
                 db,
                 owner,
@@ -1047,12 +1290,15 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
         name=payload.owner_name,
         email=email,
         password_hash=hash_password(password),
+        google_sub=google_sub,
         role=UserRole.owner,
         force_password_change=False,
     )
     db.add(user)
     db.flush()
-    audit_action(db, user, "register-clinic", "clinic", clinic.id, {"plan": plan["id"]}, request=request)
+    audit_action(db, user, "register-clinic-google" if google_sub else "register-clinic", "clinic", clinic.id, {"plan": plan["id"], "google": bool(google_sub)}, request=request)
+    if google_sub:
+        audit_action(db, user, "link-google-account", "user", user.id, {"provider": "google", "source": "register-clinic"}, request=request)
     db.commit()
     db.refresh(user)
     token = create_access_token(subject=user.id, clinic_id=user.clinic_id, role=user.role.value)

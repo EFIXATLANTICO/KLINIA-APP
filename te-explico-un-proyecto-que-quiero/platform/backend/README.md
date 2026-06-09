@@ -68,6 +68,20 @@ El portal de pagos usa el Customer Portal de Stripe cuando la clinica tiene `str
 
 El login acepta `clinic_id` o `clinic_email` para evitar ambiguedades si un mismo email existe en varias clinicas.
 
+## Google Login
+
+Google Login es una opcion adicional al login actual por email y contrasena. No crea usuarios automaticamente al iniciar sesion: el backend solo permite entrar con Google si el email verificado ya existe como usuario de Klinia. En el primer acceso correcto vincula `google_sub` al usuario existente sin cambiar rol, clinica, permisos ni contrasena.
+
+Variables:
+
+```env
+GOOGLE_CLIENT_ID=cliente OAuth web de Google
+GOOGLE_CLIENT_SECRET=solo si se migra a flujo OAuth backend
+GOOGLE_REDIRECT_URI=solo si se migra a flujo OAuth backend
+```
+
+El frontend usa Google Identity Services y envia el `id_token` al backend. El backend valida firma, `aud`, issuer, expiracion y `email_verified`.
+
 ## Docker para despliegue
 
 Construir desde la raiz del proyecto:

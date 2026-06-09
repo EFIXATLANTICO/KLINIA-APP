@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     superadmin_email: str | None = None
     superadmin_password: str | None = None
     superadmin_name: str = "Klinia Superadmin"
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -35,6 +38,10 @@ class Settings(BaseSettings):
     @property
     def stripe_enabled(self) -> bool:
         return bool(self.stripe_secret_key)
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.google_client_id)
 
 
 @lru_cache

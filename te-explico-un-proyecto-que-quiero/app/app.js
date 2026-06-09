@@ -763,6 +763,10 @@ let groupDropIns = loadClinicState("group-dropins", []);
 let groupCompletions = loadClinicState("group-completions", []);
 let groupSessionOverrides = normalizeGroupSessionOverrides(loadClinicState("group-session-overrides", []));
 let consentTemplates = loadClinicState("consent-templates", []);
+let googleConfig = { enabled: false, client_id: "" };
+let googleScriptLoading = null;
+let googlePendingContext = "";
+let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
 let sessionPacks = normalizeSessionPacks(loadClinicState("session-packs", []));
 let clinicLogo = loadClinicState("clinic-logo", "");
 let patientConsents = loadClinicState("patient-consents", []);
@@ -2882,6 +2886,58 @@ function updateLocalCurrentSessionPassword(nextPassword) {
   renderLoginProfiles();
 }
 
+async function applyBackendSession(session, me, options = {}) {
+  if (me?.user?.role === "superadmin") {
+    enterSuperadmin(session, me);
+    return { handled: true, session, me };
+  }
+  const cleanIdentifier = String(options.identifier || me?.user?.email || "").trim();
+  const accountKey = options.account?.key || slugifyClinicName(me?.clinic?.name || session.clinic_id || cleanIdentifier || "clinica");
+  const nextAccount = {
+    ...(options.account || {}),
+    key: accountKey,
+    name: me?.clinic?.name || options.account?.name || "Clinica Klinia",
+    email: me?.clinic?.email || options.account?.email || cleanIdentifier,
+    phone: me?.clinic?.phone || options.account?.phone || "",
+    password: options.account?.password || "",
+    ownerEmail: me?.user?.role === "owner" ? me.user.email : (options.account?.ownerEmail || me?.clinic?.email || cleanIdentifier),
+    ownerPassword: options.account?.ownerPassword || "",
+    paymentPlan: normalizeSaasPlanId(me?.clinic?.subscription_plan || options.account?.paymentPlan || "trial"),
+    subscriptionStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.subscriptionStatus || "trialing",
+    billingStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.billingStatus || "trialing",
+    trialEndsAt: (me?.clinic?.trial_ends_at || options.account?.trialEndsAt || "").slice(0, 10) || addDaysIso(todayIso(), 30),
+    backendToken: session.access_token,
+    backendClinicId: session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "",
+    openingStart: me?.clinic?.opening_start || options.account?.openingStart || "09:00",
+    openingEnd: me?.clinic?.opening_end || options.account?.openingEnd || "20:00",
+    workingDays: normalizeWorkingDays(me?.clinic?.working_days || options.account?.workingDays),
+    billingProfile: {
+      ...(options.account?.billingProfile || {}),
+      billingName: me?.clinic?.billing_name || me?.clinic?.name || options.account?.billingProfile?.billingName || "",
+      billingEmail: me?.clinic?.billing_email || me?.clinic?.email || options.account?.billingProfile?.billingEmail || "",
+      taxId: me?.clinic?.tax_id || options.account?.billingProfile?.taxId || "",
+      billingAddress: me?.clinic?.billing_address || options.account?.billingProfile?.billingAddress || ""
+    }
+  };
+  ensureClinicAccount(nextAccount);
+  renderLoginClinics();
+  enterPlatform(backendProfileForUser(me?.user), accountKey);
+  if (session.force_password_change || me?.user?.force_password_change) {
+    showToast("Este usuario tiene pendiente cambiar la clave.", "warning");
+    if (options.currentPassword) {
+      setTimeout(() => openChangePasswordDialog({
+        force: true,
+        currentPassword: options.currentPassword,
+        backendToken: session.access_token,
+        accountKey
+      }), 300);
+    } else {
+      showToast("Puedes crear una clave nueva desde Restablecer > Recuperar con Google.", "warning");
+    }
+  }
+  return { handled: true, session, me, account: nextAccount };
+}
+
 function openChangePasswordDialog(options = {}) {
   const dialog = $("#change-password-dialog");
   const form = $("#change-password-form");
@@ -2997,52 +3053,280 @@ async function tryBackendLogin(identifier, password, options = {}) {
       })
     });
     const me = await backendRequest("/me", { token: session.access_token, auth: false });
-    if (me?.user?.role === "superadmin") {
-      enterSuperadmin(session, me);
-      return { handled: true, session, me };
-    }
-    const accountKey = options.account?.key || slugifyClinicName(me?.clinic?.name || session.clinic_id || cleanIdentifier);
-    const nextAccount = {
-      ...(options.account || {}),
-      key: accountKey,
-      name: me?.clinic?.name || options.account?.name || "Clinica Klinia",
-      email: me?.clinic?.email || options.account?.email || cleanIdentifier,
-      phone: me?.clinic?.phone || options.account?.phone || "",
-      password: options.account?.password || "",
-      ownerEmail: me?.user?.role === "owner" ? me.user.email : (options.account?.ownerEmail || me?.clinic?.email || cleanIdentifier),
-      ownerPassword: options.account?.ownerPassword || "",
-      paymentPlan: normalizeSaasPlanId(me?.clinic?.subscription_plan || options.account?.paymentPlan || "trial"),
-      subscriptionStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.subscriptionStatus || "trialing",
-      billingStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.billingStatus || "trialing",
-      trialEndsAt: (me?.clinic?.trial_ends_at || options.account?.trialEndsAt || "").slice(0, 10) || addDaysIso(todayIso(), 30),
-      backendToken: session.access_token,
-      backendClinicId: session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "",
-      openingStart: me?.clinic?.opening_start || options.account?.openingStart || "09:00",
-      openingEnd: me?.clinic?.opening_end || options.account?.openingEnd || "20:00",
-      workingDays: normalizeWorkingDays(me?.clinic?.working_days || options.account?.workingDays),
-      billingProfile: {
-        ...(options.account?.billingProfile || {}),
-        billingName: me?.clinic?.billing_name || me?.clinic?.name || options.account?.billingProfile?.billingName || "",
-        billingEmail: me?.clinic?.billing_email || me?.clinic?.email || options.account?.billingProfile?.billingEmail || "",
-        taxId: me?.clinic?.tax_id || options.account?.billingProfile?.taxId || "",
-        billingAddress: me?.clinic?.billing_address || options.account?.billingProfile?.billingAddress || ""
-      }
-    };
-    ensureClinicAccount(nextAccount);
-    renderLoginClinics();
-    enterPlatform(backendProfileForUser(me?.user), accountKey);
-    if (session.force_password_change || me?.user?.force_password_change) {
-      showToast("Has entrado con una clave temporal. Debes crear una clave nueva para continuar.", "warning");
-      setTimeout(() => openChangePasswordDialog({
-        force: true,
-        currentPassword: password,
-        backendToken: session.access_token,
-        accountKey
-      }), 300);
-    }
-    return { handled: true, session, me, account: nextAccount };
+    return applyBackendSession(session, me, { ...options, identifier: cleanIdentifier, currentPassword: password });
   } catch (error) {
     return { handled: false, error };
+  }
+}
+
+function googleAuthErrorMessage(error) {
+  if (error?.status === 404) return "No existe ningún usuario de Klinia asociado a este correo. Contacta con la dirección de tu clínica.";
+  if (error?.status === 403) return "Este usuario está bloqueado, desactivado o el correo Google no está verificado.";
+  if (error?.status === 409) return "Este correo existe en más de una clínica. Elige la clínica para continuar.";
+  if (error?.status === 503) return "Entrar con Google aún no está configurado en Klinia.";
+  if (error?.network) return "No se pudo conectar con Klinia para verificar Google.";
+  return error?.message || "No se pudo completar el acceso con Google.";
+}
+
+async function loadGoogleAuthConfig() {
+  try {
+    googleConfig = await backendRequest("/auth/google/config", { auth: false, timeoutMs: 10000 });
+  } catch (error) {
+    googleConfig = { enabled: false, client_id: "" };
+  }
+  return googleConfig;
+}
+
+function loadGoogleScript() {
+  if (window.google?.accounts?.id) {
+    return Promise.resolve();
+  }
+  if (googleScriptLoading) {
+    return googleScriptLoading;
+  }
+  googleScriptLoading = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("No se pudo cargar Google Identity Services."));
+    document.head.append(script);
+  });
+  return googleScriptLoading;
+}
+
+async function initializeGoogleAuth() {
+  await loadGoogleAuthConfig();
+  const slots = $$(".google-auth-slot");
+  if (!slots.length) return;
+  if (!googleConfig.enabled || !googleConfig.client_id) {
+    $$(".google-auth-status").forEach((item) => {
+      item.textContent = "Google estará disponible cuando se configure GOOGLE_CLIENT_ID.";
+    });
+    return;
+  }
+  try {
+    await loadGoogleScript();
+    window.google.accounts.id.initialize({
+      client_id: googleConfig.client_id,
+      callback: handleGoogleCredential,
+      ux_mode: "popup",
+      auto_select: false,
+      cancel_on_tap_outside: true
+    });
+    slots.forEach((slot) => {
+      slot.innerHTML = "";
+      ["click", "mousedown", "touchstart"].forEach((eventName) => {
+        slot.addEventListener(eventName, () => {
+          googlePendingContext = slot.dataset.googleContext || "login";
+        }, { passive: true });
+      });
+      window.google.accounts.id.renderButton(slot, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        shape: "rectangular",
+        text: slot.dataset.googleContext === "register" ? "signup_with" : "signin_with",
+        width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
+        state: slot.dataset.googleContext || "login"
+      });
+    });
+  } catch (error) {
+    $$(".google-auth-status").forEach((item) => {
+      item.textContent = error.message || "No se pudo activar Google.";
+    });
+  }
+}
+
+async function handleGoogleCredential(response = {}) {
+  const idToken = response.credential || "";
+  const context = response.state || googlePendingContext || "login";
+  googlePendingContext = "";
+  if (!idToken) {
+    showToast("Google no devolvió una identidad válida.", "warning");
+    return;
+  }
+  if (context === "register") {
+    await prefillRegisterWithGoogle(idToken);
+    return;
+  }
+  if (context === "recovery") {
+    await verifyGoogleRecovery(idToken);
+    return;
+  }
+  await continueGoogleLogin(idToken);
+}
+
+async function chooseGoogleClinic(choices = [], title = "Elige clínica") {
+  const dialog = $("#google-clinic-choice-dialog");
+  const list = $("#google-clinic-choice-list");
+  if (!dialog || !list || !choices.length) return null;
+  $("#google-clinic-choice-form")?.reset();
+  const error = $("#google-clinic-choice-error");
+  error?.classList.remove("visible");
+  if (error) error.textContent = "";
+  $("#google-clinic-choice-dialog h2").textContent = title;
+  list.innerHTML = choices.map((choice) => `
+    <button class="google-choice-card" type="button" data-google-clinic-id="${escapeHtml(choice.clinic_id || "")}">
+      <strong>${escapeHtml(choice.clinic_name || "Klinia")}</strong>
+      <span>${escapeHtml(choice.name || choice.email || "")} · ${escapeHtml(choice.role || "")}</span>
+    </button>
+  `).join("");
+  return new Promise((resolve) => {
+    let selected = null;
+    const onClick = (event) => {
+      const button = event.target.closest("[data-google-clinic-id]");
+      if (!button) return;
+      selected = button.dataset.googleClinicId || "";
+      dialog.close("selected");
+    };
+    list.addEventListener("click", onClick);
+    dialog.addEventListener("close", () => {
+      list.removeEventListener("click", onClick);
+      resolve(selected);
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+
+async function continueGoogleLogin(idToken, clinicId = "") {
+  setInlineError("#login-error");
+  try {
+    const result = await backendRequest("/auth/google/login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ id_token: idToken, clinic_id: clinicId || undefined })
+    });
+    if (result?.requires_clinic_selection) {
+      const selectedClinicId = await chooseGoogleClinic(result.choices || [], "Entrar con Google");
+      if (selectedClinicId) {
+        await continueGoogleLogin(idToken, selectedClinicId);
+      }
+      return;
+    }
+    if (!result?.access_token) {
+      showLoginError("Google no ha devuelto una sesión válida de Klinia.");
+      return;
+    }
+    const me = await backendRequest("/me", { token: result.access_token, auth: false });
+    await applyBackendSession(result, me, { identifier: result.email || me?.user?.email || "" });
+  } catch (error) {
+    showLoginError(googleAuthErrorMessage(error));
+  }
+}
+
+async function prefillRegisterWithGoogle(idToken) {
+  const form = $("#register-form");
+  if (!form) return;
+  const status = $("#google-register-status");
+  if (status) status.textContent = "Verificando cuenta Google...";
+  try {
+    const profile = await backendRequest("/auth/google/profile", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ id_token: idToken })
+    });
+    form.dataset.googleIdToken = idToken;
+    form.dataset.googleEmail = profile.email || "";
+    if (form.elements.ownerName && profile.name) form.elements.ownerName.value = profile.name;
+    if (form.elements.email && profile.email) form.elements.email.value = profile.email;
+    if (status) status.textContent = `Google verificado: ${profile.email}. Continúa completando la clínica.`;
+    syncRegisterDraftFromForm();
+    updateRegisterConfirmation();
+  } catch (error) {
+    delete form.dataset.googleIdToken;
+    delete form.dataset.googleEmail;
+    if (status) status.textContent = googleAuthErrorMessage(error);
+  }
+}
+
+function resetGoogleRecoveryPanel() {
+  googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
+  $("#google-recovery-panel")?.classList.add("hidden");
+  $("#google-recovery-clinic-field")?.classList.add("hidden");
+  const clinicSelect = $("#google-recovery-clinic");
+  if (clinicSelect) clinicSelect.innerHTML = "";
+  ["#google-recovery-new-password", "#google-recovery-confirm-password"].forEach((selector) => {
+    const input = $(selector);
+    if (input) input.value = "";
+  });
+}
+
+async function verifyGoogleRecovery(idToken) {
+  const error = $("#access-recovery-error");
+  setInlineError("#access-recovery-error");
+  try {
+    const result = await backendRequest("/auth/google/recovery/verify", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ id_token: idToken })
+    });
+    googleRecoveryState = {
+      idToken,
+      email: result.email || "",
+      choices: result.choices || [],
+      selectedClinicId: result.choices?.length === 1 ? result.choices[0].clinic_id : ""
+    };
+    $("#google-recovery-email").textContent = `Correo verificado: ${googleRecoveryState.email}`;
+    const select = $("#google-recovery-clinic");
+    const field = $("#google-recovery-clinic-field");
+    if (select && field && result.requires_clinic_selection) {
+      select.innerHTML = `<option value="">Selecciona clínica</option>${(result.choices || []).map((choice) => `<option value="${escapeHtml(choice.clinic_id || "")}">${escapeHtml(choice.clinic_name || "Klinia")} · ${escapeHtml(choice.role || "")}</option>`).join("")}`;
+      field.classList.remove("hidden");
+    } else {
+      field?.classList.add("hidden");
+    }
+    $("#google-recovery-panel")?.classList.remove("hidden");
+  } catch (backendError) {
+    if (error) {
+      error.textContent = googleAuthErrorMessage(backendError);
+      error.classList.add("visible");
+    }
+  }
+}
+
+async function saveGoogleRecoveredPassword() {
+  const error = $("#access-recovery-error");
+  setInlineError("#access-recovery-error");
+  const newPassword = $("#google-recovery-new-password")?.value || "";
+  const confirmPassword = $("#google-recovery-confirm-password")?.value || "";
+  const selectedClinicId = $("#google-recovery-clinic")?.value || googleRecoveryState.selectedClinicId || "";
+  const policyMessage = registerPasswordPolicyMessage(newPassword).replace("contrasena", "clave");
+  if (!googleRecoveryState.idToken) {
+    setInlineError("#access-recovery-error", "Verifica primero tu correo con Google.");
+    return;
+  }
+  if (googleRecoveryState.choices.length > 1 && !selectedClinicId) {
+    setInlineError("#access-recovery-error", "Selecciona la clínica antes de guardar la nueva clave.");
+    return;
+  }
+  if (policyMessage) {
+    setInlineError("#access-recovery-error", policyMessage);
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    setInlineError("#access-recovery-error", "Las dos claves nuevas no coinciden.");
+    return;
+  }
+  try {
+    await backendRequest("/auth/google/recovery/password", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({
+        id_token: googleRecoveryState.idToken,
+        new_password: newPassword,
+        clinic_id: selectedClinicId || undefined
+      })
+    });
+    $("#access-recovery-dialog")?.close();
+    resetGoogleRecoveryPanel();
+    await showNotice("Clave actualizada", "Ya puedes entrar con tu email y la nueva clave. También podrás usar Google si tu usuario queda vinculado.", { variant: "success" });
+  } catch (backendError) {
+    if (error) {
+      error.textContent = googleAuthErrorMessage(backendError);
+      error.classList.add("visible");
+    }
   }
 }
 
@@ -10023,6 +10307,8 @@ function resetRegisterFlow(planId = "trial") {
   registerDraftState = {};
   registerLogoPreview = "";
   delete form.dataset.registerSubmitting;
+  delete form.dataset.googleIdToken;
+  delete form.dataset.googleEmail;
   setRegisterSubmitting(false);
   form.dataset.registerFlow = normalizeSaasPlanId(planId);
   form.elements.ownerName.value = "";
@@ -10343,6 +10629,7 @@ function setupPublicAccessNavigation() {
       return;
     }
     form.reset();
+    resetGoogleRecoveryPanel();
     form.elements.email.value = $("#login-form")?.elements.center.value.includes("@")
       ? $("#login-form").elements.center.value.trim()
       : "";
@@ -10395,6 +10682,7 @@ function setupLogin() {
   renderLoginClinics();
   showClinicLoginStep({ skipPublicView: true });
   setupPublicAccessNavigation();
+  initializeGoogleAuth();
   showPublicView(publicViewFromHash(), { updateHash: false });
   restoreSuperadminSessionIfAvailable().then((restored) => {
     if (!restored && publicViewFromHash() === "superadmin") {
@@ -10404,6 +10692,10 @@ function setupLogin() {
 
   $("#login-clinic-select").addEventListener("change", renderLoginProfiles);
   $("#login-clinic-select").addEventListener("input", renderLoginProfiles);
+  $("#google-recovery-save-password")?.addEventListener("click", saveGoogleRecoveredPassword);
+  $("#google-recovery-clinic")?.addEventListener("change", (event) => {
+    googleRecoveryState.selectedClinicId = event.target.value || "";
+  });
 
   $("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -10514,6 +10806,13 @@ function setupLogin() {
   $("#register-back-button")?.addEventListener("click", () => moveRegisterStep(-1));
   $("#register-login-button")?.addEventListener("click", goToRegisterLogin);
   $("#register-form").addEventListener("input", () => {
+    const form = $("#register-form");
+    if (form?.dataset.googleEmail && form.elements.email?.value.trim().toLowerCase() !== form.dataset.googleEmail.toLowerCase()) {
+      delete form.dataset.googleIdToken;
+      delete form.dataset.googleEmail;
+      const status = $("#google-register-status");
+      if (status) status.textContent = "Has cambiado el email. Vuelve a verificar Google si quieres vincularlo.";
+    }
     syncRegisterDraftFromForm();
     updateRegisterConfirmation();
   });
@@ -10637,7 +10936,8 @@ function setupLogin() {
           billing_address: billingProfile.billingAddress,
           opening_start: form.elements.openingStart?.value || "09:00",
           opening_end: form.elements.openingEnd?.value || "20:00",
-          working_days: registerWorkingDays
+          working_days: registerWorkingDays,
+          google_id_token: form.dataset.googleIdToken || undefined
         })
       });
       account.backendToken = backendSession.access_token || "";

@@ -25,6 +25,12 @@ services:
         value: https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
       - key: FRONTEND_URL
         value: https://www.kliniasolutions.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
       - key: SUPERADMIN_EMAIL
         sync: false
       - key: SUPERADMIN_PASSWORD

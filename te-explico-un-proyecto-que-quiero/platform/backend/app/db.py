@@ -71,6 +71,8 @@ def ensure_runtime_schema() -> None:
             user_existing = {column["name"] for column in inspector.get_columns("users")}
             if "force_password_change" not in user_existing:
                 connection.execute(text("ALTER TABLE users ADD COLUMN force_password_change BOOLEAN DEFAULT FALSE"))
+            if "google_sub" not in user_existing:
+                connection.execute(text("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)"))
 
         if "audit_logs" in table_names:
             audit_existing = {column["name"] for column in inspector.get_columns("audit_logs")}

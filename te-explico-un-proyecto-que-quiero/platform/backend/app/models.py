@@ -70,6 +70,7 @@ class User(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    google_sub: Mapped[str | None] = mapped_column(String(255), index=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     force_password_change: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

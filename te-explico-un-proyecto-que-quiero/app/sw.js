@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-outside-hours-warning-only-20260608";
+const KLINIA_CACHE = "klinia-google-auth-20260609";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260608-outside-hours-warning-only",
-  "./app.js?v=20260608-outside-hours-warning-only",
+  "./styles.css?v=20260609-google-auth",
+  "./app.js?v=20260609-google-auth",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

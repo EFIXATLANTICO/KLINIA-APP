@@ -28,6 +28,7 @@ class ClinicRegisterIn(BaseModel):
     working_days: list[str] | None = None
     opening_start: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     opening_end: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    google_id_token: str | None = None
 
 
 class LoginIn(BaseModel):
@@ -35,6 +36,57 @@ class LoginIn(BaseModel):
     password: str
     clinic_id: str | None = None
     clinic_email: str | None = Field(default=None, max_length=255)
+
+
+class GoogleConfigOut(BaseModel):
+    enabled: bool
+    client_id: str | None = None
+
+
+class GoogleTokenIn(BaseModel):
+    id_token: str = Field(min_length=20)
+    clinic_id: str | None = None
+
+
+class GoogleClinicChoiceOut(BaseModel):
+    clinic_id: str | None = None
+    clinic_name: str | None = None
+    user_id: str
+    email: str
+    name: str
+    role: UserRole
+
+
+class GoogleAuthOut(BaseModel):
+    access_token: str | None = None
+    token_type: str = "bearer"
+    clinic_id: str | None = None
+    subscription_status: str | None = None
+    force_password_change: bool = False
+    requires_clinic_selection: bool = False
+    choices: list[GoogleClinicChoiceOut] = Field(default_factory=list)
+    email: str | None = None
+    name: str | None = None
+
+
+class GoogleProfileOut(BaseModel):
+    email: EmailStr
+    name: str | None = None
+    google_sub: str
+    email_verified: bool
+
+
+class GooglePasswordRecoveryVerifyOut(BaseModel):
+    email: EmailStr
+    name: str | None = None
+    requires_clinic_selection: bool = False
+    choices: list[GoogleClinicChoiceOut] = Field(default_factory=list)
+
+
+class GooglePasswordRecoverySetIn(BaseModel):
+    id_token: str = Field(min_length=20)
+    new_password: str = Field(min_length=8, max_length=160)
+    clinic_id: str | None = None
 
 
 class AccessRecoveryRequestIn(BaseModel):

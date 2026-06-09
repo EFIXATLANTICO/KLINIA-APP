@@ -175,6 +175,79 @@ body.login-mode .app-shell {
   gap: 12px;
 }
 
+.auth-divider {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  height: 1px;
+  background: var(--line);
+}
+
+.google-auth-slot {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.google-auth-slot > div {
+  max-width: 100%;
+}
+
+.google-auth-status {
+  min-height: 18px;
+  margin: -6px 0 0;
+}
+
+.google-recovery-panel,
+.register-google-box {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(22, 135, 118, 0.16);
+  border-radius: 10px;
+  background: #f4fbf9;
+  padding: 12px;
+}
+
+.google-recovery-panel strong,
+.register-google-box span {
+  color: var(--accent-dark);
+}
+
+.google-choice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.google-choice-card {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+  text-align: left;
+}
+
+.google-choice-card:hover {
+  border-color: var(--accent);
+  background: #f3fbf8;
+}
+
+.google-choice-card span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .link-button {
   border: 0;
   background: transparent;
