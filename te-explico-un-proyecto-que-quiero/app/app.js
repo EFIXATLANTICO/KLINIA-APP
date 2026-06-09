@@ -3194,6 +3194,29 @@ function loadGoogleScript() {
   return googleScriptLoading;
 }
 
+function googleButtonLabel(context) {
+  if (context === "register") return "Crear cuenta con Google";
+  if (context === "recovery") return "Recuperar con Google";
+  return "Iniciar sesión con Google";
+}
+
+function addNeutralGoogleButtonFace(slot, context) {
+  const face = document.createElement("div");
+  face.className = "google-auth-button-face";
+  face.setAttribute("aria-hidden", "true");
+
+  const mark = document.createElement("span");
+  mark.className = "google-auth-button-mark";
+  mark.textContent = "G";
+
+  const label = document.createElement("span");
+  label.className = "google-auth-button-label";
+  label.textContent = googleButtonLabel(context);
+
+  face.append(mark, label);
+  slot.append(face);
+}
+
 async function initializeGoogleAuth() {
   await loadGoogleAuthConfig();
   const slots = $$(".google-auth-slot");
@@ -3221,25 +3244,31 @@ async function initializeGoogleAuth() {
     });
     googleAuthLog("initialize ejecutado");
     slots.forEach((slot) => {
+      const context = slot.dataset.googleContext || "login";
       slot.innerHTML = "";
+      slot.classList.add("google-auth-neutral");
       ["click", "mousedown", "touchstart"].forEach((eventName) => {
         slot.addEventListener(eventName, () => {
-          googlePendingContext = slot.dataset.googleContext || "login";
+          googlePendingContext = context;
         }, { passive: true });
       });
-      window.google.accounts.id.renderButton(slot, {
+      const nativeButton = document.createElement("div");
+      nativeButton.className = "google-auth-native";
+      slot.append(nativeButton);
+      window.google.accounts.id.renderButton(nativeButton, {
         type: "standard",
         theme: "outline",
         size: "large",
         shape: "rectangular",
-        text: slot.dataset.googleContext === "register" ? "signup_with" : "signin_with",
+        text: context === "register" ? "signup_with" : "signin_with",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
-        state: slot.dataset.googleContext || "login",
+        state: context,
         click_listener: () => {
-          googlePendingContext = slot.dataset.googleContext || "login";
+          googlePendingContext = context;
         }
       });
-      googleAuthLog("renderButton ejecutado", { context: slot.dataset.googleContext || "login" });
+      addNeutralGoogleButtonFace(slot, context);
+      googleAuthLog("renderButton ejecutado", { context });
     });
     $$(".google-auth-status").forEach((item) => {
       item.textContent = "";
