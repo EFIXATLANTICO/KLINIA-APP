@@ -36,8 +36,8 @@ const defaultClinic = {
 
 const saasPlans = [
   { id: "trial", name: "Demo", price: 0, interval: "1 mes gratis", summary: "Demo - 1 mes gratis" },
-  { id: "kliniaplan", name: "Kliniaplan mensual", price: 50, interval: "mes", summary: "Kliniaplan - 50 EUR/mes" },
-  { id: "kliniaplan_annual", name: "Kliniaplan anual", price: 500, interval: "año", summary: "Kliniaplan - 500 EUR/año" }
+  { id: "kliniaplan", name: "Plan Profesional mensual", price: 50, interval: "mes", summary: "Profesional - 50 EUR/mes" },
+  { id: "kliniaplan_annual", name: "Plan Profesional anual", price: 500, interval: "año", summary: "Profesional - 500 EUR/año" }
 ];
 
 function todayIso(offsetDays = 0) {
@@ -9099,6 +9099,7 @@ function renderSaasSettings() {
   const plan = saasPlanById(account.paymentPlan);
   const status = account.subscriptionStatus || account.billingStatus || "trialing";
   const professionalPlan = saasPlanById("kliniaplan");
+  const annualPlan = saasPlanById("kliniaplan_annual");
   const statusCard = $("#saas-status-card");
   const billingForm = $("#saas-billing-form");
   if (!statusCard || !billingForm) {
@@ -9114,55 +9115,101 @@ function renderSaasSettings() {
     : account.trialEndsAt
       ? formatShortDate(account.trialEndsAt)
       : "Pendiente";
-  const displayPlanName = account.paymentPlan === "trial" ? "Demo gratuita" : "Plan Profesional";
+  const displayPlanName = account.paymentPlan === "trial"
+    ? "Demo gratuita"
+    : account.paymentPlan === "kliniaplan_annual"
+      ? "Plan Profesional anual"
+      : "Plan Profesional";
   const displayedPaidPlan = account.paymentPlan === "kliniaplan_annual" ? saasPlanById("kliniaplan_annual") : professionalPlan;
+  const currentPriceText = account.paymentPlan === "trial"
+    ? "1 mes gratis"
+    : `${plan.price} EUR / ${plan.interval}`;
+  const annualEquivalent = annualPlan.price ? (annualPlan.price / 12).toFixed(2).replace(".", ",") : "41,67";
+  const demoSelectable = isTrial && remainingDays > 0 && !account.stripeCustomerId;
 
   $("#subscription-trial-badge").textContent = isTrial
-    ? `Quedan ${remainingDays} dias de prueba`
+    ? `Quedan ${remainingDays} días de prueba`
     : subscriptionStatusLabel(status);
   $("#subscription-plan-title").textContent = displayPlanName;
   $("#subscription-plan-state").textContent = subscriptionStatusLabel(status);
   $("#subscription-plan-copy").textContent = isTrial
-    ? "Estas en periodo de prueba gratuita con acceso completo a Klinia."
-    : "Tu clinica usa el plan profesional conectado al estado comercial guardado.";
-  $("#subscription-days-left").textContent = isTrial ? `${remainingDays} dias` : "-";
-  $("#subscription-renewal-date").textContent = isTrial ? `Renovacion ${nextChargeDate}` : `Proximo cobro ${nextChargeDate}`;
+    ? "Estás en periodo de prueba gratuita con acceso completo a Klinia."
+    : "Tu clínica usa el plan profesional conectado al estado comercial guardado.";
+  $("#subscription-days-left").textContent = isTrial ? `${remainingDays} días` : "-";
+  $("#subscription-renewal-date").textContent = isTrial ? `Renovación ${nextChargeDate}` : `Próximo cobro ${nextChargeDate}`;
   $("#subscription-after-price").textContent = `${displayedPaidPlan.price} EUR / ${displayedPaidPlan.interval}`;
-  $("#start-subscription").textContent = account.stripeCustomerId
-    ? "Ver mi plan"
-    : account.paymentPlan === "trial"
-      ? "Activar plan"
-      : "Preparar pago";
 
   statusCard.innerHTML = isTrial
-    ? `<strong>Al finalizar tu prueba gratuita</strong><span>Tu plan pasara a Profesional y se cobrara ${professionalPlan.price} EUR cada mes cuando Stripe este conectado.</span>`
+    ? `<strong>Al finalizar tu prueba gratuita</strong><span>Tu plan pasará a Profesional y se cobrará ${professionalPlan.price} EUR al mes cuando Stripe esté conectado.</span>`
     : `<strong>${subscriptionStatusLabel(status)}</strong><span>${account.stripeCustomerId ? "Cliente Stripe conectado." : "Pago pendiente de conectar con Stripe."}</span>`;
+
+  const currentPlan = $("#subscription-current-plan");
+  if (currentPlan) {
+    currentPlan.innerHTML = `
+      <div>
+        <span>Plan actual</span>
+        <strong>${escapeHtml(displayPlanName)}</strong>
+        <small>${escapeHtml(currentPriceText)} · ${escapeHtml(subscriptionStatusLabel(status))}</small>
+      </div>
+      <div>
+        <span>Frecuencia</span>
+        <strong>${escapeHtml(plan.interval)}</strong>
+        <small>${isTrial ? "Solo para nuevos clientes" : "IVA no incluido"}</small>
+      </div>
+    `;
+  }
 
   const options = $("#settings-plan-options");
   if (options) {
-    options.innerHTML = saasPlans.map((item) => `
-      <label class="plan-option ${item.id === account.paymentPlan ? "selected" : ""}">
-        <input name="settingsPaymentPlan" type="radio" value="${item.id}" ${item.id === account.paymentPlan ? "checked" : ""} />
-        <strong>${item.name}</strong>
-        <span>${item.summary}</span>
-        <small>${item.price ? `${item.price} EUR/${item.interval}` : "0 EUR"}</small>
-      </label>
+    const planCards = [
+      {
+        id: "trial",
+        title: "Demo",
+        badge: "Solo para nuevos clientes",
+        price: "1 mes gratis",
+        detail: "Mismas funciones que Profesional.",
+        note: "Disponible solo durante la prueba inicial.",
+        disabled: !demoSelectable || account.paymentPlan === "trial",
+        disabledLabel: account.paymentPlan === "trial" && demoSelectable ? "Plan actual" : "No seleccionable"
+      },
+      {
+        id: "kliniaplan",
+        title: "Plan Profesional mensual",
+        badge: "Recomendado",
+        price: `${professionalPlan.price} EUR/mes`,
+        detail: "Todas las funciones incluidas.",
+        note: "Profesionales ilimitados y soporte prioritario.",
+        disabled: account.paymentPlan === "kliniaplan",
+        disabledLabel: "Plan actual"
+      },
+      {
+        id: "kliniaplan_annual",
+        title: "Plan Profesional anual",
+        badge: "Ahorra 2 meses",
+        price: `${annualPlan.price} EUR/año`,
+        detail: `Equivale a ${annualEquivalent} EUR/mes.`,
+        note: "Todas las funciones con ahorro anual.",
+        disabled: account.paymentPlan === "kliniaplan_annual",
+        disabledLabel: "Plan actual"
+      }
+    ];
+    options.innerHTML = planCards.map((item) => `
+      <article class="subscription-plan-card ${item.id === account.paymentPlan ? "selected" : ""} ${item.disabled ? "disabled" : ""}">
+        <span class="subscription-plan-badge">${escapeHtml(item.badge)}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+        <span class="subscription-plan-price">${escapeHtml(item.price)}</span>
+        <p>${escapeHtml(item.detail)}</p>
+        <ul>
+          <li>Citas, pacientes y agenda</li>
+          <li>Facturación y rendimiento</li>
+          <li>Recordatorios y permisos</li>
+        </ul>
+        <small>${escapeHtml(item.note)}</small>
+        <button class="${item.disabled ? "secondary-button" : "primary-button"}" type="button" data-subscription-plan-action="${escapeHtml(item.id)}" ${item.disabled ? "disabled" : ""}>${item.disabled ? escapeHtml(item.disabledLabel) : "Seleccionar"}</button>
+      </article>
     `).join("");
-    $$('input[name="settingsPaymentPlan"]').forEach((input) => {
-      input.addEventListener("change", () => {
-        clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
-          item.key === activeClinicKey
-            ? {
-                ...item,
-                paymentPlan: input.value,
-                subscriptionStatus: input.value === "trial" ? "trialing" : "incomplete",
-                billingStatus: input.value === "trial" ? "trial" : "pending_stripe"
-              }
-            : item
-        )));
-        saveClinicAccounts();
-        renderSaasSettings();
-      });
+    options.querySelectorAll("[data-subscription-plan-action]").forEach((button) => {
+      button.addEventListener("click", () => handleSubscriptionPlanSelection(button.dataset.subscriptionPlanAction, button));
     });
   }
 
@@ -9171,11 +9218,11 @@ function renderSaasSettings() {
     const amount = account.paymentPlan === "trial" ? "0,00 EUR durante la prueba" : `${plan.price},00 EUR + IVA`;
     billingSummary.innerHTML = `
       <div class="subscription-billing-row">
-        <span>Metodo de pago</span>
+        <span>Método de pago</span>
         <strong>${account.stripeCustomerId ? "Stripe conectado" : "Pendiente de Stripe"}</strong>
       </div>
       <div class="subscription-billing-row">
-        <span>Proximo cobro</span>
+        <span>Próximo cobro</span>
         <strong>${nextChargeDate}</strong>
       </div>
       <div class="subscription-billing-row">
@@ -9201,13 +9248,110 @@ function renderSaasSettings() {
           <td><span class="status-pill ${escapeHtml(item.status || "pending")}">${escapeHtml(item.statusLabel || item.status || "Pendiente")}</span></td>
         </tr>
       `).join("")
-      : `<tr><td colspan="4">Todavia no hay facturas SaaS reales asociadas a esta clinica.</td></tr>`;
+      : `<tr><td colspan="4">Todavía no hay facturas SaaS asociadas a esta clínica.</td></tr>`;
   }
 
   billingForm.elements.billingName.value = account.billingProfile?.billingName || clinic.name || "";
   billingForm.elements.taxId.value = account.billingProfile?.taxId || "";
   billingForm.elements.billingEmail.value = account.billingProfile?.billingEmail || clinic.email || "";
   billingForm.elements.billingAddress.value = account.billingProfile?.billingAddress || "";
+}
+
+function openPaymentPopup(statusSelector = "#saas-save-status") {
+  const opened = window.open("about:blank", "_blank");
+  if (!opened) {
+    const statusEl = $(statusSelector);
+    if (statusEl) {
+      statusEl.textContent = "El navegador bloqueó la ventana de Stripe. Permite ventanas emergentes para Klinia e inténtalo de nuevo.";
+    }
+    return null;
+  }
+  opened.opener = null;
+  return opened;
+}
+
+async function openSubscriptionPaymentUrl(endpoint, payload, fallbackStatusSelector = "#saas-save-status", popupWindow = null) {
+  const account = currentClinicAccount();
+  if (!backendTokenForAccount(account)) {
+    throw new Error("Esta clínica no tiene sesión backend activa. Inicia sesión con Dirección para gestionar pagos.");
+  }
+  const session = await backendRequest(endpoint, {
+    method: "POST",
+    account,
+    body: JSON.stringify(payload || {})
+  });
+  if (session?.url && session.demo_mode !== true) {
+    if (popupWindow && !popupWindow.closed) {
+      popupWindow.location.href = session.url;
+    } else {
+      const opened = window.open(session.url, "_blank");
+      if (!opened) {
+        const statusEl = $(fallbackStatusSelector);
+        if (statusEl) {
+          statusEl.textContent = "El navegador bloqueó la ventana de Stripe. Permite ventanas emergentes para Klinia e inténtalo de nuevo.";
+        }
+        throw new Error("Ventana de Stripe bloqueada por el navegador.");
+      }
+      opened.opener = null;
+    }
+    return session;
+  }
+  throw new Error("Stripe no devolvió una URL de pago disponible.");
+}
+
+async function handleSubscriptionPlanSelection(planId, button = null) {
+  const normalizedPlanId = normalizeSaasPlanId(planId);
+  const selectedPlan = saasPlanById(normalizedPlanId);
+  if (normalizedPlanId === "trial") {
+    showNotice("Demo no seleccionable", "La demo gratuita está disponible solo para nuevos clientes durante el primer mes.", { variant: "info" });
+    return;
+  }
+  const confirmed = await showConfirm({
+    eyebrow: "Cambio de plan",
+    title: `¿Estás seguro que deseas cambiar al plan ${selectedPlan.name}?`,
+    message: "El cambio se aplicará inmediatamente o en el próximo ciclo de facturación según corresponda.",
+    detail: "Continuarás al pago en Stripe en una pestaña nueva. Klinia permanecerá abierta.",
+    confirmLabel: "Continuar al pago",
+    variant: "primary"
+  });
+  if (!confirmed) {
+    return;
+  }
+  const checkoutWindow = openPaymentPopup();
+  if (!checkoutWindow) {
+    return;
+  }
+  const originalText = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Abriendo Stripe...";
+  }
+  try {
+    await openSubscriptionPaymentUrl("/billing/checkout-session", { plan: normalizedPlanId }, "#saas-save-status", checkoutWindow);
+    clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
+      item.key === activeClinicKey
+        ? {
+            ...item,
+            pendingPaymentPlan: normalizedPlanId,
+            subscriptionStatus: "pending_stripe",
+            billingStatus: "pending_stripe"
+          }
+        : item
+    )));
+    saveClinicAccounts();
+    $("#saas-save-status").textContent = "Stripe se ha abierto en una pestaña nueva. Klinia sigue abierta para que puedas continuar.";
+  } catch (error) {
+    if (checkoutWindow && !checkoutWindow.closed) {
+      checkoutWindow.close();
+    }
+    $("#saas-save-status").textContent = `No se pudo abrir Checkout: ${error.message}`;
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.textContent = originalText || "Seleccionar";
+    }
+    renderSaasSettings();
+  }
 }
 
 
@@ -9257,108 +9401,61 @@ function setupSaasSettings() {
     renderSaasSettings();
   });
 
-  $("#start-subscription")?.addEventListener("click", async () => {
-    const account = currentClinicAccount();
-    const selectedPlan = account.paymentPlan === "trial" ? "kliniaplan" : account.paymentPlan;
-    const button = $("#start-subscription");
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Abriendo Stripe...";
-    }
-    try {
-      if (!backendTokenForAccount(account)) {
-        throw new Error("Esta clinica no tiene sesion backend. Inicia sesion con el usuario de Direccion o vuelve a crear/vincular la clinica.");
-      }
-      const session = await backendRequest("/billing/checkout-session", {
-        method: "POST",
-        account,
-        body: JSON.stringify({ plan: selectedPlan })
-      });
-if (session?.url) {
-    window.location.href = session.url;
-    return;
-}
-
-throw new Error("Stripe no devolvio URL de checkout");
-    } catch (error) {
-      $("#saas-save-status").textContent = `No se pudo abrir Checkout: ${error.message}`;
-    } finally {
-      if (button?.isConnected) {
-        button.disabled = false;
-      }
-    }
-    clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
-      item.key === activeClinicKey
-        ? {
-            ...item,
-            paymentPlan: selectedPlan,
-            subscriptionStatus: "pending_stripe",
-            billingStatus: "pending_stripe",
-            checkoutUrl: item.checkoutUrl || ""
-          }
-        : item
-    )));
-    saveClinicAccounts();
-    renderSaasSettings();
-  });
-
   $("#open-billing-portal")?.addEventListener("click", async () => {
-    const account = currentClinicAccount();
+    const portalWindow = openPaymentPopup();
+    if (!portalWindow) {
+      return;
+    }
     try {
-      if (!backendTokenForAccount(account)) {
-        throw new Error("Esta clinica no tiene sesion backend activa.");
-      }
-      const session = await backendRequest("/billing/portal-session", {
-        method: "POST",
-        account,
-        body: JSON.stringify({})
-      });
-      if (session?.url && session.demo_mode === false) {
-        window.location.href = session.url;
-        return;
-      }
-      $("#saas-save-status").textContent = "El portal estara disponible cuando exista cliente Stripe real.";
+      await openSubscriptionPaymentUrl("/billing/portal-session", {}, "#saas-save-status", portalWindow);
+      $("#saas-save-status").textContent = "El portal de pagos se ha abierto en una pestaña nueva.";
     } catch (error) {
+      if (portalWindow && !portalWindow.closed) {
+        portalWindow.close();
+      }
       $("#saas-save-status").textContent = `No se pudo abrir el portal: ${error.message}`;
     }
   });
 
   $("#subscription-change-plan")?.addEventListener("click", () => {
-    $(".subscription-plan-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#subscription-plan-selection")?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   $("#cancel-subscription")?.addEventListener("click", async () => {
     const account = currentClinicAccount();
+    const confirmed = await showConfirm({
+      title: "¿Estás seguro que deseas cancelar tu suscripción?",
+      message: account.stripeCustomerId
+        ? "Abriremos el portal de pagos para completar la cancelación de forma segura."
+        : "Se marcará esta prueba o suscripción local como cancelada.",
+      detail: "Podrás seguir usando Klinia hasta el final del periodo activo si Stripe lo permite.",
+      confirmLabel: "Cancelar suscripción"
+    });
+    if (!confirmed) return;
     if (backendTokenForAccount(account) && account.stripeCustomerId) {
+      const cancelWindow = openPaymentPopup();
+      if (!cancelWindow) {
+        return;
+      }
       try {
-        const session = await backendRequest("/billing/portal-session", {
-          method: "POST",
-          account,
-          body: JSON.stringify({})
-        });
-        if (session?.url && session.demo_mode === false) {
-          window.location.href = session.url;
-          return;
-        }
+        await openSubscriptionPaymentUrl("/billing/portal-session", {}, "#saas-save-status", cancelWindow);
+        $("#saas-save-status").textContent = "El portal de pagos se ha abierto en una pestaña nueva para cancelar la suscripción.";
+        return;
       } catch (error) {
+        if (cancelWindow && !cancelWindow.closed) {
+          cancelWindow.close();
+        }
         $("#saas-save-status").textContent = `No se pudo abrir el portal de pagos: ${error.message}`;
         return;
       }
     }
-    const confirmed = await showConfirm({
-      title: "Cancelar suscripcion",
-      message: "Quieres marcar esta prueba o suscripcion local como cancelada?",
-      detail: "Las suscripciones reales con Stripe se cancelan desde el portal de pagos. Esta accion solo afecta a cuentas sin cliente Stripe conectado.",
-      confirmLabel: "Cancelar suscripcion"
-    });
-    if (!confirmed) return;
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
       item.key === activeClinicKey
         ? { ...item, subscriptionStatus: "canceled", billingStatus: "canceled" }
         : item
     )));
     saveClinicAccounts();
-    $("#saas-save-status").textContent = "Suscripcion marcada como cancelada en esta instalacion local.";
+    $("#saas-save-status").textContent = "Suscripción marcada como cancelada en esta instalación local.";
     renderSaasSettings();
   });
 

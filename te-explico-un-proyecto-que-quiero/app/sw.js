@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-performance-service-breakdown-20260610";
+const KLINIA_CACHE = "klinia-subscription-redesign-20260610";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260610-performance-service-breakdown",
-  "./app.js?v=20260610-performance-service-breakdown",
+  "./styles.css?v=20260610-subscription-redesign",
+  "./app.js?v=20260610-subscription-redesign",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -16,7 +16,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260610-performance-service-breakdown" />
+    <link rel="stylesheet" href="./styles.css?v=20260610-subscription-redesign" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -1120,7 +1120,7 @@
 
           <article class="subscription-overview-card">
             <div class="subscription-plan-main">
-              <span class="subscription-plan-icon">K</span>
+              <span class="subscription-plan-icon"><img src="./assets/klinia-logo.svg" alt="" /></span>
               <div>
                 <strong id="subscription-plan-title">Plan</strong>
                 <span id="subscription-plan-state">Estado</span>
@@ -1138,8 +1138,7 @@
               <small>IVA no incluido</small>
             </div>
             <div class="subscription-overview-actions">
-              <button class="secondary-button" type="button" id="start-subscription">Ver mi plan</button>
-              <button class="ghost-button" type="button" id="subscription-change-plan">Cambiar de plan</button>
+              <button class="primary-button" type="button" id="subscription-change-plan">Cambiar plan</button>
             </div>
             <div class="subscription-overview-note" id="saas-status-card"></div>
           </article>
@@ -1149,10 +1148,10 @@
               <div class="section-header">
                 <div>
                   <h2>Detalles de tu plan</h2>
-                  <p>Selecciona el estado comercial de esta clínica sin mezclarlo con sus datos operativos.</p>
+                  <p>Información actual de tu suscripción SaaS.</p>
                 </div>
               </div>
-              <div class="plan-options subscription-plan-options" id="settings-plan-options"></div>
+              <div class="subscription-current-plan" id="subscription-current-plan"></div>
               <ul class="subscription-feature-list">
                 <li>Citas y agenda diaria y semanal</li>
                 <li>Gestión de pacientes y ficha clínica</li>
@@ -1161,6 +1160,16 @@
                 <li>Rendimiento y métricas de clínica</li>
                 <li>Recordatorios y automatizaciones</li>
               </ul>
+              <section class="subscription-plan-selection" id="subscription-plan-selection">
+                <div class="section-header">
+                  <div>
+                    <h2>Elegir nuevo plan</h2>
+                    <p>Selecciona el plan que mejor se adapta a tu clínica.</p>
+                  </div>
+                </div>
+                <div class="plan-options subscription-plan-options" id="settings-plan-options"></div>
+                <p class="subscription-plan-footnote">Puedes cambiar de plan en cualquier momento. Los pagos reales se gestionan de forma segura con Stripe.</p>
+              </section>
             </article>
 
             <article class="settings-panel subscription-billing-panel">
@@ -1223,12 +1232,12 @@
               <div class="section-header">
                 <div>
                   <h2>Cancelar suscripción</h2>
-                  <p>La cancelación local no sustituye al portal de pagos cuando Stripe esté conectado.</p>
+                  <p>Gestiona la baja de forma segura antes de finalizar el periodo activo.</p>
                 </div>
               </div>
               <div class="subscription-warning">
                 <strong>Ten en cuenta que:</strong>
-                <span>No se realizan reembolsos automáticos ni cambios en Stripe desde esta versión local.</span>
+                <span>La cancelación de una suscripción conectada debe completarse desde el portal de pagos para mantener Stripe sincronizado.</span>
               </div>
               <button class="danger-button" type="button" id="cancel-subscription">Cancelar suscripción</button>
             </article>
@@ -2708,7 +2717,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260610-performance-service-breakdown"></script>
+    <script src="./app.js?v=20260610-subscription-redesign"></script>
   </body>
 </html>
 

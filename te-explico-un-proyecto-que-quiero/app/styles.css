@@ -4231,7 +4231,7 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 }
 
 .subscription-overview-card {
-  background: linear-gradient(135deg, #f7fbf8 0%, #eef8f5 100%);
+  background: linear-gradient(135deg, #fbfdfc 0%, #eff8f5 100%);
   border: 1px solid rgba(22, 135, 118, 0.22);
   border-radius: 8px;
   display: grid;
@@ -4250,8 +4250,8 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 
 .subscription-plan-icon {
   align-items: center;
-  background: #dff3ee;
-  border-radius: 50%;
+  background: #10231f;
+  border-radius: 12px;
   color: var(--accent);
   display: inline-flex;
   flex: 0 0 74px;
@@ -4259,6 +4259,13 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   font-weight: 900;
   height: 74px;
   justify-content: center;
+  overflow: hidden;
+}
+
+.subscription-plan-icon img {
+  display: block;
+  height: 100%;
+  width: 100%;
 }
 
 .subscription-plan-main strong,
@@ -4332,7 +4339,129 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 }
 
 .subscription-plan-options {
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.subscription-current-plan {
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.subscription-current-plan > div {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+}
+
+.subscription-current-plan > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.subscription-current-plan span,
+.subscription-current-plan small,
+.subscription-plan-card small,
+.subscription-plan-card p,
+.subscription-plan-footnote {
+  color: var(--muted);
+}
+
+.subscription-current-plan strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.subscription-plan-selection {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.subscription-plan-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  min-height: 100%;
+  padding: 16px;
+  position: relative;
+}
+
+.subscription-plan-card.selected {
+  border-color: rgba(22, 135, 118, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(22, 135, 118, 0.22);
+}
+
+.subscription-plan-card.disabled {
+  background: #fafbf9;
+}
+
+.subscription-plan-badge {
+  align-self: start;
+  background: #dff3ee;
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  justify-self: start;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.subscription-plan-card > strong {
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.subscription-plan-price {
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.subscription-plan-card ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.subscription-plan-card li {
+  color: var(--ink);
+  font-size: 13px;
+  padding-left: 18px;
+  position: relative;
+}
+
+.subscription-plan-card li::before {
+  color: var(--accent);
+  content: "✓";
+  font-weight: 900;
+  left: 0;
+  position: absolute;
+}
+
+.subscription-plan-card button {
+  align-self: end;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.subscription-plan-footnote {
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.subscription-feature-list li::before {
+  content: "\2713";
 }
 
 .subscription-feature-list {
@@ -4357,6 +4486,10 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   font-weight: 900;
   left: 0;
   position: absolute;
+}
+
+.subscription-feature-list li::before {
+  content: "\2713";
 }
 
 .subscription-billing-summary {
@@ -4958,8 +5091,14 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   }
 
   .subscription-feature-list,
-  .subscription-plan-options {
+  .subscription-plan-options,
+  .subscription-current-plan {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-current-plan > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 
   .patient-consent-layout,
@@ -5691,6 +5830,7 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   }
 
   .subscription-overview-actions .primary-button,
+  .subscription-plan-card button,
   .subscription-overview-actions .ghost-button,
   .subscription-support-strip .secondary-button {
     width: 100%;
