@@ -1392,6 +1392,73 @@ h2 {
   display: none;
 }
 
+.billing-advanced-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 12px;
+  padding: 0;
+}
+
+.billing-advanced-panel summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.billing-advanced-panel summary span {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.billing-advanced-panel summary small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.billing-advanced-grid {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  padding: 14px 16px 16px;
+}
+
+.billing-advanced-grid label {
+  color: var(--muted);
+  display: grid;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 6px;
+  min-width: 0;
+}
+
+.billing-advanced-grid label.is-hidden {
+  display: none;
+}
+
+.billing-simple-view {
+  align-content: end;
+  grid-auto-flow: column;
+  justify-content: start;
+}
+
+.billing-advanced-actions {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.billing-advanced-actions button {
+  min-height: 40px;
+}
+
 .pagination-bar {
   align-items: center;
   display: flex;
@@ -5031,8 +5098,18 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   }
 
   .billing-filters,
+  .billing-advanced-grid,
   .service-commission-grid,
   .clinic-hours-fieldset {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-advanced-panel summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .billing-advanced-actions {
     grid-template-columns: 1fr;
   }
 

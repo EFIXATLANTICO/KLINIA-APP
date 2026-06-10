@@ -799,15 +799,25 @@ let backendAutoSyncInProgress = false;
 let backendLastSyncAt = 0;
 const backendAutoSyncIntervalMs = 30000;
 const backendAutoSyncMinIntervalMs = 8000;
-let billingFilterState = loadState("billing-filter-state", {
+const defaultBillingFilterState = {
   mode: "current-month",
   day: todayIso(),
   month: todayIso().slice(0, 7),
   from: monthStartIso(todayIso()),
   to: monthEndIso(todayIso()),
   sort: "desc",
+  practitionerId: "",
+  patientQuery: "",
+  appointmentStatus: "",
+  paymentState: "",
+  paymentMethod: "",
+  serviceId: "",
+  minAmount: "",
+  maxAmount: "",
+  simplified: false,
   page: 1
-});
+};
+let billingFilterState = { ...defaultBillingFilterState, ...loadState("billing-filter-state", {}) };
 let lastBillingReport = null;
 let pendingImportSnapshot = null;
 let pendingImportAnalysis = null;
@@ -7672,12 +7682,138 @@ function updateBillingFilterControls() {
   $("#billing-filter-from").value = billingFilterState.from || monthStartIso(todayIso());
   $("#billing-filter-to").value = billingFilterState.to || monthEndIso(todayIso());
   $("#billing-sort-order").value = billingFilterState.sort || "desc";
+  const advancedMode = $("#billing-advanced-date-mode");
+  if (advancedMode) advancedMode.value = mode;
+  if ($("#billing-advanced-day")) $("#billing-advanced-day").value = billingFilterState.day || selectedDate || todayIso();
+  if ($("#billing-advanced-month")) $("#billing-advanced-month").value = billingFilterState.month || todayIso().slice(0, 7);
+  if ($("#billing-advanced-from")) $("#billing-advanced-from").value = billingFilterState.from || monthStartIso(todayIso());
+  if ($("#billing-advanced-to")) $("#billing-advanced-to").value = billingFilterState.to || monthEndIso(todayIso());
+  if ($("#billing-advanced-sort-order")) $("#billing-advanced-sort-order").value = billingFilterState.sort || "desc";
+  if ($("#billing-filter-patient")) $("#billing-filter-patient").value = billingFilterState.patientQuery || "";
+  if ($("#billing-filter-appointment-status")) $("#billing-filter-appointment-status").value = billingFilterState.appointmentStatus || "";
+  if ($("#billing-filter-payment-state")) $("#billing-filter-payment-state").value = billingFilterState.paymentState || "";
+  if ($("#billing-filter-payment-method")) $("#billing-filter-payment-method").value = billingFilterState.paymentMethod || "";
+  if ($("#billing-filter-min-amount")) $("#billing-filter-min-amount").value = billingFilterState.minAmount || "";
+  if ($("#billing-filter-max-amount")) $("#billing-filter-max-amount").value = billingFilterState.maxAmount || "";
+  if ($("#billing-simplified-view")) $("#billing-simplified-view").checked = Boolean(billingFilterState.simplified);
+  populateBillingAdvancedFilterOptions();
   updateBillingFilterFieldVisibility(mode);
+  updateBillingAdvancedDateVisibility(mode);
 }
 
 function updateBillingFilterFieldVisibility(mode = $("#billing-filter-mode")?.value || "current-month") {
   $$("[data-billing-filter-field]").forEach((field) => {
     field.classList.toggle("is-hidden", field.dataset.billingFilterField !== mode);
+  });
+}
+
+function updateBillingAdvancedDateVisibility(mode = $("#billing-advanced-date-mode")?.value || "current-month") {
+  $$("[data-billing-advanced-date-field]").forEach((field) => {
+    field.classList.toggle("is-hidden", field.dataset.billingAdvancedDateField !== mode);
+  });
+}
+
+function populateBillingAdvancedFilterOptions() {
+  const practitionerSelect = $("#billing-filter-practitioner");
+  if (practitionerSelect) {
+    const selected = billingFilterState.practitionerId || "";
+    practitionerSelect.innerHTML = "";
+    practitionerSelect.append(new Option("Todos los profesionales", ""));
+    practitioners
+      .slice()
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"))
+      .forEach((practitioner) => practitionerSelect.append(new Option(practitioner.name || "Profesional", practitioner.id)));
+    practitionerSelect.value = selected;
+  }
+  const serviceSelect = $("#billing-filter-service");
+  if (serviceSelect) {
+    const selected = billingFilterState.serviceId || "";
+    serviceSelect.innerHTML = "";
+    serviceSelect.append(new Option("Todos los servicios", ""));
+    services
+      .slice()
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"))
+      .forEach((service) => serviceSelect.append(new Option(service.name || "Servicio", service.id)));
+    serviceSelect.value = selected;
+  }
+}
+
+function readBillingFilters(source = "quick") {
+  const advanced = source === "advanced";
+  const mode = advanced ? ($("#billing-advanced-date-mode")?.value || "current-month") : ($("#billing-filter-mode")?.value || "current-month");
+  return {
+    ...billingFilterState,
+    mode,
+    day: advanced ? ($("#billing-advanced-day")?.value || todayIso()) : ($("#billing-filter-day")?.value || todayIso()),
+    month: advanced ? ($("#billing-advanced-month")?.value || todayIso().slice(0, 7)) : ($("#billing-filter-month")?.value || todayIso().slice(0, 7)),
+    from: advanced ? ($("#billing-advanced-from")?.value || monthStartIso(todayIso())) : ($("#billing-filter-from")?.value || monthStartIso(todayIso())),
+    to: advanced ? ($("#billing-advanced-to")?.value || monthEndIso(todayIso())) : ($("#billing-filter-to")?.value || monthEndIso(todayIso())),
+    sort: advanced ? ($("#billing-advanced-sort-order")?.value || "desc") : ($("#billing-sort-order")?.value || "desc"),
+    practitionerId: advanced ? ($("#billing-filter-practitioner")?.value || "") : (billingFilterState.practitionerId || ""),
+    patientQuery: advanced ? ($("#billing-filter-patient")?.value || "").trim() : (billingFilterState.patientQuery || ""),
+    appointmentStatus: advanced ? ($("#billing-filter-appointment-status")?.value || "") : (billingFilterState.appointmentStatus || ""),
+    paymentState: advanced ? ($("#billing-filter-payment-state")?.value || "") : (billingFilterState.paymentState || ""),
+    paymentMethod: advanced ? ($("#billing-filter-payment-method")?.value || "") : (billingFilterState.paymentMethod || ""),
+    serviceId: advanced ? ($("#billing-filter-service")?.value || "") : (billingFilterState.serviceId || ""),
+    minAmount: advanced ? ($("#billing-filter-min-amount")?.value || "") : (billingFilterState.minAmount || ""),
+    maxAmount: advanced ? ($("#billing-filter-max-amount")?.value || "") : (billingFilterState.maxAmount || ""),
+    simplified: advanced ? Boolean($("#billing-simplified-view")?.checked) : Boolean(billingFilterState.simplified),
+    page: 1
+  };
+}
+
+function billingRowPaymentState(row) {
+  if (row.status === "cancelled" || row.paymentStatus === "cancelled") {
+    return "cancelled";
+  }
+  if (["cash", "card", "transfer"].includes(row.paymentStatus) || row.collected) {
+    return "paid";
+  }
+  if (row.status === "pending") {
+    return "pending";
+  }
+  return "unpaid";
+}
+
+function billingRowPaymentMethod(row) {
+  if (row.paymentMethod) return row.paymentMethod;
+  if (row.sourceType === "pack" || row.paymentStatus === "pack") return "pack";
+  if (["cash", "card", "transfer"].includes(row.paymentStatus)) return row.paymentStatus;
+  return "";
+}
+
+function billingRowMatchesAdvancedFilters(row) {
+  const wantsCancelledRows = billingFilterState.appointmentStatus === "cancelled" || billingFilterState.paymentState === "cancelled";
+  if (row.status === "cancelled" && !wantsCancelledRows) return false;
+  if (billingFilterState.practitionerId && row.practitionerId !== billingFilterState.practitionerId) return false;
+  if (billingFilterState.serviceId && row.serviceId !== billingFilterState.serviceId) return false;
+  if (billingFilterState.appointmentStatus && row.status !== billingFilterState.appointmentStatus) return false;
+  if (billingFilterState.paymentState && billingRowPaymentState(row) !== billingFilterState.paymentState) return false;
+  if (billingFilterState.paymentMethod) {
+    const methodMatches = billingFilterState.paymentMethod === "pack"
+      ? row.sourceType === "pack" || row.paymentStatus === "pack"
+      : billingRowPaymentMethod(row) === billingFilterState.paymentMethod;
+    if (!methodMatches) return false;
+  }
+  const query = normalizePatientSearchName(billingFilterState.patientQuery || "");
+  if (query && !normalizePatientSearchName(row.patient || "").includes(query)) return false;
+  const comparableAmount = Math.abs(Number(row.amount || 0));
+  const minAmount = Number(billingFilterState.minAmount);
+  if (billingFilterState.minAmount !== "" && Number.isFinite(minAmount) && comparableAmount < minAmount) return false;
+  const maxAmount = Number(billingFilterState.maxAmount);
+  if (billingFilterState.maxAmount !== "" && Number.isFinite(maxAmount) && comparableAmount > maxAmount) return false;
+  return true;
+}
+
+function sortBillingRows(rows) {
+  const sort = billingFilterState.sort || "desc";
+  return rows.slice().sort((a, b) => {
+    if (sort === "amount_desc" || sort === "amount_asc") {
+      const diff = Number(a.amount || 0) - Number(b.amount || 0);
+      return sort === "amount_asc" ? diff : -diff;
+    }
+    const diff = String(a.sortKey || "").localeCompare(String(b.sortKey || ""));
+    return sort === "asc" ? diff : -diff;
   });
 }
 
@@ -7687,23 +7823,35 @@ function renderBilling() {
   const billingMonth = range.start.slice(0, 7);
   const appointmentRows = appointments
     .filter((appointment) => byId(services, appointment.serviceId)?.type !== "group")
-    .filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed")
     .filter((appointment) => !appointment.patientPackId && !appointment.plannedPatientPackId)
-    .map((appointment) => ({
-      id: appointment.id,
-      sortKey: `${appointment.date || selectedDate} ${appointment.start}`,
-      concept: `${appointment.start} - ${byId(services, appointment.serviceId)?.name || "Servicio no encontrado"}`,
-      patient: byId(patients, appointment.patientId)?.name || "Paciente no encontrado",
-      practitioner: byId(practitioners, appointment.practitionerId)?.name || "Profesional",
-      status: normalizeAppointmentStatus(appointment.status),
-      statusText: statusLabel(appointment.status),
-      amount: appointmentRevenueAmount(appointment),
-      patientAmount: servicePrice(appointment),
-      paymentStatus: appointmentPaymentStatus(appointment),
-      paymentText: paymentStatusLabel(appointmentPaymentStatus(appointment)),
-      appointmentId: appointment.id,
-      invoiceGenerated: Boolean(appointment.invoiceGenerated)
-    }));
+    .map((appointment) => {
+      const normalizedStatus = normalizeAppointmentStatus(appointment.status);
+      const service = byId(services, appointment.serviceId);
+      const paymentStatus = normalizedStatus === "cancelled" ? "cancelled" : appointmentPaymentStatus(appointment);
+      return {
+        id: appointment.id,
+        sortKey: `${appointment.date || selectedDate} ${appointment.start}`,
+        date: appointment.date || selectedDate,
+        time: appointment.start || "",
+        concept: `${appointment.start} - ${service?.name || "Servicio no encontrado"}`,
+        patient: byId(patients, appointment.patientId)?.name || "Paciente no encontrado",
+        patientId: appointment.patientId,
+        practitioner: byId(practitioners, appointment.practitionerId)?.name || "Profesional",
+        practitionerId: appointment.practitionerId,
+        service: service?.name || "Servicio no encontrado",
+        serviceId: appointment.serviceId,
+        status: normalizedStatus,
+        statusText: statusLabel(appointment.status),
+        amount: normalizedStatus === "cancelled" ? 0 : appointmentRevenueAmount(appointment),
+        patientAmount: servicePrice(appointment),
+        paymentStatus,
+        paymentMethod: ["cash", "card", "transfer"].includes(paymentStatus) ? paymentStatus : "",
+        paymentText: paymentStatus === "cancelled" ? "Cancelada/no facturable" : paymentStatusLabel(paymentStatus),
+        appointmentId: appointment.id,
+        invoiceGenerated: Boolean(appointment.invoiceGenerated),
+        sourceType: "appointment"
+      };
+    });
   const groupRows = groupBillingRows(billingMonth);
   const packRows = patientPacks
     .filter((pack) => pack.invoice)
@@ -7715,14 +7863,20 @@ function renderBilling() {
         sortKey: `${date} 00:00`,
         concept: `Bono - ${pack.name} (${pack.sessions} sesiones)`,
         patient: byId(patients, pack.patientId)?.name || "Paciente no encontrado",
+        patientId: pack.patientId,
         practitioner: packServiceLabel(pack),
+        practitionerId: "",
+        service: packServiceLabel(pack),
+        serviceId: pack.serviceId || "",
         status: pack.invoiceGenerated ? "confirmed" : "pending",
         statusText: pack.invoiceGenerated ? "Facturado" : "Pendiente",
         amount: Number(pack.price || 0),
         paymentStatus: pack.paymentMethod || "",
+        paymentMethod: pack.paymentMethod || "pack",
         paymentText: pack.invoiceGenerated
           ? paymentStatusLabel(pack.paymentMethod || "cash")
-          : "Pendiente"
+          : "Pendiente",
+        sourceType: "pack"
       };
     });
   const manualRows = manualBillingMovements
@@ -7736,63 +7890,47 @@ function renderBilling() {
         sortKey: `${movement.date || todayIso()} ${createdTime}`,
         concept: movement.concept || (movement.type === "payment" ? "Pago manual" : "Cobro manual"),
         patient: "-",
+        patientId: "",
         practitioner: "Movimiento manual",
-        status: movement.type === "payment" ? "cancelled" : "confirmed",
+        practitionerId: "",
+        service: "Movimiento manual",
+        serviceId: "",
+        status: movement.type === "payment" ? "completed" : "confirmed",
         statusText: movement.type === "payment" ? "Pago" : "Cobro",
         amount: signedManualBillingAmount(movement),
         paymentStatus: movement.paymentMethod || "cash",
+        paymentMethod: movement.paymentMethod || "cash",
         paymentText: `${paymentStatusLabel(movement.paymentMethod || "cash")} - ${movement.type === "payment" ? "Resta" : "Suma"}`,
         manual: true,
-        manualId: movement.id
+        manualId: movement.id,
+        sourceType: "manual"
       };
     });
-  const allRows = [...appointmentRows, ...groupRows, ...packRows, ...manualRows].filter((row) => billingRowInRange(row, range));
-  const paidAppointments = appointmentRows.filter((appointment) => appointment.status === "confirmed" && ["cash", "card"].includes(appointment.paymentStatus));
-  const paid = paidAppointments
+  const allRows = [...appointmentRows, ...groupRows, ...packRows, ...manualRows]
     .filter((row) => billingRowInRange(row, range))
-    .reduce((total, appointment) => total + appointment.amount, 0)
-    + groupRows.filter((row) => row.status === "completed" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0)
-    + packRows.filter((row) => row.status === "confirmed" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0)
-    + manualRows.filter((row) => billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0);
-  const pending = appointmentRows
-    .filter((appointment) => appointment.status === "confirmed" && appointment.paymentStatus === "unpaid" && billingRowInRange(appointment, range))
-    .reduce((total, appointment) => total + appointment.amount, 0)
-    + groupRows.filter((row) => row.status === "pending" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0)
-    + packRows.filter((row) => row.status === "pending" && billingRowInRange(row, range)).reduce((total, row) => total + row.amount, 0);
-  const lost = 0;
-  const cash = paidAppointments
-    .filter((appointment) => appointment.paymentStatus === "cash" && billingRowInRange(appointment, range))
-    .reduce((total, appointment) => total + appointment.amount, 0)
-    + manualRows
-      .filter((row) => row.paymentStatus === "cash" && billingRowInRange(row, range))
-      .reduce((total, row) => total + row.amount, 0)
-    + groupRows
-      .filter((row) => row.status === "completed" && row.paymentStatus === "cash" && billingRowInRange(row, range))
-      .reduce((total, row) => total + row.amount, 0)
-    + packRows
-      .filter((row) => row.status === "confirmed" && (row.paymentStatus || "cash") === "cash" && billingRowInRange(row, range))
-      .reduce((total, row) => total + row.amount, 0);
-  const card = paidAppointments
-    .filter((appointment) => appointment.paymentStatus === "card" && billingRowInRange(appointment, range))
-    .reduce((total, appointment) => total + appointment.amount, 0)
-    + manualRows
-      .filter((row) => row.paymentStatus === "card" && billingRowInRange(row, range))
-      .reduce((total, row) => total + row.amount, 0)
-    + groupRows
-      .filter((row) => row.status === "completed" && row.paymentStatus === "card" && billingRowInRange(row, range))
-      .reduce((total, row) => total + row.amount, 0)
-    + packRows
-      .filter((row) => row.status === "confirmed" && row.paymentStatus === "card" && billingRowInRange(row, range))
-      .reduce((total, row) => total + row.amount, 0);
+    .filter(billingRowMatchesAdvancedFilters);
+  const paid = allRows
+    .filter((row) => billingRowPaymentState(row) === "paid")
+    .reduce((total, row) => total + Number(row.amount || 0), 0);
+  const pending = allRows
+    .filter((row) => ["unpaid", "pending"].includes(billingRowPaymentState(row)))
+    .reduce((total, row) => total + Number(row.amount || 0), 0);
+  const lost = allRows
+    .filter((row) => billingRowPaymentState(row) === "cancelled")
+    .reduce((total, row) => total + Number(row.amount || 0), 0);
+  const cash = allRows
+    .filter((row) => billingRowPaymentState(row) === "paid" && billingRowPaymentMethod(row) === "cash")
+    .reduce((total, row) => total + Number(row.amount || 0), 0);
+  const card = allRows
+    .filter((row) => billingRowPaymentState(row) === "paid" && billingRowPaymentMethod(row) === "card")
+    .reduce((total, row) => total + Number(row.amount || 0), 0);
 
   $("#billing-paid").textContent = `${paid} EUR`;
   $("#billing-pending").textContent = `${pending} EUR`;
   $("#billing-lost").textContent = `${lost} EUR`;
   $("#billing-cash").textContent = `${cash} EUR`;
   $("#billing-card").textContent = `${card} EUR`;
-  const sortedRows = allRows
-    .slice()
-    .sort((a, b) => (billingFilterState.sort === "asc" ? 1 : -1) * a.sortKey.localeCompare(b.sortKey));
+  const sortedRows = sortBillingRows(allRows);
   lastBillingReport = {
     range,
     rows: sortedRows,
@@ -7805,31 +7943,68 @@ function renderBilling() {
   billingFilterState.page = Math.min(Math.max(1, Number(billingFilterState.page || 1)), totalPages);
   saveState("billing-filter-state", billingFilterState);
   const pageRows = sortedRows.slice((billingFilterState.page - 1) * pageSize, billingFilterState.page * pageSize);
+  const simplified = Boolean(billingFilterState.simplified);
+  const tableHead = $("#billing-table-head");
+  if (tableHead) {
+    tableHead.innerHTML = simplified
+      ? `
+        <th>Fecha/hora</th>
+        <th>Paciente</th>
+        <th>Profesional</th>
+        <th>Cobro</th>
+        <th>Importe</th>
+        <th></th>
+      `
+      : `
+        <th>Cita</th>
+        <th>Paciente</th>
+        <th>Profesional</th>
+        <th>Estado</th>
+        <th>Cobro</th>
+        <th>Importe</th>
+        <th></th>
+      `;
+  }
   $("#billing-table").innerHTML = pageRows
-    .map((row) => `
-      <tr>
-        <td>${row.concept}</td>
-        <td>${row.patient}</td>
-        <td>${row.practitioner}</td>
-        <td><span class="status-pill ${row.status}">${row.statusText}</span></td>
-        <td>${row.paymentText || (row.invoiceGenerated ? "Facturado" : "Pendiente")}</td>
-        <td>${row.amount} EUR</td>
-        <td>
-          ${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}
-          ${row.groupMonthlyKey && !row.collected ? `<button class="secondary-button row-action" type="button" data-collect-group-monthly="${row.groupMonthlyKey}">Cobrar</button>` : ""}
-          ${row.manualId ? `
-            <details class="item-menu table-item-menu">
-              <summary aria-label="Opciones de movimiento">...</summary>
-              <div class="item-menu-popover">
-                <button type="button" data-edit-manual-billing="${row.manualId}">Editar</button>
-                <button class="danger-menu-action" type="button" data-delete-manual-billing="${row.manualId}">Eliminar</button>
-              </div>
-            </details>
-          ` : ""}
-        </td>
-      </tr>
-    `)
-    .join("") || `<tr><td colspan="7">No hay movimientos para el filtro seleccionado.</td></tr>`;
+    .map((row) => {
+      const actions = `
+        ${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}
+        ${row.groupMonthlyKey && !row.collected ? `<button class="secondary-button row-action" type="button" data-collect-group-monthly="${row.groupMonthlyKey}">Cobrar</button>` : ""}
+        ${row.manualId ? `
+          <details class="item-menu table-item-menu">
+            <summary aria-label="Opciones de movimiento">...</summary>
+            <div class="item-menu-popover">
+              <button type="button" data-edit-manual-billing="${row.manualId}">Editar</button>
+              <button class="danger-menu-action" type="button" data-delete-manual-billing="${row.manualId}">Eliminar</button>
+            </div>
+          </details>
+        ` : ""}
+      `;
+      if (simplified) {
+        return `
+          <tr>
+            <td>${row.sortKey || row.concept}</td>
+            <td>${row.patient}</td>
+            <td>${row.practitioner}</td>
+            <td>${row.paymentText || (row.invoiceGenerated ? "Facturado" : "Pendiente")}</td>
+            <td>${row.amount} EUR</td>
+            <td>${actions}</td>
+          </tr>
+        `;
+      }
+      return `
+        <tr>
+          <td>${row.concept}</td>
+          <td>${row.patient}</td>
+          <td>${row.practitioner}</td>
+          <td><span class="status-pill ${row.status}">${row.statusText}</span></td>
+          <td>${row.paymentText || (row.invoiceGenerated ? "Facturado" : "Pendiente")}</td>
+          <td>${row.amount} EUR</td>
+          <td>${actions}</td>
+        </tr>
+      `;
+    })
+    .join("") || `<tr><td colspan="${simplified ? 6 : 7}">No hay movimientos con estos filtros.</td></tr>`;
 
   $("#billing-pagination").innerHTML = `
     <span>${sortedRows.length} movimientos · pagina ${billingFilterState.page} de ${totalPages}</span>
@@ -7983,19 +8158,27 @@ function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
       return {
         id: key,
         sortKey: `${currentMonth}-01 ${group.start || "00:00"}`,
+        date: `${currentMonth}-01`,
+        time: group.start || "",
         concept: `Cuota mensual - ${group.name}`,
         patient: patient.name,
+        patientId: patient.id,
         practitioner,
+        practitionerId: group.practitionerId || "",
+        service: group.name || "Sesión grupal",
+        serviceId: group.serviceId || "",
         status: movement ? "completed" : "pending",
         statusText: movement ? "Cobrada" : "Cuota mensual",
         amount: pricing.monthlyPrice,
         paymentStatus: movement?.paymentMethod || "",
+        paymentMethod: movement?.paymentMethod || "",
         paymentText: movement ? paymentStatusLabel(movement.paymentMethod || "cash") : "Pendiente",
         groupMonthlyKey: key,
         groupId: group.id,
         patientId: patient.id,
         month: currentMonth,
-        collected: Boolean(movement)
+        collected: Boolean(movement),
+        sourceType: "group-monthly"
       };
     });
   });
@@ -8008,12 +8191,22 @@ function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
       return {
         id: entry.id,
         sortKey: `${entry.date} ${entry.start || "00:00"}`,
+        date: entry.date,
+        time: entry.start || "",
         concept: `${entry.start || ""} - Sueltos sesion grupal${group ? ` - ${group.name}` : ""}`,
         patient: `${entry.dropinCount || 0} sueltos`,
+        patientId: "",
         practitioner: byId(practitioners, entry.practitionerId)?.name || "Profesional",
+        practitionerId: entry.practitionerId || "",
+        service: group?.name || "Sesión grupal",
+        serviceId: group?.serviceId || "",
         status: "completed",
         statusText: "Completada",
-        amount
+        amount,
+        paymentStatus: entry.paymentMethod || "cash",
+        paymentMethod: entry.paymentMethod || "cash",
+        paymentText: paymentStatusLabel(entry.paymentMethod || "cash"),
+        sourceType: "group-dropin"
       };
     })
     .filter((row) => row.amount > 0);
@@ -14504,22 +14697,26 @@ function setupPerformance() {
 }
 
 function setupBillingControls() {
-  const sync = () => {
-    billingFilterState = {
-      ...billingFilterState,
-      mode: $("#billing-filter-mode")?.value || "current-month",
-      day: $("#billing-filter-day")?.value || todayIso(),
-      month: $("#billing-filter-month")?.value || todayIso().slice(0, 7),
-      from: $("#billing-filter-from")?.value || monthStartIso(todayIso()),
-      to: $("#billing-filter-to")?.value || monthEndIso(todayIso()),
-      sort: $("#billing-sort-order")?.value || "desc",
-      page: 1
-    };
+  const sync = (source = "quick") => {
+    billingFilterState = readBillingFilters(source);
     saveState("billing-filter-state", billingFilterState);
     renderBilling();
   };
   $("#billing-filter-mode")?.addEventListener("change", () => updateBillingFilterFieldVisibility());
-  $("#apply-billing-filters")?.addEventListener("click", sync);
+  $("#billing-advanced-date-mode")?.addEventListener("change", () => updateBillingAdvancedDateVisibility());
+  $("#apply-billing-filters")?.addEventListener("click", () => sync("quick"));
+  $("#apply-billing-advanced-filters")?.addEventListener("click", () => sync("advanced"));
+  $("#clear-billing-filters")?.addEventListener("click", () => {
+    billingFilterState = {
+      ...defaultBillingFilterState,
+      day: todayIso(),
+      month: todayIso().slice(0, 7),
+      from: monthStartIso(todayIso()),
+      to: monthEndIso(todayIso())
+    };
+    saveState("billing-filter-state", billingFilterState);
+    renderBilling();
+  });
   $("#add-manual-billing")?.addEventListener("click", () => {
     openManualBillingDialog();
   });

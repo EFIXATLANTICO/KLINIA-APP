@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-google-config-fix-20260610";
+const KLINIA_CACHE = "klinia-billing-advanced-filters-20260610";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260610-google-config-fix",
-  "./app.js?v=20260610-google-config-fix",
+  "./styles.css?v=20260610-billing-advanced-filters",
+  "./app.js?v=20260610-billing-advanced-filters",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

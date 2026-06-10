@@ -16,7 +16,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260610-google-config-fix" />
+    <link rel="stylesheet" href="./styles.css?v=20260610-billing-advanced-filters" />
   </head>
   <body class="login-mode">
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
@@ -873,13 +873,15 @@
               <select id="billing-sort-order">
                 <option value="desc">Mas recientes</option>
                 <option value="asc">Mas antiguos</option>
+                <option value="amount_desc">Mayor importe</option>
+                <option value="amount_asc">Menor importe</option>
               </select>
             </label>
             <button class="primary-button" type="button" id="apply-billing-filters">Aplicar filtros</button>
           </div>
           <div class="billing-board">
             <article>
-              <span>Cobrado este mes</span>
+              <span>Cobrado</span>
               <strong id="billing-paid">0 EUR</strong>
             </article>
             <article>
@@ -899,10 +901,110 @@
               <strong id="billing-lost">0 EUR</strong>
             </article>
           </div>
+          <details class="billing-advanced-panel" open>
+            <summary>
+              <span>Filtros de facturación</span>
+              <small>Combina fecha, profesional, paciente, cobro, servicio e importe</small>
+            </summary>
+            <div class="billing-advanced-grid">
+              <label>
+                Fecha de cita
+                <select id="billing-advanced-date-mode">
+                  <option value="current-month">Mes en curso</option>
+                  <option value="day">Día concreto</option>
+                  <option value="month">Mes seleccionado</option>
+                  <option value="range">Desde / hasta</option>
+                </select>
+              </label>
+              <label data-billing-advanced-date-field="day">
+                Día
+                <input id="billing-advanced-day" type="date" />
+              </label>
+              <label data-billing-advanced-date-field="month">
+                Mes
+                <input id="billing-advanced-month" type="month" />
+              </label>
+              <label data-billing-advanced-date-field="range">
+                Desde
+                <input id="billing-advanced-from" type="date" />
+              </label>
+              <label data-billing-advanced-date-field="range">
+                Hasta
+                <input id="billing-advanced-to" type="date" />
+              </label>
+              <label>
+                Profesional
+                <select id="billing-filter-practitioner"></select>
+              </label>
+              <label>
+                Paciente
+                <input id="billing-filter-patient" type="search" placeholder="Buscar por nombre" />
+              </label>
+              <label>
+                Estado de cita
+                <select id="billing-filter-appointment-status">
+                  <option value="">Todos</option>
+                  <option value="confirmed">Confirmada</option>
+                  <option value="completed">Completada</option>
+                  <option value="cancelled">Cancelada</option>
+                  <option value="pending">Pendiente</option>
+                </select>
+              </label>
+              <label>
+                Estado de cobro
+                <select id="billing-filter-payment-state">
+                  <option value="">Todos</option>
+                  <option value="paid">Cobrada</option>
+                  <option value="unpaid">No cobrada</option>
+                  <option value="pending">Pendiente</option>
+                  <option value="cancelled">Cancelada/no facturable</option>
+                </select>
+              </label>
+              <label>
+                Forma de cobro
+                <select id="billing-filter-payment-method">
+                  <option value="">Todas</option>
+                  <option value="cash">Efectivo</option>
+                  <option value="card">Tarjeta</option>
+                  <option value="pack">Bono</option>
+                  <option value="transfer">Transferencia</option>
+                </select>
+              </label>
+              <label>
+                Servicio
+                <select id="billing-filter-service"></select>
+              </label>
+              <label>
+                Importe mínimo
+                <input id="billing-filter-min-amount" type="number" min="0" step="0.01" placeholder="0" />
+              </label>
+              <label>
+                Importe máximo
+                <input id="billing-filter-max-amount" type="number" min="0" step="0.01" placeholder="Sin límite" />
+              </label>
+              <label>
+                Orden
+                <select id="billing-advanced-sort-order">
+                  <option value="desc">Más recientes</option>
+                  <option value="asc">Más antiguos</option>
+                  <option value="amount_desc">Mayor importe</option>
+                  <option value="amount_asc">Menor importe</option>
+                </select>
+              </label>
+              <label class="checkbox-label billing-simple-view">
+                <input id="billing-simplified-view" type="checkbox" />
+                Vista simplificada
+              </label>
+              <div class="billing-advanced-actions">
+                <button class="primary-button" type="button" id="apply-billing-advanced-filters">Aplicar filtros</button>
+                <button class="secondary-button" type="button" id="clear-billing-filters">Limpiar filtros</button>
+              </div>
+            </div>
+          </details>
           <div class="table-wrap spaced">
             <table>
               <thead>
-                <tr>
+                <tr id="billing-table-head">
                   <th>Cita</th>
                   <th>Paciente</th>
                   <th>Profesional</th>
@@ -2606,7 +2708,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260610-google-config-fix"></script>
+    <script src="./app.js?v=20260610-billing-advanced-filters"></script>
   </body>
 </html>
 
