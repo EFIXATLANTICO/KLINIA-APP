@@ -4509,6 +4509,11 @@ function appointmentRevenueAmount(appointment) {
   return servicePrice(appointment);
 }
 
+function roundMoney(value) {
+  const numeric = Number(value || 0);
+  return Math.round(numeric * 100) / 100;
+}
+
 function appointmentPaymentStatus(appointment) {
   const status = appointment?.paymentStatus || appointment?.paymentMethod || "";
   if (["cash", "card", "transfer", "unpaid"].includes(status)) {
@@ -4624,7 +4629,7 @@ function serviceCommissionAmount(appointment, practitioner) {
   if (!appointmentIsCharged(appointment) || !practitionerCanPerformService(practitioner, appointment.serviceId)) {
     return 0;
   }
-  return Math.round(revenue * practitionerCommissionRateForService(practitioner, service));
+  return roundMoney(revenue * practitionerCommissionRateForService(practitioner, service));
 }
 
 function serviceKindLabel(service) {
@@ -8393,6 +8398,54 @@ function groupSessionOperationUnits(session) {
   return Math.max(0, attendees);
 }
 
+function addPerformanceServiceLine(lines, serviceId, values = {}) {
+  const id = serviceId || "sin-servicio";
+  const existing = lines.get(id) || {
+    serviceId: id,
+    serviceName: values.serviceName || byId(services, id)?.name || "Servicio",
+    revenue: 0,
+    operations: 0,
+    sessions: 0,
+    rate: 0
+  };
+  existing.serviceName = values.serviceName || existing.serviceName;
+  existing.revenue = roundMoney(existing.revenue + Number(values.revenue || 0));
+  existing.operations += Number(values.operations || 0);
+  existing.sessions += Number(values.sessions || 0);
+  existing.rate = Math.max(existing.rate, normalizeCommissionRate(values.rate));
+  lines.set(id, existing);
+}
+
+function performanceLinesForPractitioner(practitioner, appointmentsForWorker, groupSessionsForWorker) {
+  const lines = new Map();
+  appointmentsForWorker.forEach((appointment) => {
+    const service = byId(services, appointment.serviceId);
+    const rate = practitionerCommissionRateForService(practitioner, service);
+    addPerformanceServiceLine(lines, appointment.serviceId, {
+      serviceName: service?.name || "Servicio",
+      revenue: appointmentRevenueAmount(appointment),
+      operations: appointmentOperationUnits(appointment),
+      sessions: 1,
+      rate
+    });
+  });
+  groupSessionsForWorker.forEach((session) => {
+    const service = byId(services, session.serviceId);
+    const rate = practitionerCommissionRateForService(practitioner, service);
+    addPerformanceServiceLine(lines, session.serviceId, {
+      serviceName: session.serviceName || service?.name || "Sesión grupal",
+      revenue: Number(session.revenue || 0),
+      operations: groupSessionOperationUnits(session),
+      sessions: 1,
+      rate
+    });
+  });
+  return [...lines.values()].map((line) => ({
+    ...line,
+    payout: roundMoney(line.revenue * line.rate)
+  }));
+}
+
 function practitionerOccupancyReport(practitioner, range = calendarRange()) {
   const days = datesInRange(range.start, range.end);
   const availableMinutes = days.reduce((total, dateValue) => (
@@ -8421,17 +8474,14 @@ function practitionerReport(practitioner, range = performanceFilterRange()) {
     .filter((appointment) => String(appointment.practitionerId) === String(practitioner.id))
     .filter((appointment) => dateInRange(appointment.date || selectedDate, range));
   const ownGroupSessions = groupCompletedSessionsForPractitioner(practitioner, range);
-  const appointmentRevenue = ownAppointments.reduce((total, appointment) => total + appointmentRevenueAmount(appointment), 0);
-  const groupRevenue = ownGroupSessions.reduce((total, session) => total + Number(session.revenue || 0), 0);
-  const revenue = appointmentRevenue + groupRevenue;
+  const serviceLines = performanceLinesForPractitioner(practitioner, ownAppointments, ownGroupSessions);
+  const revenue = roundMoney(serviceLines.reduce((total, line) => total + Number(line.revenue || 0), 0));
   const minutesBooked = ownAppointments.reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0)
     + ownGroupSessions.reduce((total, session) => total + (session.duration || 60), 0);
   const operationCount = ownAppointments.reduce((total, appointment) => total + appointmentOperationUnits(appointment), 0)
     + ownGroupSessions.reduce((total, session) => total + groupSessionOperationUnits(session), 0);
   const averageTicket = operationCount ? Math.round(revenue / operationCount) : 0;
-  const appointmentPayout = ownAppointments.reduce((total, appointment) => total + serviceCommissionAmount(appointment, practitioner), 0);
-  const groupPayout = ownGroupSessions.reduce((total, session) => total + Number(session.payout || 0), 0);
-  const payout = appointmentPayout + groupPayout;
+  const payout = roundMoney(serviceLines.reduce((total, line) => total + Number(line.payout || 0), 0));
   const occupancy = practitionerOccupancyReport(practitioner, range).percent;
 
   return {
@@ -8442,6 +8492,7 @@ function practitionerReport(practitioner, range = performanceFilterRange()) {
     averageTicket,
     payout,
     operationCount,
+    serviceLines,
     occupancy,
     targetProgress: Number(practitioner.target) > 0 ? Math.min(100, Math.round((revenue / practitioner.target) * 100)) : 0
   };
@@ -8515,24 +8566,33 @@ function renderPerformance() {
   `;
 
   const activityItems = [
+    ...workerReport.serviceLines.map((line) => ({
+      type: "service-summary",
+      start: "00:00",
+      label: `${line.serviceName}: ${line.revenue} EUR × ${Math.round(line.rate * 10000) / 100}% = ${line.payout} EUR`,
+      detail: `${line.operations} operaciones · ${line.sessions} registro(s)`,
+      priority: 0
+    })),
     ...workerReport.appointments.map((appointment) => ({
       type: "appointment",
       start: appointment.start,
       label: `${appointment.start} - ${byId(patients, appointment.patientId)?.name || "Paciente no encontrado"}`,
-      detail: `${byId(services, appointment.serviceId)?.name || "Servicio"} - ${byId(rooms, appointment.roomId)?.name || "Sala"}`
+      detail: `${byId(services, appointment.serviceId)?.name || "Servicio"} - ${byId(rooms, appointment.roomId)?.name || "Sala"}`,
+      priority: 1
     })),
     ...(workerReport.groupSessions || []).map((session) => ({
       type: "group",
       start: session.start,
       label: `${session.start} - ${session.groupName}`,
-      detail: `${session.serviceName} - ${session.roomName} - ${session.attendees} asistentes - ${session.revenue} EUR`
+      detail: `${session.serviceName} - ${session.roomName} - ${session.attendees} asistentes - ${session.revenue} EUR`,
+      priority: 1
     }))
   ];
 
   $("#worker-activity").innerHTML = activityItems.length
     ? activityItems
         .slice()
-        .sort((a, b) => minutes(a.start) - minutes(b.start))
+        .sort((a, b) => (a.priority - b.priority) || minutes(a.start) - minutes(b.start))
         .map((item) => `
           <article class="compact-item">
             <strong>${item.label}</strong>
@@ -13855,6 +13915,10 @@ function setupConfiguration() {
         return;
       }
     }
+    savedPractitioner = {
+      ...savedPractitioner,
+      serviceCommissions: normalizeServiceCommissions(savedPractitioner.serviceCommissions)
+    };
     practitioners = editingPractitionerId
       ? practitioners.map((item) => item.id === editingPractitionerId ? savedPractitioner : item)
       : [...practitioners, savedPractitioner];
