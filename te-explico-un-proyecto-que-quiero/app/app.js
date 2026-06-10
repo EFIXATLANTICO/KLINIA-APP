@@ -718,7 +718,7 @@ function normalizePractitioners(savedPractitioners) {
         ...practitioner,
         color: nextColor,
         accessRole: practitioner.accessRole || "practitioner",
-        serviceCommissions: practitioner.serviceCommissions && typeof practitioner.serviceCommissions === "object" ? practitioner.serviceCommissions : {},
+        serviceCommissions: normalizeServiceCommissions(practitioner.serviceCommissions),
         attendanceRecords: Array.isArray(practitioner.attendanceRecords) ? practitioner.attendanceRecords : []
       };
     });
@@ -3523,7 +3523,7 @@ function apiPractitionerToUi(practitioner, previous = {}) {
     userId: practitioner.user_id || meta.userId || "",
     workerType: meta.workerType || "autonomo",
     accessRole: meta.accessRole || (meta.role === "staff" ? "staff" : "practitioner"),
-    serviceCommissions: meta.serviceCommissions || {},
+    serviceCommissions: normalizeServiceCommissions(meta.serviceCommissions),
     attendanceRecords: Array.isArray(meta.attendanceRecords) ? meta.attendanceRecords : [],
     active: practitioner.active !== false
   };
@@ -4511,7 +4511,7 @@ function appointmentRevenueAmount(appointment) {
 
 function appointmentPaymentStatus(appointment) {
   const status = appointment?.paymentStatus || appointment?.paymentMethod || "";
-  if (["cash", "card", "unpaid"].includes(status)) {
+  if (["cash", "card", "transfer", "unpaid"].includes(status)) {
     return status;
   }
   return appointment?.invoiceGenerated ? "card" : "unpaid";
@@ -4566,11 +4566,38 @@ function appointmentIsCharged(appointment) {
   if (appointment?.patientPackId) {
     return true;
   }
-  return ["cash", "card"].includes(appointmentPaymentStatus(appointment));
+  return ["cash", "card", "transfer"].includes(appointmentPaymentStatus(appointment));
+}
+
+function normalizeCommissionRate(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 0;
+  }
+  const decimal = numeric > 1 ? numeric / 100 : numeric;
+  return Math.max(0, Math.min(1, decimal));
+}
+
+function normalizeServiceCommissions(config = {}) {
+  if (!config || typeof config !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(config)
+      .filter(([serviceId]) => serviceId)
+      .map(([serviceId, item]) => {
+        const rate = normalizeCommissionRate(item?.rate ?? item?.commission ?? item);
+        return [serviceId, {
+          enabled: item?.enabled !== false && rate > 0,
+          rate
+        }];
+      })
+      .filter(([, item]) => item.enabled || item.rate > 0)
+  );
 }
 
 function practitionerServiceConfig(practitioner) {
-  const config = practitioner?.serviceCommissions;
+  const config = normalizeServiceCommissions(practitioner?.serviceCommissions);
   return config && typeof config === "object" && Object.keys(config).length ? config : null;
 }
 
@@ -4586,7 +4613,7 @@ function practitionerCommissionRateForService(practitioner, service) {
   const config = practitionerServiceConfig(practitioner);
   const serviceConfig = service?.id ? config?.[service.id] : null;
   if (serviceConfig?.enabled) {
-    return Math.max(0, Number(serviceConfig.rate || 0));
+    return normalizeCommissionRate(serviceConfig.rate);
   }
   return 0;
 }
@@ -7410,7 +7437,7 @@ function renderSettings() {
           <strong>${practitioner.name}</strong>
           <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autonomo"}</span>
           <span>${practitioner.accessRole === "staff" ? "Acceso recepcion / administracion" : "Acceso trabajador sanitario"}</span>
-          <span>${Object.values(practitioner.serviceCommissions || {}).filter((item) => item?.enabled).length || "Sin"} servicios con comisión configurada</span>
+          <span>${Object.values(normalizeServiceCommissions(practitioner.serviceCommissions)).filter((item) => item?.enabled).length || "Sin"} servicios con comisión configurada</span>
           <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.password ? "Clave configurada" : "Sin clave configurada"}</span>
           ${practitioner.workerType === "asalariado" ? `
             <div class="attendance-actions">
@@ -8335,16 +8362,35 @@ function groupCompletedSessionsForPractitioner(practitioner, range = performance
     .filter((entry) => dateInRange(entry.date || selectedDate, range))
     .map((entry) => {
       const group = groups.find((item) => String(item.id) === String(entry.groupId));
-      const service = group ? groupService(group) : byId(services, entry.serviceId);
+      const historicalGroup = group ? {
+        ...group,
+        practitionerId: entry.practitionerId || group.practitionerId,
+        roomId: entry.roomId || group.roomId,
+        serviceId: entry.serviceId || group.serviceId,
+        start: entry.start || group.start
+      } : null;
+      const service = historicalGroup ? groupService(historicalGroup) : byId(services, entry.serviceId);
       const room = byId(rooms, entry.roomId);
+      const production = historicalGroup ? groupSessionProduction(historicalGroup, entry.date || selectedDate) : null;
       return {
         ...entry,
+        ...(production || {}),
         groupName: group?.name || "Sesion grupal",
         serviceName: service?.name || "Servicio grupal",
         roomName: room?.name || "Sala",
-        duration: service?.duration || 60
+        duration: service?.duration || 60,
+        serviceId: service?.id || entry.serviceId
       };
     });
+}
+
+function appointmentOperationUnits(appointment) {
+  return appointmentIsCharged(appointment) ? 1 : 0;
+}
+
+function groupSessionOperationUnits(session) {
+  const attendees = Number(session?.attendees || 0);
+  return Math.max(0, attendees);
 }
 
 function practitionerOccupancyReport(practitioner, range = calendarRange()) {
@@ -8380,8 +8426,9 @@ function practitionerReport(practitioner, range = performanceFilterRange()) {
   const revenue = appointmentRevenue + groupRevenue;
   const minutesBooked = ownAppointments.reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0)
     + ownGroupSessions.reduce((total, session) => total + (session.duration || 60), 0);
-  const billableItems = ownAppointments.length + ownGroupSessions.length;
-  const averageTicket = billableItems ? Math.round(revenue / billableItems) : 0;
+  const operationCount = ownAppointments.reduce((total, appointment) => total + appointmentOperationUnits(appointment), 0)
+    + ownGroupSessions.reduce((total, session) => total + groupSessionOperationUnits(session), 0);
+  const averageTicket = operationCount ? Math.round(revenue / operationCount) : 0;
   const appointmentPayout = ownAppointments.reduce((total, appointment) => total + serviceCommissionAmount(appointment, practitioner), 0);
   const groupPayout = ownGroupSessions.reduce((total, session) => total + Number(session.payout || 0), 0);
   const payout = appointmentPayout + groupPayout;
@@ -8394,6 +8441,7 @@ function practitionerReport(practitioner, range = performanceFilterRange()) {
     revenue,
     averageTicket,
     payout,
+    operationCount,
     occupancy,
     targetProgress: Number(practitioner.target) > 0 ? Math.min(100, Math.round((revenue / practitioner.target) * 100)) : 0
   };
@@ -8418,7 +8466,7 @@ function renderPerformance() {
     $("#worker-activity").innerHTML = `<article class="compact-item"><span>No hay sesiones facturables asociadas a trabajadores de esta clinica.</span></article>`;
     $("#owner-summary").innerHTML = `
       <div><span>Facturacion equipo</span><strong>0 EUR</strong></div>
-      <div><span>Citas facturables</span><strong>0</strong></div>
+      <div><span>Operaciones</span><strong>0</strong></div>
       <div><span>Mayor facturacion</span><strong>-</strong></div>
     `;
     $("#owner-report-table").innerHTML = `<tr><td colspan="4">Sin trabajadores en esta clinica.</td></tr>`;
@@ -8427,7 +8475,7 @@ function renderPerformance() {
   const workerReport = practitionerReport(selectedWorker, range);
   const allReports = practitioners.map((practitioner) => practitionerReport(practitioner, range)).sort((a, b) => b.revenue - a.revenue);
   const totalRevenue = allReports.reduce((total, report) => total + report.revenue, 0);
-  const totalAppointments = allReports.reduce((total, report) => total + report.appointments.length + (report.groupSessions?.length || 0), 0);
+  const totalOperations = allReports.reduce((total, report) => total + Number(report.operationCount || 0), 0);
   const topReport = allReports[0];
   $$("#worker-performance .permission-note").forEach((note) => note.remove());
   if (!isOwner()) {
@@ -8459,11 +8507,11 @@ function renderPerformance() {
   `;
 
   $("#worker-billing").innerHTML = `
-    <article><span>Sesiones facturables</span><strong>${workerReport.appointments.length + (workerReport.groupSessions?.length || 0)}</strong></article>
+    <article><span>Operaciones</span><strong>${workerReport.operationCount}</strong></article>
     <article><span>Producción total</span><strong>${workerReport.revenue} EUR</strong></article>
     <article><span>Comisión estimada</span><strong>${workerReport.payout} EUR</strong></article>
     <article><span>Ticket medio</span><strong>${workerReport.averageTicket} EUR</strong></article>
-    <article><span>Servicios con comisión</span><strong>${Object.values(selectedWorker.serviceCommissions || {}).filter((item) => item?.enabled).length}</strong></article>
+    <article><span>Servicios con comisión</span><strong>${Object.values(normalizeServiceCommissions(selectedWorker.serviceCommissions)).filter((item) => item?.enabled).length}</strong></article>
   `;
 
   const activityItems = [
@@ -8496,7 +8544,7 @@ function renderPerformance() {
 
   $("#owner-summary").innerHTML = `
     <div><span>Facturacion equipo</span><strong>${totalRevenue} EUR</strong></div>
-    <div><span>Citas facturables</span><strong>${totalAppointments}</strong></div>
+    <div><span>Operaciones</span><strong>${totalOperations}</strong></div>
     <div><span>Mayor facturacion</span><strong>${topReport ? topReport.practitioner.name : "-"}</strong></div>
   `;
 
@@ -8504,7 +8552,7 @@ function renderPerformance() {
     ? allReports.map((report) => `
       <tr>
         <td><strong>${report.practitioner.name}</strong><br><span>${report.practitioner.specialty}</span></td>
-        <td>${report.appointments.length + (report.groupSessions?.length || 0)}</td>
+        <td>${report.operationCount}</td>
         <td>${report.revenue} EUR</td>
         <td>${report.averageTicket} EUR</td>
       </tr>
@@ -13224,8 +13272,9 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
       </div>
       ${services.map((service) => {
         const item = config[service.id] || {};
-        const enabled = item.enabled === true;
-        const rate = Number.isFinite(Number(item.rate)) ? Math.round(Number(item.rate) * 10000) / 100 : "";
+        const normalizedRate = normalizeCommissionRate(item.rate);
+        const enabled = item.enabled === true && normalizedRate > 0;
+        const rate = normalizedRate > 0 ? Math.round(normalizedRate * 10000) / 100 : "";
         return `
           <article class="service-commission-row ${enabled ? "selected" : ""}">
             <label class="service-commission-check">
