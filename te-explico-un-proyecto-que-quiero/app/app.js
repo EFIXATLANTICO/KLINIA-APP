@@ -1158,17 +1158,18 @@ async function apiRequest(path, options = {}) {
 }
 
 function backendApiBaseUrl() {
-  const configured = String(window.KLINIA_API_BASE_URL || localStorage.getItem("klinia:api-base-url") || "").trim();
-  if (configured) {
-    return configured.replace(/\/$/, "");
+  const explicitConfigured = String(window.KLINIA_API_BASE_URL || "").trim();
+  if (explicitConfigured) {
+    return explicitConfigured.replace(/\/$/, "");
   }
   if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    const localConfigured = String(localStorage.getItem("klinia:api-base-url") || "").trim();
+    if (localConfigured) {
+      return localConfigured.replace(/\/$/, "");
+    }
     return "http://localhost:8080";
   }
-  if (["www.kliniasolutions.com", "kliniasolutions.com"].includes(window.location.hostname)) {
-    return "https://api.kliniasolutions.com";
-  }
-  return window.location.origin;
+  return "https://api.kliniasolutions.com";
 }
 
 function backendRequiredForProduction() {
