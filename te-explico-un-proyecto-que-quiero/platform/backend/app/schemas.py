@@ -554,6 +554,11 @@ class AppointmentUpdate(BaseModel):
     metadata_json: str | None = None
 
 
+class AppointmentPaymentUpdate(BaseModel):
+    payment_status: str = Field(pattern="^(unpaid|cash|card)$")
+    amount_cents: int | None = Field(default=None, ge=0)
+
+
 class AppointmentOut(AppointmentBase):
     id: str
 

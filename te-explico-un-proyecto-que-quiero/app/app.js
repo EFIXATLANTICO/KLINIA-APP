@@ -767,7 +767,7 @@ let googleConfig = { enabled: false, client_id: "" };
 let googleScriptLoading = null;
 let googlePendingContext = "";
 let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
-const googleScriptSrc = "https://accounts.google.com/gsi/client";
+const googleScriptSrc = "https://accounts.google.com/gsi/client?hl=es";
 const googleAuthDebug = (() => {
   try {
     return new URLSearchParams(window.location.search).has("googleDebug") || localStorage.getItem("klinia:google-debug") === "1";
@@ -3212,12 +3212,16 @@ async function initializeGoogleAuth() {
     if (!window.google?.accounts?.id) {
       throw new Error("Google Identity Services no está disponible en esta página.");
     }
+    window.google.accounts.id.disableAutoSelect?.();
     window.google.accounts.id.initialize({
       client_id: googleConfig.client_id,
       callback: handleGoogleCredential,
       ux_mode: "popup",
       auto_select: false,
-      cancel_on_tap_outside: true
+      cancel_on_tap_outside: true,
+      use_fedcm_for_button: false,
+      button_auto_select: false,
+      context: "signin"
     });
     googleAuthLog("initialize ejecutado");
     slots.forEach((slot) => {
@@ -3235,6 +3239,7 @@ async function initializeGoogleAuth() {
         shape: "rectangular",
         text: context === "register" ? "signup_with" : "signin_with",
         logo_alignment: "left",
+        locale: "es",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
         state: context,
         click_listener: () => {
@@ -3841,6 +3846,23 @@ async function saveAppointmentToBackend(appointment, previousId = "") {
   const saved = await backendRequest(path, {
     method,
     body: JSON.stringify(uiAppointmentToApi(appointment))
+  });
+  return apiAppointmentToUi(saved, appointment);
+}
+
+async function saveAppointmentPaymentToBackend(appointment, paymentStatus) {
+  if (!backendDataEnabled() || !looksLikeBackendId(appointment?.id)) {
+    return appointment;
+  }
+  const amountCents = Number.isFinite(Number(appointment.paymentAmountCents))
+    ? Math.max(0, Math.round(Number(appointment.paymentAmountCents)))
+    : Math.max(0, Math.round(servicePrice(appointment) * 100));
+  const saved = await backendRequest(`/appointments/${encodeURIComponent(appointment.id)}/payment`, {
+    method: "POST",
+    body: JSON.stringify({
+      payment_status: paymentStatus || appointmentPaymentStatus(appointment),
+      amount_cents: amountCents
+    })
   });
   return apiAppointmentToUi(saved, appointment);
 }
@@ -12236,7 +12258,14 @@ function setupAppointmentDetail() {
     if (submitButton) submitButton.disabled = true;
     if (backendDataEnabled()) {
       try {
-        const savedAppointment = await saveAppointmentToBackend(localUpdate, selectedAppointmentId);
+        let savedAppointment = await saveAppointmentToBackend(localUpdate, selectedAppointmentId);
+        savedAppointment = await saveAppointmentPaymentToBackend(
+          {
+            ...savedAppointment,
+            ...paymentFields
+          },
+          requestedPaymentStatus
+        );
         finish(savedAppointment);
         if (["cash", "card"].includes(requestedPaymentStatus)) {
           showToast("Cobro registrado correctamente.");

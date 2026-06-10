@@ -42,6 +42,7 @@ from .schemas import (
     AccessRecoveryRequestOut,
     AppointmentCreate,
     AppointmentOut,
+    AppointmentPaymentUpdate,
     AppointmentUpdate,
     AttendanceClockIn,
     AttendanceRecordOut,
@@ -761,6 +762,50 @@ def sync_appointment_payment_movement(db: Session, user: User, appointment: Appo
         db.add(movement)
         db.flush()
         audit_action(db, user, "create-appointment-payment-movement", "manual-billing-movement", movement.id, {"appointment_id": appointment.id})
+
+
+def apply_appointment_payment(
+    db: Session,
+    user: User,
+    appointment: Appointment,
+    service: Service,
+    *,
+    payment_status: str,
+    amount_cents: int | None = None,
+) -> None:
+    normalized_status = payment_status.strip().lower()
+    metadata = parse_metadata_json(appointment.metadata_json)
+    if normalized_status not in {"cash", "card"}:
+        for key in (
+            "paymentStatus",
+            "paymentMethod",
+            "paymentPaidAt",
+            "paymentAmount",
+            "paymentAmountCents",
+            "paymentCollectedBy",
+            "paymentCollectedByUserId",
+        ):
+            metadata.pop(key, None)
+        metadata["paymentStatus"] = "unpaid"
+        appointment.metadata_json = json.dumps(metadata, ensure_ascii=True)
+        sync_appointment_payment_movement(db, user, appointment, service)
+        return
+
+    cents = amount_cents if amount_cents is not None else int(metadata.get("paymentAmountCents") or service.price_cents or 0)
+    paid_at = str(metadata.get("paymentPaidAt") or datetime.now(UTC).isoformat())
+    metadata.update(
+        {
+            "paymentStatus": normalized_status,
+            "paymentMethod": normalized_status,
+            "paymentPaidAt": paid_at,
+            "paymentAmount": round(cents / 100, 2),
+            "paymentAmountCents": cents,
+            "paymentCollectedBy": user.name,
+            "paymentCollectedByUserId": user.id,
+        }
+    )
+    appointment.metadata_json = json.dumps(metadata, ensure_ascii=True)
+    sync_appointment_payment_movement(db, user, appointment, service)
 
 
 CLINIC_DATA_DEFAULTS = {
@@ -3239,6 +3284,43 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
     sync_appointment_payment_movement(db, user, appointment, service)
     action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
     audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
+    db.commit()
+    db.refresh(appointment)
+    return appointment
+
+
+@app.post("/appointments/{appointment_id}/payment", response_model=AppointmentOut)
+def update_appointment_payment(
+    appointment_id: str,
+    payload: AppointmentPaymentUpdate,
+    request: Request,
+    user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff, UserRole.practitioner)),
+    db: Session = Depends(get_db),
+) -> Appointment:
+    appointment = clinic_item_or_404(db, Appointment, appointment_id, user.clinic_id)
+    if user.role == UserRole.practitioner:
+        if not user.practitioner:
+            raise HTTPException(status_code=403, detail="Practitioner user is not linked to a worker")
+        if appointment.practitioner_id != user.practitioner.id:
+            raise HTTPException(status_code=403, detail="Practitioners can only edit their own appointments")
+    service = clinic_item_or_404(db, Service, appointment.service_id, user.clinic_id)
+    apply_appointment_payment(
+        db,
+        user,
+        appointment,
+        service,
+        payment_status=payload.payment_status,
+        amount_cents=payload.amount_cents,
+    )
+    audit_action(
+        db,
+        user,
+        "update-appointment-payment",
+        "appointment",
+        appointment.id,
+        {"payment_status": payload.payment_status, "amount_cents": payload.amount_cents},
+        request=request,
+    )
     db.commit()
     db.refresh(appointment)
     return appointment

@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-payments-google-20260609";
+const KLINIA_CACHE = "klinia-payment-google-fix-20260610";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260609-payments-google",
-  "./app.js?v=20260609-payments-google",
+  "./styles.css?v=20260610-payment-google-fix",
+  "./app.js?v=20260610-payment-google-fix",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
