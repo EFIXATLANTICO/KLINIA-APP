@@ -2801,12 +2801,7 @@ def update_billing_profile(payload: BillingProfileUpdate, user: User = Depends(r
 @app.post("/billing/checkout-session", response_model=BillingSessionOut)
 def checkout_session(payload: CheckoutSessionCreate, user: User = Depends(require_roles(UserRole.owner)), db: Session = Depends(get_db)) -> BillingSessionOut:
     plan = plan_by_id(payload.plan)
-    user.clinic.subscription_plan = plan["id"]
-    user.clinic.subscription_status = "trialing" if datetime_is_future(user.clinic.trial_ends_at) else ("trialing" if plan["id"] == "trial" else "incomplete")
-    user.clinic.stripe_price_id = plan.get("price_id") or user.clinic.stripe_price_id
-    if not user.clinic.trial_ends_at:
-        user.clinic.trial_ends_at = datetime.now(UTC) + timedelta(days=30)
-    audit_action(db, user, "checkout-session", "clinic", user.clinic_id, {"plan": plan["id"]})
+    audit_action(db, user, "checkout-session-created", "clinic", user.clinic_id, {"requested_plan": plan["id"]})
     db.commit()
     return create_checkout_session(user.clinic, plan["id"])
 

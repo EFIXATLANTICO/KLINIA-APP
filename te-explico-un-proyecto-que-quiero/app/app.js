@@ -9309,8 +9309,8 @@ async function handleSubscriptionPlanSelection(planId, button = null) {
   const confirmed = await showConfirm({
     eyebrow: "Cambio de plan",
     title: `¿Estás seguro que deseas cambiar al plan ${selectedPlan.name}?`,
-    message: "El cambio se aplicará inmediatamente o en el próximo ciclo de facturación según corresponda.",
-    detail: "Continuarás al pago en Stripe en una pestaña nueva. Klinia permanecerá abierta.",
+    message: "El cambio se aplicará solo cuando Stripe confirme el pago o el cambio de suscripción.",
+    detail: "Continuarás al pago en Stripe en una pestaña nueva. Klinia permanecerá abierta y el plan actual no cambiará mientras no completes el proceso.",
     confirmLabel: "Continuar al pago",
     variant: "primary"
   });
@@ -9328,18 +9328,7 @@ async function handleSubscriptionPlanSelection(planId, button = null) {
   }
   try {
     await openSubscriptionPaymentUrl("/billing/checkout-session", { plan: normalizedPlanId }, "#saas-save-status", checkoutWindow);
-    clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((item) => (
-      item.key === activeClinicKey
-        ? {
-            ...item,
-            pendingPaymentPlan: normalizedPlanId,
-            subscriptionStatus: "pending_stripe",
-            billingStatus: "pending_stripe"
-          }
-        : item
-    )));
-    saveClinicAccounts();
-    $("#saas-save-status").textContent = "Stripe se ha abierto en una pestaña nueva. Klinia sigue abierta para que puedas continuar.";
+    $("#saas-save-status").textContent = "Stripe se ha abierto en una pestaña nueva. El plan cambiará solo cuando el pago quede confirmado.";
   } catch (error) {
     if (checkoutWindow && !checkoutWindow.closed) {
       checkoutWindow.close();
