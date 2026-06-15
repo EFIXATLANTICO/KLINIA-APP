@@ -134,8 +134,13 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  const requestPath = url.pathname === "/"
+    ? "/index.html"
+    : url.pathname.endsWith("/")
+      ? `${url.pathname}index.html`
+      : url.pathname;
   const safePath = path
-    .normalize(url.pathname === "/" ? "/index.html" : url.pathname)
+    .normalize(requestPath)
     .replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(root, safePath);
 
