@@ -641,3 +641,64 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+@media print {
+  @page {
+    margin: 14mm;
+    size: A4;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  .site-header {
+    background: #ffffff;
+    position: static;
+  }
+
+  .main-nav,
+  .hero-actions,
+  .final-cta .button,
+  .site-footer a {
+    display: none;
+  }
+
+  main {
+    max-width: none;
+    padding: 0;
+  }
+
+  .hero {
+    min-height: auto;
+    padding: 24px 0 18px;
+  }
+
+  .section {
+    padding: 22px 0;
+  }
+
+  .intro-grid,
+  .feature-grid,
+  .architecture-map,
+  .capture-grid,
+  .metrics-role {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .feature-card,
+  .architecture-map article,
+  .challenge-card,
+  .capture-card,
+  .metrics-panel,
+  .role-card,
+  .final-cta,
+  .product-window {
+    break-inside: avoid;
+    box-shadow: none;
+  }
+
+  .final-cta {
+    margin-top: 22px;
+  }
+}
