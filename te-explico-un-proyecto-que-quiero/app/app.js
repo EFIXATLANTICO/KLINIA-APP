@@ -13880,6 +13880,72 @@ function openUnavailabilityDialog(defaults = {}) {
   $("#unavailability-dialog").showModal();
 }
 
+function smtpTestSummary(result = {}) {
+  const labels = [
+    ["dns", "DNS"],
+    ["tcp", "TCP"],
+    ["starttls", "STARTTLS"],
+    ["auth", "Login SMTP"],
+    ["send", "Envío"]
+  ];
+  const lines = [
+    `Servidor: ${result.smtp?.host || "No configurado"}:${result.smtp?.port || ""}`,
+    `Destinatario: ${result.recipient || "No indicado"}`,
+    ""
+  ];
+  labels.forEach(([key, label]) => {
+    lines.push(`${label}: ${result[key] || "pending"}`);
+  });
+  if (result.error) {
+    lines.push("");
+    lines.push(`Falla en: ${result.error.step || "desconocido"}`);
+    lines.push(`Tipo: ${result.error.error || result.error.exception || "error"}`);
+    lines.push(`Detalle: ${result.error.detail || "Sin detalle"}`);
+  }
+  if (result.details) {
+    lines.push("");
+    lines.push("Detalle técnico:");
+    lines.push(JSON.stringify(result.details, null, 2));
+  }
+  return lines.join("\n");
+}
+
+async function testSmtpFromSettings() {
+  if (!backendDataEnabled()) {
+    await showNotice("Backend no activo", "Inicia sesión de nuevo como Dirección para probar SMTP con tu token de acceso.", { variant: "warning" });
+    return;
+  }
+  const button = $("#test-smtp");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Probando SMTP...";
+  }
+  $("#clinic-save-status").textContent = "Probando conexión SMTP...";
+  $("#clinic-save-status").classList.remove("error");
+  try {
+    const result = await backendRequest("/admin/test-smtp", {
+      account: currentClinicAccount(),
+      timeoutMs: 30000
+    });
+    $("#clinic-save-status").textContent = result.ok ? "SMTP correcto. Email de prueba enviado." : `SMTP falla en ${result.error?.step || "un paso de la prueba"}.`;
+    $("#clinic-save-status").classList.toggle("error", !result.ok);
+    await showNotice(
+      result.ok ? "SMTP correcto" : "SMTP con error",
+      smtpTestSummary(result),
+      { variant: result.ok ? "success" : "danger" }
+    );
+  } catch (error) {
+    $("#clinic-save-status").textContent = `No se pudo ejecutar la prueba SMTP: ${error.message}`;
+    $("#clinic-save-status").classList.add("error");
+    await showNotice("No se pudo probar SMTP", error.message, { variant: "danger" });
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Probar SMTP";
+    }
+  }
+}
+
 async function deleteAvailabilityBlockById(blockId) {
   const block = availabilityBlocks.find((item) => item.id === blockId);
   if (!block) return;
@@ -14076,6 +14142,8 @@ function setupConfiguration() {
     appendAuditLog("reset-clinic", { clinicKey: activeClinicKey, demo: isDemoClinic() });
     $("#clinic-save-status").textContent = "Clínica reseteada. La cuenta sigue disponible para entrar.";
   });
+
+  $("#test-smtp")?.addEventListener("click", testSmtpFromSettings);
 
   $("#new-practitioner").addEventListener("click", () => {
     if (!canManageClinic()) {

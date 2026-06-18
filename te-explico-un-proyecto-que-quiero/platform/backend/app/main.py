@@ -1507,6 +1507,12 @@ def admin_test_smtp(
     recipient = (to or user.email or "").strip()
     result = {
         "ok": False,
+        "dns": "pending",
+        "tcp": "pending",
+        "starttls": "pending",
+        "auth": "pending",
+        "send": "pending",
+        "error": None,
         "smtp": {
             "host": settings.smtp_host,
             "port": settings.smtp_port,
@@ -1517,8 +1523,24 @@ def admin_test_smtp(
             "starttls": settings.smtp_starttls,
         },
         "recipient": recipient,
-        "steps": {},
+        "details": {},
     }
+
+    def mark_ok(step: str, **detail) -> None:
+        result[step] = "ok"
+        result["details"][step] = {"ok": True, **detail}
+
+    def mark_skipped(step: str, reason: str) -> None:
+        result[step] = "skipped"
+        result["details"][step] = {"ok": True, "skipped": True, "reason": reason}
+
+    def mark_failed(step: str, error: Exception) -> dict:
+        payload = smtp_error_payload(error)
+        result[step] = "failed"
+        result["error"] = {"step": step, **payload}
+        result["details"][step] = payload
+        return result
+
     logger.info(
         "smtp test requested by user=%s clinic=%s host=%s port=%s recipient=%s",
         user.id,
@@ -1530,34 +1552,31 @@ def admin_test_smtp(
     if not settings.smtp_host or not settings.smtp_from_email or not recipient:
         error = ValueError("SMTP_HOST, SMTP_FROM_EMAIL y destinatario son obligatorios para probar SMTP")
         logger.error("smtp test config failed: %s", error)
-        result["steps"]["config"] = smtp_error_payload(error)
-        return result
+        return mark_failed("dns", error)
 
     try:
         logger.info("smtp test dns start host=%s", settings.smtp_host)
         addresses = socket.getaddrinfo(settings.smtp_host, settings.smtp_port, type=socket.SOCK_STREAM)
-        result["steps"]["dns"] = smtp_step_ok(addresses=len(addresses))
+        mark_ok("dns", addresses=len(addresses))
         logger.info("smtp test dns ok host=%s addresses=%s", settings.smtp_host, len(addresses))
     except Exception as error:
         logger.exception("smtp test dns failed host=%s", settings.smtp_host)
-        result["steps"]["dns"] = smtp_error_payload(error)
-        return result
+        return mark_failed("dns", error)
 
     try:
         logger.info("smtp test tcp start host=%s port=%s", settings.smtp_host, settings.smtp_port)
         with socket.create_connection((settings.smtp_host, settings.smtp_port), timeout=12) as sock:
-            result["steps"]["tcp"] = smtp_step_ok(peer=str(sock.getpeername()))
+            mark_ok("tcp", peer=str(sock.getpeername()))
         logger.info("smtp test tcp ok host=%s port=%s", settings.smtp_host, settings.smtp_port)
     except Exception as error:
         logger.exception("smtp test tcp failed host=%s port=%s", settings.smtp_host, settings.smtp_port)
-        result["steps"]["tcp"] = smtp_error_payload(error)
-        return result
+        return mark_failed("tcp", error)
 
     try:
         logger.info("smtp test smtp connect start host=%s port=%s", settings.smtp_host, settings.smtp_port)
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as smtp:
             code, message = smtp.ehlo()
-            result["steps"]["smtp_ehlo"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
+            result["details"]["smtp_ehlo"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
             logger.info("smtp test ehlo ok code=%s", code)
 
             if settings.smtp_starttls:
@@ -1565,28 +1584,26 @@ def admin_test_smtp(
                     logger.info("smtp test starttls start")
                     code, message = smtp.starttls()
                     smtp.ehlo()
-                    result["steps"]["starttls"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
+                    mark_ok("starttls", code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
                     logger.info("smtp test starttls ok code=%s", code)
                 except Exception as error:
                     logger.exception("smtp test starttls failed")
-                    result["steps"]["starttls"] = smtp_error_payload(error)
-                    return result
+                    return mark_failed("starttls", error)
             else:
-                result["steps"]["starttls"] = {"ok": True, "skipped": True, "reason": "SMTP_STARTTLS=false"}
+                mark_skipped("starttls", "SMTP_STARTTLS=false")
                 logger.info("smtp test starttls skipped")
 
             if settings.smtp_username and settings.smtp_password:
                 try:
                     logger.info("smtp test login start username=%s", settings.smtp_username)
                     code, message = smtp.login(settings.smtp_username, settings.smtp_password)
-                    result["steps"]["login"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
+                    mark_ok("auth", code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
                     logger.info("smtp test login ok username=%s code=%s", settings.smtp_username, code)
                 except Exception as error:
                     logger.exception("smtp test login failed username=%s", settings.smtp_username)
-                    result["steps"]["login"] = smtp_error_payload(error)
-                    return result
+                    return mark_failed("auth", error)
             else:
-                result["steps"]["login"] = {"ok": True, "skipped": True, "reason": "SMTP_USERNAME/SMTP_PASSWORD no configurados"}
+                mark_skipped("auth", "SMTP_USERNAME/SMTP_PASSWORD no configurados")
                 logger.info("smtp test login skipped")
 
             message = EmailMessage()
@@ -1601,16 +1618,14 @@ def admin_test_smtp(
             try:
                 logger.info("smtp test send start recipient=%s", recipient)
                 smtp.send_message(message)
-                result["steps"]["send"] = smtp_step_ok()
+                mark_ok("send")
                 logger.info("smtp test send ok recipient=%s", recipient)
             except Exception as error:
                 logger.exception("smtp test send failed recipient=%s", recipient)
-                result["steps"]["send"] = smtp_error_payload(error)
-                return result
+                return mark_failed("send", error)
     except Exception as error:
         logger.exception("smtp test smtp connection failed host=%s port=%s", settings.smtp_host, settings.smtp_port)
-        result["steps"]["smtp_connection"] = smtp_error_payload(error)
-        return result
+        return mark_failed("tcp", error)
 
     result["ok"] = True
     logger.info("smtp test completed ok recipient=%s", recipient)

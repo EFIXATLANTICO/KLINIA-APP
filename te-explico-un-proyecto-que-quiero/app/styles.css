@@ -3239,6 +3239,7 @@ dialog::backdrop {
   font-size: 15px;
   line-height: 1.55;
   white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 #notice-dialog,

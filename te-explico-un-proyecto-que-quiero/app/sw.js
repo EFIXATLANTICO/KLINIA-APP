@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-worker-email-google-login-20260618";
+const KLINIA_CACHE = "klinia-smtp-test-20260618";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260618-worker-email-google-login",
-  "./app.js?v=20260618-worker-email-google-login",
+  "./styles.css?v=20260618-smtp-test",
+  "./app.js?v=20260618-smtp-test",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
