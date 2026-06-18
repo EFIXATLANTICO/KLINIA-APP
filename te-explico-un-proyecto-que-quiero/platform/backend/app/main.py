@@ -5,6 +5,8 @@ import json
 import logging
 import secrets
 import smtplib
+import socket
+import ssl
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -391,6 +393,33 @@ def send_email(to_email: str, subject: str, html_body: str, text_body: str) -> b
             smtp.login(settings.smtp_username, settings.smtp_password)
         smtp.send_message(message)
     return True
+
+
+def smtp_error_payload(error: Exception) -> dict:
+    if isinstance(error, (socket.timeout, TimeoutError)):
+        code = "timeout"
+    elif isinstance(error, smtplib.SMTPAuthenticationError):
+        code = "auth failed"
+    elif isinstance(error, (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError)):
+        code = "relay denied"
+    elif isinstance(error, ssl.SSLError):
+        code = "tls error"
+    elif isinstance(error, ConnectionRefusedError):
+        code = "connection refused"
+    elif isinstance(error, socket.gaierror):
+        code = "dns error"
+    else:
+        code = error.__class__.__name__
+    return {
+        "ok": False,
+        "error": code,
+        "exception": error.__class__.__name__,
+        "detail": str(error),
+    }
+
+
+def smtp_step_ok(**extra) -> dict:
+    return {"ok": True, **extra}
 
 
 def access_email_html(*, clinic_name: str, worker_name: str, access_url: str, purpose: str) -> str:
@@ -1468,6 +1497,124 @@ def set_password_from_access_token(payload: AccessTokenPasswordSetIn, request: R
         request=request,
     )
     db.commit()
+
+
+@app.get("/admin/test-smtp")
+def admin_test_smtp(
+    to: str | None = None,
+    user: User = Depends(require_roles(UserRole.owner)),
+) -> dict:
+    recipient = (to or user.email or "").strip()
+    result = {
+        "ok": False,
+        "smtp": {
+            "host": settings.smtp_host,
+            "port": settings.smtp_port,
+            "from_email": settings.smtp_from_email,
+            "from_name": settings.smtp_from_name,
+            "username_configured": bool(settings.smtp_username),
+            "password_configured": bool(settings.smtp_password),
+            "starttls": settings.smtp_starttls,
+        },
+        "recipient": recipient,
+        "steps": {},
+    }
+    logger.info(
+        "smtp test requested by user=%s clinic=%s host=%s port=%s recipient=%s",
+        user.id,
+        user.clinic_id,
+        settings.smtp_host,
+        settings.smtp_port,
+        recipient,
+    )
+    if not settings.smtp_host or not settings.smtp_from_email or not recipient:
+        error = ValueError("SMTP_HOST, SMTP_FROM_EMAIL y destinatario son obligatorios para probar SMTP")
+        logger.error("smtp test config failed: %s", error)
+        result["steps"]["config"] = smtp_error_payload(error)
+        return result
+
+    try:
+        logger.info("smtp test dns start host=%s", settings.smtp_host)
+        addresses = socket.getaddrinfo(settings.smtp_host, settings.smtp_port, type=socket.SOCK_STREAM)
+        result["steps"]["dns"] = smtp_step_ok(addresses=len(addresses))
+        logger.info("smtp test dns ok host=%s addresses=%s", settings.smtp_host, len(addresses))
+    except Exception as error:
+        logger.exception("smtp test dns failed host=%s", settings.smtp_host)
+        result["steps"]["dns"] = smtp_error_payload(error)
+        return result
+
+    try:
+        logger.info("smtp test tcp start host=%s port=%s", settings.smtp_host, settings.smtp_port)
+        with socket.create_connection((settings.smtp_host, settings.smtp_port), timeout=12) as sock:
+            result["steps"]["tcp"] = smtp_step_ok(peer=str(sock.getpeername()))
+        logger.info("smtp test tcp ok host=%s port=%s", settings.smtp_host, settings.smtp_port)
+    except Exception as error:
+        logger.exception("smtp test tcp failed host=%s port=%s", settings.smtp_host, settings.smtp_port)
+        result["steps"]["tcp"] = smtp_error_payload(error)
+        return result
+
+    try:
+        logger.info("smtp test smtp connect start host=%s port=%s", settings.smtp_host, settings.smtp_port)
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as smtp:
+            code, message = smtp.ehlo()
+            result["steps"]["smtp_ehlo"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
+            logger.info("smtp test ehlo ok code=%s", code)
+
+            if settings.smtp_starttls:
+                try:
+                    logger.info("smtp test starttls start")
+                    code, message = smtp.starttls()
+                    smtp.ehlo()
+                    result["steps"]["starttls"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
+                    logger.info("smtp test starttls ok code=%s", code)
+                except Exception as error:
+                    logger.exception("smtp test starttls failed")
+                    result["steps"]["starttls"] = smtp_error_payload(error)
+                    return result
+            else:
+                result["steps"]["starttls"] = {"ok": True, "skipped": True, "reason": "SMTP_STARTTLS=false"}
+                logger.info("smtp test starttls skipped")
+
+            if settings.smtp_username and settings.smtp_password:
+                try:
+                    logger.info("smtp test login start username=%s", settings.smtp_username)
+                    code, message = smtp.login(settings.smtp_username, settings.smtp_password)
+                    result["steps"]["login"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
+                    logger.info("smtp test login ok username=%s code=%s", settings.smtp_username, code)
+                except Exception as error:
+                    logger.exception("smtp test login failed username=%s", settings.smtp_username)
+                    result["steps"]["login"] = smtp_error_payload(error)
+                    return result
+            else:
+                result["steps"]["login"] = {"ok": True, "skipped": True, "reason": "SMTP_USERNAME/SMTP_PASSWORD no configurados"}
+                logger.info("smtp test login skipped")
+
+            message = EmailMessage()
+            message["Subject"] = "Prueba SMTP Klinia"
+            message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
+            message["To"] = recipient
+            message.set_content("Prueba SMTP correcta desde Klinia.")
+            message.add_alternative(
+                "<div style=\"font-family:Arial,sans-serif\"><h2>Klinia</h2><p>Prueba SMTP correcta.</p></div>",
+                subtype="html",
+            )
+            try:
+                logger.info("smtp test send start recipient=%s", recipient)
+                smtp.send_message(message)
+                result["steps"]["send"] = smtp_step_ok()
+                logger.info("smtp test send ok recipient=%s", recipient)
+            except Exception as error:
+                logger.exception("smtp test send failed recipient=%s", recipient)
+                result["steps"]["send"] = smtp_error_payload(error)
+                return result
+    except Exception as error:
+        logger.exception("smtp test smtp connection failed host=%s port=%s", settings.smtp_host, settings.smtp_port)
+        result["steps"]["smtp_connection"] = smtp_error_payload(error)
+        return result
+
+    result["ok"] = True
+    logger.info("smtp test completed ok recipient=%s", recipient)
+    return result
 
 
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
