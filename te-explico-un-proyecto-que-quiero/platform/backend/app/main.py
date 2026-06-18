@@ -1,11 +1,14 @@
 import hashlib
+import html
 import hmac
 import json
 import logging
 import secrets
+import smtplib
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -23,6 +26,7 @@ from .deps import current_subscribed_user, current_user, require_roles, require_
 from .models import (
     Appointment,
     AppointmentStatus,
+    AccessToken,
     AttendanceRecord,
     AuditLog,
     Clinic,
@@ -40,6 +44,9 @@ from .models import (
 from .schemas import (
     AccessRecoveryRequestIn,
     AccessRecoveryRequestOut,
+    AccessEmailOut,
+    AccessEmailRequestIn,
+    AccessTokenPasswordSetIn,
     AppointmentCreate,
     AppointmentOut,
     AppointmentPaymentUpdate,
@@ -330,6 +337,96 @@ def validate_new_password(password: str | None) -> str:
     if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password is too long")
     return password
+
+
+def hash_access_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def frontend_access_url(raw_token: str) -> str:
+    base = str(settings.frontend_url or "https://www.kliniasolutions.com/").rstrip("/")
+    return f"{base}/?access_token={raw_token}"
+
+
+def create_user_access_token(
+    db: Session,
+    target: User,
+    *,
+    purpose: str,
+    created_by: User | None,
+    metadata: dict | None = None,
+) -> tuple[AccessToken, str]:
+    raw_token = secrets.token_urlsafe(40)
+    token = AccessToken(
+        clinic_id=target.clinic_id,
+        user_id=target.id,
+        created_by_id=created_by.id if created_by else None,
+        token_hash=hash_access_token(raw_token),
+        purpose=purpose,
+        expires_at=datetime.now(UTC) + timedelta(hours=max(1, settings.access_token_expire_hours)),
+        metadata_json=json.dumps(safe_metadata(metadata or {})),
+    )
+    db.add(token)
+    db.flush()
+    return token, raw_token
+
+
+def smtp_configured() -> bool:
+    return settings.smtp_enabled
+
+
+def send_email(to_email: str, subject: str, html_body: str, text_body: str) -> bool:
+    if not smtp_configured():
+        return False
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
+    message["To"] = to_email
+    message.set_content(text_body)
+    message.add_alternative(html_body, subtype="html")
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as smtp:
+        if settings.smtp_starttls:
+            smtp.starttls()
+        if settings.smtp_username and settings.smtp_password:
+            smtp.login(settings.smtp_username, settings.smtp_password)
+        smtp.send_message(message)
+    return True
+
+
+def access_email_html(*, clinic_name: str, worker_name: str, access_url: str, purpose: str) -> str:
+    title = "Crea tu contraseña en Klinia" if purpose == "invite" else "Restablece tu contraseña en Klinia"
+    intro = "Has sido dado de alta en Klinia." if purpose == "invite" else "Se ha solicitado restablecer tu acceso a Klinia."
+    safe_clinic = html.escape(clinic_name or "tu clínica")
+    safe_worker = html.escape(worker_name or "trabajador")
+    safe_url = html.escape(access_url)
+    return f"""
+    <div style="margin:0;padding:32px;background:#f4f5f1;font-family:Inter,Segoe UI,Arial,sans-serif;color:#202621">
+      <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #d9ded7;border-radius:18px;overflow:hidden">
+        <div style="padding:28px 32px;background:#10231f;color:#ffffff">
+          <div style="font-size:28px;font-weight:800;letter-spacing:-0.02em">Klinia</div>
+          <div style="margin-top:6px;color:#cfe8df">Acceso seguro para {safe_clinic}</div>
+        </div>
+        <div style="padding:32px">
+          <p style="margin:0 0 8px;color:#168776;font-weight:700">{html.escape(intro)}</p>
+          <h1 style="margin:0 0 18px;font-size:26px;line-height:1.2">{html.escape(title)}</h1>
+          <p style="margin:0 0 16px;line-height:1.6">Hola {safe_worker}, la dirección de {safe_clinic} ha preparado tu acceso. Por seguridad, define tú mismo tu contraseña desde el siguiente botón.</p>
+          <p style="margin:0 0 26px;color:#69746c;line-height:1.6">Este enlace caduca en {settings.access_token_expire_hours} horas y solo puede usarse una vez.</p>
+          <a href="{safe_url}" style="display:inline-block;background:#168776;color:#ffffff;text-decoration:none;font-weight:800;padding:14px 22px;border-radius:10px">Crear contraseña</a>
+          <p style="margin:28px 0 0;color:#69746c;font-size:13px;line-height:1.5">Si el botón no funciona, copia y pega este enlace en tu navegador:<br><span style="word-break:break-all">{safe_url}</span></p>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def access_email_text(*, clinic_name: str, worker_name: str, access_url: str, purpose: str) -> str:
+    title = "Has sido dado de alta en Klinia" if purpose == "invite" else "Restablecimiento de acceso en Klinia"
+    return (
+        f"{title}\n\n"
+        f"Hola {worker_name or 'trabajador'}, la clínica {clinic_name or 'tu clínica'} ha preparado tu acceso.\n"
+        f"Crea tu contraseña aquí: {access_url}\n\n"
+        f"El enlace caduca en {settings.access_token_expire_hours} horas y solo puede usarse una vez."
+    )
 
 
 def google_auth_enabled_or_503() -> None:
@@ -1332,6 +1429,47 @@ def google_password_recovery_set(payload: GooglePasswordRecoverySetIn, request: 
     db.commit()
 
 
+@app.post("/auth/access-token/password", status_code=status.HTTP_204_NO_CONTENT)
+def set_password_from_access_token(payload: AccessTokenPasswordSetIn, request: Request, db: Session = Depends(get_db)) -> None:
+    token_hash = hash_access_token(payload.token)
+    token = db.scalar(select(AccessToken).where(AccessToken.token_hash == token_hash))
+    if not token:
+        audit_action(db, None, "access-token-password-failed", "auth", metadata={"reason": "not_found"}, result="failure", request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El enlace no existe o ya no es válido.")
+    now = datetime.now(UTC)
+    if token.used_at is not None:
+        audit_action(db, None, "access-token-password-failed", "auth", token.id, {"reason": "used", "user_id": token.user_id}, result="failure", clinic_id=token.clinic_id, request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Este enlace ya se ha utilizado.")
+    expires_at = token.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at < now:
+        audit_action(db, None, "access-token-password-failed", "auth", token.id, {"reason": "expired", "user_id": token.user_id}, result="failure", clinic_id=token.clinic_id, request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Este enlace ha caducado. Solicita uno nuevo.")
+    target = db.get(User, token.user_id)
+    if not target or not target.active:
+        audit_action(db, target, "access-token-password-failed", "auth", token.id, {"reason": "inactive_or_missing"}, result="failure", clinic_id=token.clinic_id, request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario no está activo.")
+    target.password_hash = hash_password(validate_new_password(payload.new_password))
+    target.force_password_change = False
+    token.used_at = now
+    audit_action(
+        db,
+        target,
+        "access-token-password-set",
+        "user",
+        target.id,
+        {"token_id": token.id, "purpose": token.purpose},
+        clinic_id=target.clinic_id,
+        request=request,
+    )
+    db.commit()
+
+
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
     email = str(payload.email).lower()
@@ -2085,6 +2223,64 @@ def sync_practitioner_user_from_metadata(db: Session, actor: User, practitioner:
         changed_fields.append("role")
     if changed_fields:
         audit_action(db, actor, "sync-practitioner-user", "user", target.id, {"fields": changed_fields, "practitioner_id": practitioner.id})
+
+
+def ensure_practitioner_user_for_access(db: Session, actor: User, practitioner: Practitioner) -> tuple[User, list[str]]:
+    metadata = parse_metadata_json(practitioner.metadata_json)
+    email = normalized_identifier(metadata.get("email") or metadata.get("accessEmail") or metadata.get("loginEmail"))
+    if not email:
+        raise HTTPException(status_code=422, detail="El trabajador necesita un email para enviar el acceso.")
+    access_role = str(metadata.get("accessRole") or "").strip().lower()
+    next_role = UserRole.staff if access_role == "staff" else UserRole.practitioner
+    actions: list[str] = []
+    target = db.get(User, practitioner.user_id) if practitioner.user_id else None
+    if target and target.clinic_id != practitioner.clinic_id:
+        target = None
+    existing = db.scalar(
+        select(User).where(
+            User.clinic_id == practitioner.clinic_id,
+            func.lower(User.email) == email,
+        )
+    )
+    if existing and target and existing.id != target.id:
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese email en esta clínica.")
+    if not target:
+        target = existing
+    if not target:
+        target = User(
+            clinic_id=practitioner.clinic_id,
+            name=practitioner.name,
+            email=email,
+            password_hash=hash_password(generate_temporary_password()),
+            role=next_role,
+            active=True,
+            force_password_change=True,
+        )
+        db.add(target)
+        db.flush()
+        actions.append("user-created")
+    else:
+        if not target.active:
+            target.active = True
+            actions.append("user-reactivated")
+        if target.email.lower() != email:
+            target.email = email
+            target.google_sub = None
+            actions.append("email-updated")
+        if target.name != practitioner.name:
+            target.name = practitioner.name
+            actions.append("name-updated")
+        if target.role != next_role:
+            target.role = next_role
+            actions.append("role-updated")
+    if next_role == UserRole.practitioner and practitioner.user_id != target.id:
+        practitioner.user_id = target.id
+        actions.append("practitioner-linked")
+    if next_role != UserRole.practitioner and practitioner.user_id:
+        practitioner.user_id = None
+        actions.append("practitioner-unlinked-for-staff-role")
+    audit_action(db, actor, "ensure-practitioner-access-user", "user", target.id, {"actions": actions, "practitioner_id": practitioner.id})
+    return target, actions
 
 
 @app.get("/superadmin/overview", response_model=SuperAdminOverviewOut)
@@ -2939,6 +3135,82 @@ def update_practitioner(practitioner_id: str, payload: PractitionerUpdate, user:
     db.commit()
     db.refresh(practitioner)
     return practitioner
+
+
+@app.post("/practitioners/{practitioner_id}/access-email", response_model=AccessEmailOut)
+def send_practitioner_access_email(
+    practitioner_id: str,
+    payload: AccessEmailRequestIn,
+    request: Request,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> AccessEmailOut:
+    practitioner = clinic_item_or_404(db, Practitioner, practitioner_id, user.clinic_id)
+    target, actions = ensure_practitioner_user_for_access(db, user, practitioner)
+    now = datetime.now(UTC)
+    db.query(AccessToken).filter(
+        AccessToken.user_id == target.id,
+        AccessToken.used_at.is_(None),
+        AccessToken.purpose == payload.purpose,
+    ).update({"used_at": now}, synchronize_session=False)
+    token, raw_token = create_user_access_token(
+        db,
+        target,
+        purpose=payload.purpose,
+        created_by=user,
+        metadata={"practitioner_id": practitioner.id, "actions": actions},
+    )
+    clinic = db.get(Clinic, practitioner.clinic_id)
+    access_url = frontend_access_url(raw_token)
+    email_sent = False
+    email_error = ""
+    if smtp_configured():
+        try:
+            email_sent = send_email(
+                target.email,
+                "Tu acceso a Klinia",
+                access_email_html(
+                    clinic_name=clinic.name if clinic else "tu clínica",
+                    worker_name=target.name,
+                    access_url=access_url,
+                    purpose=payload.purpose,
+                ),
+                access_email_text(
+                    clinic_name=clinic.name if clinic else "tu clínica",
+                    worker_name=target.name,
+                    access_url=access_url,
+                    purpose=payload.purpose,
+                ),
+            )
+        except Exception as error:
+            email_error = str(error)
+            logger.warning("practitioner access email failed for %s: %s", target.email, error)
+    audit_action(
+        db,
+        user,
+        "send-practitioner-access-email",
+        "user",
+        target.id,
+        {
+            "practitioner_id": practitioner.id,
+            "purpose": payload.purpose,
+            "email_sent": email_sent,
+            "smtp_configured": smtp_configured(),
+            "email_error": email_error[:180] if email_error else "",
+        },
+        clinic_id=user.clinic_id,
+        result="success" if email_sent else "pending",
+        request=request,
+    )
+    db.commit()
+    return AccessEmailOut(
+        user_id=target.id,
+        email=target.email,
+        email_sent=email_sent,
+        smtp_configured=smtp_configured(),
+        expires_at=token.expires_at,
+        activation_url=access_url,
+    )
 
 
 @app.delete("/practitioners/{practitioner_id}", status_code=status.HTTP_204_NO_CONTENT)

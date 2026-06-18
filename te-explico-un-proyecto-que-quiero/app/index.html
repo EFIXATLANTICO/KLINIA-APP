@@ -591,6 +591,31 @@
       </form>
     </dialog>
 
+    <dialog id="access-token-dialog">
+      <form method="dialog" class="modal-form" id="access-token-form" novalidate>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Acceso seguro</p>
+            <h2>Crear contraseña</h2>
+          </div>
+        </div>
+        <p class="form-help">Define tu contraseña de Klinia. El enlace solo puede usarse una vez y caduca por seguridad.</p>
+        <label>
+          Nueva contraseña
+          <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+          <span class="field-hint">Mínimo 8 caracteres, con mayúscula, minúscula y un número o símbolo.</span>
+        </label>
+        <label>
+          Repetir contraseña
+          <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+        </label>
+        <p class="form-error" id="access-token-error" role="alert"></p>
+        <div class="modal-actions">
+          <button class="primary-button" type="submit">Guardar contraseña</button>
+        </div>
+      </form>
+    </dialog>
+
     <div class="app-shell" id="app-shell">
       <aside class="sidebar" aria-label="Navegacion principal">
         <div class="brand">
@@ -2165,13 +2190,16 @@
             Email usuario
             <input name="email" type="email" placeholder="trabajador@gmail.com" />
           </label>
-          <label>
-            Clave acceso
-            <input name="password" type="password" minlength="8" placeholder="Solo si vas a crear o cambiar acceso" />
+          <label class="check-row practitioner-access-option">
+            <input name="sendAccessEmail" type="checkbox" checked />
+            Enviar acceso por email
           </label>
-          <button class="secondary-button" type="button" id="generate-practitioner-key">Generar clave segura</button>
-          <p class="save-status" id="practitioner-key-status"></p>
         </div>
+        <div class="form-row practitioner-access-actions" id="practitioner-access-actions" hidden>
+          <button class="secondary-button" type="button" id="resend-practitioner-access">Reenviar acceso</button>
+          <button class="secondary-button" type="button" id="send-practitioner-password-reset">Enviar restablecimiento de contraseña</button>
+        </div>
+        <p class="save-status" id="practitioner-key-status"></p>
         <div class="form-row">
           <label>
             Tipo de trabajador
@@ -2229,7 +2257,7 @@
         </label>
         <div class="modal-actions">
           <button class="secondary-button dialog-close" type="button" data-dialog-id="practitioner-dialog">Cancelar</button>
-          <button class="primary-button" value="default" type="submit">Guardar trabajador</button>
+          <button class="primary-button" value="default" type="submit">Crear trabajador y enviar acceso</button>
         </div>
       </form>
     </dialog>

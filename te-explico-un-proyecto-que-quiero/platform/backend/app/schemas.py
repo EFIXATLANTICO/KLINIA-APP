@@ -276,6 +276,25 @@ class SuperAdminPasswordResetOut(BaseModel):
     force_password_change: bool = True
 
 
+class AccessEmailRequestIn(BaseModel):
+    purpose: str = Field(default="invite", pattern="^(invite|reset)$")
+
+
+class AccessEmailOut(BaseModel):
+    ok: bool = True
+    user_id: str
+    email: EmailStr
+    email_sent: bool
+    smtp_configured: bool
+    expires_at: datetime
+    activation_url: str | None = None
+
+
+class AccessTokenPasswordSetIn(BaseModel):
+    token: str = Field(min_length=20, max_length=500)
+    new_password: str = Field(min_length=8, max_length=160)
+
+
 class SuperAdminClinicUpdateIn(BaseModel):
     subscription_status: str | None = Field(default=None, max_length=40)
     subscription_plan: str | None = Field(default=None, max_length=40)

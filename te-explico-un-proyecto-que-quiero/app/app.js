@@ -767,6 +767,7 @@ let googleConfig = { enabled: false, client_id: "" };
 let googleScriptLoading = null;
 let googlePendingContext = "";
 let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
+let pendingAccessToken = "";
 const googleScriptSrc = "https://accounts.google.com/gsi/client?hl=es";
 const googleAuthDebug = (() => {
   try {
@@ -2782,6 +2783,53 @@ async function syncPractitionerAccessUserIfAvailable(practitioner, previousPract
     : practitioner;
 }
 
+async function sendPractitionerAccessEmail(practitioner, purpose = "invite") {
+  if (!backendDataEnabled()) {
+    throw new Error("Inicia sesión con backend activo para enviar accesos por email.");
+  }
+  if (!practitioner?.id || !looksLikeBackendId(practitioner.id)) {
+    throw new Error("Guarda primero el trabajador en backend.");
+  }
+  const result = await backendRequest(`/practitioners/${encodeURIComponent(practitioner.id)}/access-email`, {
+    method: "POST",
+    account: currentClinicAccount(),
+    body: JSON.stringify({ purpose })
+  });
+  practitioners = practitioners.map((item) => (
+    item.id === practitioner.id
+      ? {
+          ...item,
+          email: result.email || item.email,
+          backendUserId: result.user_id || item.backendUserId || item.userId || "",
+          userId: result.user_id || item.userId || item.backendUserId || ""
+        }
+      : item
+  ));
+  saveClinicState("practitioners", practitioners);
+  renderLoginProfiles();
+  renderSettings();
+  return result;
+}
+
+async function notifyPractitionerAccessResult(result, purpose = "invite") {
+  if (result?.email_sent) {
+    await showNotice(
+      purpose === "reset" ? "Restablecimiento enviado" : "Acceso enviado",
+      `Hemos enviado un email a ${result.email} para que cree su contraseña.`,
+      { variant: "success" }
+    );
+    return;
+  }
+  const detail = result?.smtp_configured
+    ? "No se pudo enviar el email. Revisa la configuración SMTP o vuelve a intentarlo."
+    : "SMTP no está configurado todavía. El trabajador está creado y el enlace seguro queda disponible para envío manual.";
+  await showNotice(
+    "Acceso preparado",
+    result?.activation_url ? `${detail}\n\nEnlace: ${result.activation_url}` : detail,
+    { variant: "warning" }
+  );
+}
+
 function persistLoginCredentials(form, identifier, password) {
   if (form.elements.remember.checked) {
     saveState("saved-login-credentials", {
@@ -3211,7 +3259,7 @@ async function initializeGoogleAuth() {
   if (!slots.length) return;
   if (!googleConfig.enabled || !googleConfig.client_id) {
     $$(".google-auth-status").forEach((item) => {
-      item.textContent = "Google estará disponible cuando se configure GOOGLE_CLIENT_ID.";
+      item.textContent = "Google no está disponible en este momento. Puedes entrar con email y contraseña.";
     });
     return;
   }
@@ -3248,9 +3296,8 @@ async function initializeGoogleAuth() {
         theme: "outline",
         size: "large",
         shape: "rectangular",
-        text: context === "register" ? "signup_with" : "signin_with",
+        text: context === "register" ? "signup_with" : "continue_with",
         logo_alignment: "left",
-        locale: "es",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
         state: context,
         click_listener: () => {
@@ -3459,6 +3506,80 @@ async function saveGoogleRecoveredPassword() {
       error.classList.add("visible");
     }
   }
+}
+
+function openAccessTokenDialogFromUrl() {
+  let token = "";
+  try {
+    token = new URLSearchParams(window.location.search).get("access_token") || "";
+  } catch (error) {
+    token = "";
+  }
+  if (!token) return;
+  pendingAccessToken = token;
+  const form = $("#access-token-form");
+  const dialog = $("#access-token-dialog");
+  if (!form || !dialog) return;
+  form.reset();
+  setInlineError("#access-token-error");
+  if (!dialog.open) {
+    dialog.showModal();
+  }
+}
+
+function clearAccessTokenFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("access_token");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch (error) {
+    // No bloquea el alta de contraseña si el navegador no permite modificar la URL.
+  }
+}
+
+function setupAccessTokenPasswordDialog() {
+  const form = $("#access-token-form");
+  if (!form) return;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setInlineError("#access-token-error");
+    const newPassword = form.elements.newPassword.value || "";
+    const confirmPassword = form.elements.confirmPassword.value || "";
+    const policyMessage = registerPasswordPolicyMessage(newPassword).replace("contrasena", "contraseña");
+    if (!pendingAccessToken) {
+      setInlineError("#access-token-error", "El enlace no es válido. Solicita un nuevo acceso a tu clínica.");
+      return;
+    }
+    if (policyMessage) {
+      setInlineError("#access-token-error", policyMessage);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setInlineError("#access-token-error", "Las dos contraseñas no coinciden.");
+      return;
+    }
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    try {
+      await backendRequest("/auth/access-token/password", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify({
+          token: pendingAccessToken,
+          new_password: newPassword
+        })
+      });
+      pendingAccessToken = "";
+      clearAccessTokenFromUrl();
+      $("#access-token-dialog")?.close();
+      await showNotice("Contraseña creada", "Ya puedes iniciar sesión en Klinia con tu email y la contraseña que acabas de crear.", { variant: "success" });
+    } catch (error) {
+      setInlineError("#access-token-error", error.message || "No se pudo crear la contraseña. Solicita un nuevo enlace.");
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+  openAccessTokenDialogFromUrl();
 }
 
 function apiPatientToUi(patient, previous = {}) {
@@ -7443,7 +7564,7 @@ function renderSettings() {
           <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autonomo"}</span>
           <span>${practitioner.accessRole === "staff" ? "Acceso recepcion / administracion" : "Acceso trabajador sanitario"}</span>
           <span>${Object.values(normalizeServiceCommissions(practitioner.serviceCommissions)).filter((item) => item?.enabled).length || "Sin"} servicios con comisión configurada</span>
-          <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.password ? "Clave configurada" : "Sin clave configurada"}</span>
+          <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.backendUserId || practitioner.userId ? "Usuario backend vinculado" : "Acceso pendiente"}</span>
           ${practitioner.workerType === "asalariado" ? `
             <div class="attendance-actions">
               <small>${attendanceStatusForPractitioner(practitioner)}</small>
@@ -7456,7 +7577,8 @@ function renderSettings() {
           <summary aria-label="Opciones de ${practitioner.name}">...</summary>
           <div class="item-menu-popover">
             <button type="button" data-edit-practitioner="${practitioner.id}">Editar</button>
-            <button type="button" data-reset-practitioner-key="${practitioner.id}">Generar clave</button>
+            <button type="button" data-send-practitioner-access="${practitioner.id}">Reenviar acceso</button>
+            <button type="button" data-send-practitioner-reset="${practitioner.id}">Restablecer contraseña</button>
             <button class="danger-menu-action" type="button" data-delete-practitioner="${practitioner.id}">Eliminar</button>
           </div>
         </details>
@@ -7479,7 +7601,8 @@ function renderSettings() {
     });
   });
   $$("[data-edit-practitioner]").forEach((button) => button.addEventListener("click", () => openPractitionerEditor(button.dataset.editPractitioner)));
-  $$("[data-reset-practitioner-key]").forEach((button) => button.addEventListener("click", () => resetPractitionerAccessKey(button.dataset.resetPractitionerKey)));
+  $$("[data-send-practitioner-access]").forEach((button) => button.addEventListener("click", () => sendPractitionerAccessFromSettings(button.dataset.sendPractitionerAccess, "invite")));
+  $$("[data-send-practitioner-reset]").forEach((button) => button.addEventListener("click", () => sendPractitionerAccessFromSettings(button.dataset.sendPractitionerReset, "reset")));
   $$("[data-delete-practitioner]").forEach((button) => button.addEventListener("click", () => deletePractitionerById(button.dataset.deletePractitioner)));
   $$("[data-clock-in]").forEach((button) => button.addEventListener("click", () => clockPractitioner(button.dataset.clockIn, "in")));
   $$("[data-clock-out]").forEach((button) => button.addEventListener("click", () => clockPractitioner(button.dataset.clockOut, "out")));
@@ -10194,6 +10317,21 @@ async function resetPractitionerAccessKey(practitionerId) {
   );
 }
 
+async function sendPractitionerAccessFromSettings(practitionerId, purpose = "invite") {
+  const practitioner = byId(practitioners, practitionerId);
+  if (!practitioner || !canManageClinic()) return;
+  if (!practitioner.email) {
+    await showNotice("Email necesario", "Añade un email al trabajador antes de enviar el acceso.", { variant: "warning" });
+    return;
+  }
+  try {
+    const result = await sendPractitionerAccessEmail(practitioner, purpose);
+    await notifyPractitionerAccessResult(result, purpose);
+  } catch (error) {
+    await showNotice("No se pudo enviar", error.message, { variant: "danger" });
+  }
+}
+
 function createAccessRecoveryRequest(email) {
   const principal = loginPrincipalByIdentifier(email);
   if (!principal) {
@@ -10259,15 +10397,31 @@ function renderPermissions() {
 }
 
 function setupAccessManagement() {
-  $("#generate-practitioner-key")?.addEventListener("click", () => {
+  const sendFromOpenPractitioner = async (purpose) => {
     const form = $("#practitioner-form");
-    if (!form) {
+    const practitionerId = form?.dataset.editingPractitionerId || "";
+    if (!practitionerId) {
+      $("#practitioner-key-status").textContent = "Guarda primero el trabajador para poder enviar el acceso.";
       return;
     }
-    const nextKey = generateAccessKey();
-    form.elements.password.value = nextKey;
-    $("#practitioner-key-status").textContent = `Clave generada: ${nextKey}. Guarda el trabajador para activarla.`;
-  });
+    const practitioner = byId(practitioners, practitionerId);
+    if (!practitioner?.email) {
+      $("#practitioner-key-status").textContent = "Añade un email al trabajador antes de enviar el acceso.";
+      return;
+    }
+    try {
+      $("#practitioner-key-status").textContent = purpose === "reset" ? "Enviando restablecimiento..." : "Enviando acceso...";
+      const result = await sendPractitionerAccessEmail(practitioner, purpose);
+      $("#practitioner-key-status").textContent = result.email_sent
+        ? "Email enviado correctamente."
+        : "Acceso preparado. Revisa la configuración SMTP para envío automático.";
+      await notifyPractitionerAccessResult(result, purpose);
+    } catch (error) {
+      $("#practitioner-key-status").textContent = `No se pudo enviar: ${error.message}`;
+    }
+  };
+  $("#resend-practitioner-access")?.addEventListener("click", () => sendFromOpenPractitioner("invite"));
+  $("#send-practitioner-password-reset")?.addEventListener("click", () => sendFromOpenPractitioner("reset"));
 }
 
 async function hydrateFromApi(options = {}) {
@@ -13536,9 +13690,9 @@ function resetPractitionerForm(form = $("#practitioner-form")) {
   form.reset();
   form.dataset.editingPractitionerId = "";
   form.querySelector(".modal-header h2").textContent = "Nuevo trabajador";
-  form.querySelector('button[type="submit"]').textContent = "Guardar trabajador";
+  form.querySelector('button[type="submit"]').textContent = "Crear trabajador y enviar acceso";
   form.elements.color.value = workerColorPalette[practitioners.length % workerColorPalette.length];
-  form.elements.password.value = "";
+  if (form.elements.sendAccessEmail) form.elements.sendAccessEmail.checked = true;
   form.elements.commissionRate.value = "0";
   form.elements.target.value = 2500;
   form.elements.availabilityStart.value = "08:00";
@@ -13547,6 +13701,7 @@ function resetPractitionerForm(form = $("#practitioner-form")) {
   form.elements.availabilityEnd2.value = "20:00";
   if (form.elements.workerType) form.elements.workerType.value = "autonomo";
   if (form.elements.accessRole) form.elements.accessRole.value = "practitioner";
+  $("#practitioner-access-actions")?.setAttribute("hidden", "");
   renderPractitionerServiceCommissionControls(form);
   $("#practitioner-key-status").textContent = "";
 }
@@ -13560,7 +13715,7 @@ function openPractitionerEditor(practitionerId) {
   form.elements.name.value = practitioner.name || "";
   form.elements.specialty.value = practitioner.specialty || "";
   form.elements.email.value = practitioner.email || "";
-  form.elements.password.value = practitioner.password || "";
+  if (form.elements.sendAccessEmail) form.elements.sendAccessEmail.checked = false;
   form.elements.commissionRate.value = "0";
   form.elements.target.value = practitioner.target || 0;
   form.elements.availabilityStart.value = practitioner.availabilityStart || "08:00";
@@ -13573,6 +13728,7 @@ function openPractitionerEditor(practitionerId) {
   form.elements.color.value = practitioner.color || "#168776";
   form.querySelector(".modal-header h2").textContent = "Editar trabajador";
   form.querySelector('button[type="submit"]').textContent = "Guardar cambios";
+  $("#practitioner-access-actions")?.removeAttribute("hidden");
   $("#practitioner-dialog").showModal();
 }
 
@@ -13953,9 +14109,9 @@ function setupConfiguration() {
     const editingPractitionerId = form.dataset.editingPractitionerId || "";
     const normalizedName = slugifyClinicName(form.elements.name.value.trim());
     const normalizedEmail = String(form.elements.email?.value || "").trim().toLowerCase();
-    const typedPassword = form.elements.password.value || "";
-    if (!editingPractitionerId && normalizedEmail && !typedPassword) {
-      $("#practitioner-key-status").textContent = "Introduce una clave o genera una clave segura para activar el acceso del trabajador.";
+    const shouldSendAccessEmail = Boolean(form.elements.sendAccessEmail?.checked);
+    if (shouldSendAccessEmail && !normalizedEmail) {
+      $("#practitioner-key-status").textContent = "Indica un email para enviar el acceso al trabajador.";
       return;
     }
     const duplicatePractitioner = practitioners.find((item) => (
@@ -13977,7 +14133,6 @@ function setupConfiguration() {
       name: form.elements.name.value.trim(),
       specialty: form.elements.specialty.value.trim(),
       email: form.elements.email?.value.trim() || "",
-      password: typedPassword || byId(practitioners, editingPractitionerId)?.password || "",
       color: form.elements.color.value,
       commissionRate: 0,
       target: Number(form.elements.target.value),
@@ -14010,7 +14165,7 @@ function setupConfiguration() {
       : [...practitioners, savedPractitioner];
     if (savedPractitioner.email) {
       try {
-        const syncedPractitioner = await syncPractitionerAccessUserIfAvailable(savedPractitioner, previousPractitioner, typedPassword);
+        const syncedPractitioner = await syncPractitionerAccessUserIfAvailable(savedPractitioner, previousPractitioner, "");
         if (syncedPractitioner.backendUserId || syncedPractitioner.userId) {
           savedPractitioner = syncedPractitioner;
           practitioners = practitioners.map((item) => item.id === savedPractitioner.id ? savedPractitioner : item);
@@ -14020,8 +14175,15 @@ function setupConfiguration() {
           ? `Trabajador guardado. No se pudo sincronizar el acceso backend: ${error.message}`
           : "Trabajador guardado localmente. Inicia sesion backend para crear el usuario real.";
       }
-    } else if (backendDataEnabled()) {
-      $("#practitioner-key-status").textContent = "Trabajador guardado. Genera o introduce una clave para activar su acceso backend.";
+    }
+    let accessResult = null;
+    let accessError = null;
+    if (savedPractitioner.email && shouldSendAccessEmail) {
+      try {
+        accessResult = await sendPractitionerAccessEmail(savedPractitioner, editingPractitionerId ? "reset" : "invite");
+      } catch (error) {
+        accessError = error;
+      }
     }
     saveClinicState("practitioners", practitioners);
     resetPractitionerForm(form);
@@ -14032,6 +14194,13 @@ function setupConfiguration() {
     renderAll();
     form.dataset.saving = "false";
     form.querySelector('button[type="submit"]').disabled = false;
+    if (accessResult) {
+      await notifyPractitionerAccessResult(accessResult, editingPractitionerId ? "reset" : "invite");
+    } else if (accessError) {
+      await showNotice("Trabajador guardado", `No se pudo enviar el acceso por email: ${accessError.message}`, { variant: "warning" });
+    } else {
+      showToast("Trabajador guardado.");
+    }
   });
 
   $("#new-room").addEventListener("click", () => {
@@ -15042,6 +15211,7 @@ renderSession();
 setupPwaInstall();
 setupNavigation();
 setupLogin();
+setupAccessTokenPasswordDialog();
 setupDialogCloseButtons();
 setupAutoCloseOptionMenus();
 setupFormErrorClearing("#appointment-form", "#form-error");
