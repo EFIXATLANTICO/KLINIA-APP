@@ -344,7 +344,7 @@ def hash_access_token(raw_token: str) -> str:
 
 def frontend_access_url(raw_token: str) -> str:
     base = str(settings.frontend_url or "https://www.kliniasolutions.com/").rstrip("/")
-    return f"{base}/activar-acceso?{urlencode({'token': raw_token})}"
+    return f"{base}/?{urlencode({'access_token': raw_token})}"
 
 
 def create_user_access_token(
@@ -1510,7 +1510,7 @@ def set_password_from_access_token(payload: AccessTokenPasswordSetIn, request: R
     if not target:
         audit_action(db, target, "access-token-password-failed", "auth", token.id, {"reason": "missing_user"}, result="failure", clinic_id=token.clinic_id, request=request)
         db.commit()
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario no está activo.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El usuario asociado a este enlace no existe.")
     target.password_hash = hash_password(validate_new_password(payload.new_password))
     target.force_password_change = False
     token.used_at = now
