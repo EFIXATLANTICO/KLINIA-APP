@@ -1264,6 +1264,26 @@ async function backendRequest(path, options = {}) {
   return payload;
 }
 
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function backendRequestWithNetworkRetry(path, options = {}, attempts = 2) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await backendRequest(path, options);
+    } catch (error) {
+      lastError = error;
+      if (!error?.network || attempt >= attempts - 1) {
+        throw error;
+      }
+      await wait(350 + attempt * 250);
+    }
+  }
+  throw lastError;
+}
+
 function applyBackendBillingStatus(status) {
   if (!status?.clinic_id) {
     return;
@@ -3147,17 +3167,18 @@ async function tryBackendLogin(identifier, password, options = {}) {
   const backendEmail = cleanIdentifier;
   const backendClinicEmail = options.clinicEmail || resolvedAccount?.email || resolvedAccount?.name || "";
   try {
-    const session = await backendRequest("/auth/login", {
+    const session = await backendRequestWithNetworkRetry("/auth/login", {
       method: "POST",
       auth: false,
+      timeoutMs: 30000,
       body: JSON.stringify({
         email: backendEmail,
         password,
         clinic_id: options.clinicId || resolvedAccount?.backendClinicId || undefined,
         clinic_email: backendClinicEmail || undefined
       })
-    });
-    const me = await backendRequest("/me", { token: session.access_token, auth: false });
+    }, 2);
+    const me = await backendRequestWithNetworkRetry("/me", { token: session.access_token, auth: false, timeoutMs: 30000 }, 2);
     return applyBackendSession(session, me, { ...options, identifier: cleanIdentifier, currentPassword: password });
   } catch (error) {
     return { handled: false, error };
@@ -3544,6 +3565,10 @@ function showActivationAccessScreen() {
   const submitButton = $("#activation-submit-button");
   if (!screen || !form) return;
   screen.hidden = false;
+  stopBackendAutoSync();
+  isAuthenticated = false;
+  saveState("authenticated", false);
+  saveState("authenticated-at", 0);
   document.body.classList.add("activation-mode");
   document.body.classList.add("login-mode");
   form.reset();
