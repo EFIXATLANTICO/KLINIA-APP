@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-stable-access-login-20260619";
+const KLINIA_CACHE = "klinia-login-healthcheck-20260619";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260619-stable-access-login",
-  "./app.js?v=20260619-stable-access-login",
+  "./styles.css?v=20260619-login-healthcheck",
+  "./app.js?v=20260619-login-healthcheck",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

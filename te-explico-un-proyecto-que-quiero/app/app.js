@@ -1284,6 +1284,14 @@ async function backendRequestWithNetworkRetry(path, options = {}, attempts = 2) 
   throw lastError;
 }
 
+async function backendHealthCheck() {
+  try {
+    return await backendRequestWithNetworkRetry("/health", { auth: false, timeoutMs: 8000 }, 2);
+  } catch {
+    return null;
+  }
+}
+
 function applyBackendBillingStatus(status) {
   if (!status?.clinic_id) {
     return;
@@ -2910,6 +2918,9 @@ function backendLoginMessage(error) {
     return "Se han hecho demasiados intentos de acceso. Espera unos minutos y vuelve a intentarlo.";
   }
   if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
+    if (error?.serverReachable) {
+      return "El servidor de Klinia responde, pero esta sesión no ha podido completar el acceso. Cierra esta pestaña, abre Klinia de nuevo e inicia sesión otra vez.";
+    }
     return "No se pudo conectar con el servidor de Klinia. Revisa la conexion y actualiza la pagina.";
   }
   return error?.message || "No se pudo comprobar el acceso con el backend.";
@@ -3177,10 +3188,16 @@ async function tryBackendLogin(identifier, password, options = {}) {
         clinic_id: options.clinicId || resolvedAccount?.backendClinicId || undefined,
         clinic_email: backendClinicEmail || undefined
       })
-    }, 2);
-    const me = await backendRequestWithNetworkRetry("/me", { token: session.access_token, auth: false, timeoutMs: 30000 }, 2);
+    }, 3);
+    const me = await backendRequestWithNetworkRetry("/me", { token: session.access_token, auth: false, timeoutMs: 30000 }, 3);
     return applyBackendSession(session, me, { ...options, identifier: cleanIdentifier, currentPassword: password });
   } catch (error) {
+    if (error?.network) {
+      const health = await backendHealthCheck();
+      if (health?.ok) {
+        error.serverReachable = true;
+      }
+    }
     return { handled: false, error };
   }
 }
