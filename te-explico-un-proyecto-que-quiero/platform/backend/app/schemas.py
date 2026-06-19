@@ -285,7 +285,7 @@ class AccessEmailOut(BaseModel):
     user_id: str
     email: EmailStr
     email_sent: bool
-    smtp_configured: bool
+    brevo_configured: bool
     expires_at: datetime
     activation_url: str | None = None
 

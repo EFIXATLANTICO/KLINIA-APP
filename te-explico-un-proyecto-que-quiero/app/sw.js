@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-smtp-test-20260618";
+const KLINIA_CACHE = "klinia-brevo-api-email-20260619";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260618-smtp-test",
-  "./app.js?v=20260618-smtp-test",
+  "./styles.css?v=20260619-brevo-api-email",
+  "./app.js?v=20260619-brevo-api-email",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

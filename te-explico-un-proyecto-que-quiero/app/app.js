@@ -2820,9 +2820,9 @@ async function notifyPractitionerAccessResult(result, purpose = "invite") {
     );
     return;
   }
-  const detail = result?.smtp_configured
-    ? "No se pudo enviar el email. Revisa la configuración SMTP o vuelve a intentarlo."
-    : "SMTP no está configurado todavía. El trabajador está creado y el enlace seguro queda disponible para envío manual.";
+  const detail = result?.brevo_configured
+    ? "No se pudo enviar el email por Brevo. Revisa la respuesta de la API o vuelve a intentarlo."
+    : "Brevo API no está configurado todavía. El trabajador está creado y el enlace seguro queda disponible para envío manual.";
   await showNotice(
     "Acceso preparado",
     result?.activation_url ? `${detail}\n\nEnlace: ${result.activation_url}` : detail,
@@ -10414,7 +10414,7 @@ function setupAccessManagement() {
       const result = await sendPractitionerAccessEmail(practitioner, purpose);
       $("#practitioner-key-status").textContent = result.email_sent
         ? "Email enviado correctamente."
-        : "Acceso preparado. Revisa la configuración SMTP para envío automático.";
+        : "Acceso preparado. Revisa la configuración de Brevo API para envío automático.";
       await notifyPractitionerAccessResult(result, purpose);
     } catch (error) {
       $("#practitioner-key-status").textContent = `No se pudo enviar: ${error.message}`;
@@ -13880,16 +13880,16 @@ function openUnavailabilityDialog(defaults = {}) {
   $("#unavailability-dialog").showModal();
 }
 
-function smtpTestSummary(result = {}) {
+function brevoTestSummary(result = {}) {
   const labels = [
-    ["dns", "DNS"],
-    ["tcp", "TCP"],
-    ["starttls", "STARTTLS"],
-    ["auth", "Login SMTP"],
+    ["api_key", "API Key"],
+    ["https", "Conexión HTTPS"],
+    ["brevo_response", "Respuesta Brevo"],
     ["send", "Envío"]
   ];
   const lines = [
-    `Servidor: ${result.smtp?.host || "No configurado"}:${result.smtp?.port || ""}`,
+    `Endpoint: ${result.brevo?.url || "https://api.brevo.com/v3/smtp/email"}`,
+    `Remitente: ${result.brevo?.from_email || "No configurado"}`,
     `Destinatario: ${result.recipient || "No indicado"}`,
     ""
   ];
@@ -13910,38 +13910,38 @@ function smtpTestSummary(result = {}) {
   return lines.join("\n");
 }
 
-async function testSmtpFromSettings() {
+async function testBrevoFromSettings() {
   if (!backendDataEnabled()) {
-    await showNotice("Backend no activo", "Inicia sesión de nuevo como Dirección para probar SMTP con tu token de acceso.", { variant: "warning" });
+    await showNotice("Backend no activo", "Inicia sesión de nuevo como Dirección para probar Brevo API con tu token de acceso.", { variant: "warning" });
     return;
   }
-  const button = $("#test-smtp");
+  const button = $("#test-brevo");
   if (button) {
     button.disabled = true;
-    button.textContent = "Probando SMTP...";
+    button.textContent = "Probando Brevo...";
   }
-  $("#clinic-save-status").textContent = "Probando conexión SMTP...";
+  $("#clinic-save-status").textContent = "Probando Brevo API...";
   $("#clinic-save-status").classList.remove("error");
   try {
-    const result = await backendRequest("/admin/test-smtp", {
+    const result = await backendRequest("/admin/test-brevo", {
       account: currentClinicAccount(),
       timeoutMs: 30000
     });
-    $("#clinic-save-status").textContent = result.ok ? "SMTP correcto. Email de prueba enviado." : `SMTP falla en ${result.error?.step || "un paso de la prueba"}.`;
+    $("#clinic-save-status").textContent = result.ok ? "Brevo API correcto. Email de prueba enviado." : `Brevo API falla en ${result.error?.step || "un paso de la prueba"}.`;
     $("#clinic-save-status").classList.toggle("error", !result.ok);
     await showNotice(
-      result.ok ? "SMTP correcto" : "SMTP con error",
-      smtpTestSummary(result),
+      result.ok ? "Brevo API correcto" : "Brevo API con error",
+      brevoTestSummary(result),
       { variant: result.ok ? "success" : "danger" }
     );
   } catch (error) {
-    $("#clinic-save-status").textContent = `No se pudo ejecutar la prueba SMTP: ${error.message}`;
+    $("#clinic-save-status").textContent = `No se pudo ejecutar la prueba Brevo API: ${error.message}`;
     $("#clinic-save-status").classList.add("error");
-    await showNotice("No se pudo probar SMTP", error.message, { variant: "danger" });
+    await showNotice("No se pudo probar Brevo API", error.message, { variant: "danger" });
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = "Probar SMTP";
+      button.textContent = "Probar Brevo API";
     }
   }
 }
@@ -14143,7 +14143,7 @@ function setupConfiguration() {
     $("#clinic-save-status").textContent = "Clínica reseteada. La cuenta sigue disponible para entrar.";
   });
 
-  $("#test-smtp")?.addEventListener("click", testSmtpFromSettings);
+  $("#test-brevo")?.addEventListener("click", testBrevoFromSettings);
 
   $("#new-practitioner").addEventListener("click", () => {
     if (!canManageClinic()) {

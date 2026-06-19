@@ -4,13 +4,9 @@ import hmac
 import json
 import logging
 import secrets
-import smtplib
-import socket
-import ssl
 import threading
 import time
 from datetime import UTC, datetime, timedelta
-from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -120,6 +116,7 @@ frontend_dir = Path(settings.frontend_dir) if settings.frontend_dir else Path(__
 logger = logging.getLogger(__name__)
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 GOOGLE_ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
+BREVO_EMAIL_API_URL = "https://api.brevo.com/v3/smtp/email"
 _google_jwks_cache: dict[str, object] = {"expires_at": 0.0, "keys": []}
 
 app = FastAPI(title=settings.app_name)
@@ -373,52 +370,64 @@ def create_user_access_token(
     return token, raw_token
 
 
-def smtp_configured() -> bool:
-    return settings.smtp_enabled
+def brevo_configured() -> bool:
+    return settings.brevo_enabled
 
 
 def send_email(to_email: str, subject: str, html_body: str, text_body: str) -> bool:
-    if not smtp_configured():
+    if not brevo_configured():
         return False
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
-    message["To"] = to_email
-    message.set_content(text_body)
-    message.add_alternative(html_body, subtype="html")
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as smtp:
-        if settings.smtp_starttls:
-            smtp.starttls()
-        if settings.smtp_username and settings.smtp_password:
-            smtp.login(settings.smtp_username, settings.smtp_password)
-        smtp.send_message(message)
+    response = httpx.post(
+        BREVO_EMAIL_API_URL,
+        headers={
+            "accept": "application/json",
+            "api-key": settings.brevo_api_key,
+            "content-type": "application/json",
+        },
+        json={
+            "sender": {
+                "name": settings.brevo_from_name or "Klinia",
+                "email": settings.brevo_from_email,
+            },
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "htmlContent": html_body,
+            "textContent": text_body,
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
     return True
 
 
-def smtp_error_payload(error: Exception) -> dict:
-    if isinstance(error, (socket.timeout, TimeoutError)):
+def brevo_error_payload(error: Exception) -> dict:
+    if isinstance(error, httpx.TimeoutException):
         code = "timeout"
-    elif isinstance(error, smtplib.SMTPAuthenticationError):
-        code = "auth failed"
-    elif isinstance(error, (smtplib.SMTPRecipientsRefused, smtplib.SMTPSenderRefused, smtplib.SMTPDataError)):
-        code = "relay denied"
-    elif isinstance(error, ssl.SSLError):
-        code = "tls error"
-    elif isinstance(error, ConnectionRefusedError):
-        code = "connection refused"
-    elif isinstance(error, socket.gaierror):
-        code = "dns error"
+    elif isinstance(error, httpx.ConnectError):
+        code = "connection failed"
+    elif isinstance(error, httpx.HTTPStatusError):
+        status_code = error.response.status_code
+        if status_code in {401, 403}:
+            code = "auth failed"
+        elif status_code in {400, 402, 429}:
+            code = "brevo rejected"
+        else:
+            code = f"http {status_code}"
     else:
         code = error.__class__.__name__
+    response_text = ""
+    if isinstance(error, httpx.HTTPStatusError):
+        response_text = error.response.text
     return {
         "ok": False,
         "error": code,
         "exception": error.__class__.__name__,
         "detail": str(error),
+        "response": response_text[:4000] if response_text else "",
     }
 
 
-def smtp_step_ok(**extra) -> dict:
+def brevo_step_ok(**extra) -> dict:
     return {"ok": True, **extra}
 
 
@@ -1499,28 +1508,24 @@ def set_password_from_access_token(payload: AccessTokenPasswordSetIn, request: R
     db.commit()
 
 
-@app.get("/admin/test-smtp")
-def admin_test_smtp(
+@app.get("/admin/test-brevo")
+def admin_test_brevo(
     to: str | None = None,
     user: User = Depends(require_roles(UserRole.owner)),
 ) -> dict:
     recipient = (to or user.email or "").strip()
     result = {
         "ok": False,
-        "dns": "pending",
-        "tcp": "pending",
-        "starttls": "pending",
-        "auth": "pending",
+        "api_key": "pending",
+        "https": "pending",
+        "brevo_response": "pending",
         "send": "pending",
         "error": None,
-        "smtp": {
-            "host": settings.smtp_host,
-            "port": settings.smtp_port,
-            "from_email": settings.smtp_from_email,
-            "from_name": settings.smtp_from_name,
-            "username_configured": bool(settings.smtp_username),
-            "password_configured": bool(settings.smtp_password),
-            "starttls": settings.smtp_starttls,
+        "brevo": {
+            "url": BREVO_EMAIL_API_URL,
+            "api_key_present": bool(settings.brevo_api_key),
+            "from_email": settings.brevo_from_email,
+            "from_name": settings.brevo_from_name,
         },
         "recipient": recipient,
         "details": {},
@@ -1535,100 +1540,70 @@ def admin_test_smtp(
         result["details"][step] = {"ok": True, "skipped": True, "reason": reason}
 
     def mark_failed(step: str, error: Exception) -> dict:
-        payload = smtp_error_payload(error)
+        payload = brevo_error_payload(error)
         result[step] = "failed"
         result["error"] = {"step": step, **payload}
         result["details"][step] = payload
         return result
 
     logger.info(
-        "smtp test requested by user=%s clinic=%s host=%s port=%s recipient=%s",
+        "brevo test requested by user=%s clinic=%s recipient=%s from=%s",
         user.id,
         user.clinic_id,
-        settings.smtp_host,
-        settings.smtp_port,
         recipient,
+        settings.brevo_from_email,
     )
-    if not settings.smtp_host or not settings.smtp_from_email or not recipient:
-        error = ValueError("SMTP_HOST, SMTP_FROM_EMAIL y destinatario son obligatorios para probar SMTP")
-        logger.error("smtp test config failed: %s", error)
-        return mark_failed("dns", error)
+    if not settings.brevo_api_key:
+        error = ValueError("BREVO_API_KEY es obligatorio para enviar emails por Brevo API")
+        logger.error("brevo test api key missing: %s", error)
+        return mark_failed("api_key", error)
+    mark_ok("api_key", present=True)
+    if not settings.brevo_from_email or not recipient:
+        error = ValueError("BREVO_FROM_EMAIL y destinatario son obligatorios para probar Brevo API")
+        logger.error("brevo test config failed: %s", error)
+        return mark_failed("brevo_response", error)
 
+    payload = {
+        "sender": {
+            "name": settings.brevo_from_name or "Klinia",
+            "email": settings.brevo_from_email,
+        },
+        "to": [{"email": recipient}],
+        "subject": "Prueba Brevo API Klinia",
+        "htmlContent": "<div style=\"font-family:Arial,sans-serif\"><h2>Klinia</h2><p>Prueba Brevo API correcta.</p></div>",
+        "textContent": "Prueba Brevo API correcta desde Klinia.",
+    }
     try:
-        logger.info("smtp test dns start host=%s", settings.smtp_host)
-        addresses = socket.getaddrinfo(settings.smtp_host, settings.smtp_port, type=socket.SOCK_STREAM)
-        mark_ok("dns", addresses=len(addresses))
-        logger.info("smtp test dns ok host=%s addresses=%s", settings.smtp_host, len(addresses))
+        logger.info("brevo test https post start url=%s recipient=%s", BREVO_EMAIL_API_URL, recipient)
+        response = httpx.post(
+            BREVO_EMAIL_API_URL,
+            headers={
+                "accept": "application/json",
+                "api-key": settings.brevo_api_key,
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+        mark_ok("https", status_code=response.status_code)
+        result["details"]["brevo_raw_response"] = {
+            "status_code": response.status_code,
+            "body": response.text[:4000],
+        }
+        response.raise_for_status()
+        mark_ok("brevo_response", status_code=response.status_code)
+        mark_ok("send")
+        logger.info("brevo test send ok recipient=%s status=%s", recipient, response.status_code)
     except Exception as error:
-        logger.exception("smtp test dns failed host=%s", settings.smtp_host)
-        return mark_failed("dns", error)
-
-    try:
-        logger.info("smtp test tcp start host=%s port=%s", settings.smtp_host, settings.smtp_port)
-        with socket.create_connection((settings.smtp_host, settings.smtp_port), timeout=12) as sock:
-            mark_ok("tcp", peer=str(sock.getpeername()))
-        logger.info("smtp test tcp ok host=%s port=%s", settings.smtp_host, settings.smtp_port)
-    except Exception as error:
-        logger.exception("smtp test tcp failed host=%s port=%s", settings.smtp_host, settings.smtp_port)
-        return mark_failed("tcp", error)
-
-    try:
-        logger.info("smtp test smtp connect start host=%s port=%s", settings.smtp_host, settings.smtp_port)
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=12) as smtp:
-            code, message = smtp.ehlo()
-            result["details"]["smtp_ehlo"] = smtp_step_ok(code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
-            logger.info("smtp test ehlo ok code=%s", code)
-
-            if settings.smtp_starttls:
-                try:
-                    logger.info("smtp test starttls start")
-                    code, message = smtp.starttls()
-                    smtp.ehlo()
-                    mark_ok("starttls", code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
-                    logger.info("smtp test starttls ok code=%s", code)
-                except Exception as error:
-                    logger.exception("smtp test starttls failed")
-                    return mark_failed("starttls", error)
-            else:
-                mark_skipped("starttls", "SMTP_STARTTLS=false")
-                logger.info("smtp test starttls skipped")
-
-            if settings.smtp_username and settings.smtp_password:
-                try:
-                    logger.info("smtp test login start username=%s", settings.smtp_username)
-                    code, message = smtp.login(settings.smtp_username, settings.smtp_password)
-                    mark_ok("auth", code=code, message=message.decode("utf-8", errors="replace") if isinstance(message, bytes) else str(message))
-                    logger.info("smtp test login ok username=%s code=%s", settings.smtp_username, code)
-                except Exception as error:
-                    logger.exception("smtp test login failed username=%s", settings.smtp_username)
-                    return mark_failed("auth", error)
-            else:
-                mark_skipped("auth", "SMTP_USERNAME/SMTP_PASSWORD no configurados")
-                logger.info("smtp test login skipped")
-
-            message = EmailMessage()
-            message["Subject"] = "Prueba SMTP Klinia"
-            message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
-            message["To"] = recipient
-            message.set_content("Prueba SMTP correcta desde Klinia.")
-            message.add_alternative(
-                "<div style=\"font-family:Arial,sans-serif\"><h2>Klinia</h2><p>Prueba SMTP correcta.</p></div>",
-                subtype="html",
-            )
-            try:
-                logger.info("smtp test send start recipient=%s", recipient)
-                smtp.send_message(message)
-                mark_ok("send")
-                logger.info("smtp test send ok recipient=%s", recipient)
-            except Exception as error:
-                logger.exception("smtp test send failed recipient=%s", recipient)
-                return mark_failed("send", error)
-    except Exception as error:
-        logger.exception("smtp test smtp connection failed host=%s port=%s", settings.smtp_host, settings.smtp_port)
-        return mark_failed("tcp", error)
+        logger.exception("brevo test failed recipient=%s", recipient)
+        if isinstance(error, httpx.HTTPStatusError):
+            return mark_failed("brevo_response", error)
+        if isinstance(error, (httpx.ConnectError, httpx.TimeoutException, httpx.TransportError)):
+            return mark_failed("https", error)
+        return mark_failed("send", error)
 
     result["ok"] = True
-    logger.info("smtp test completed ok recipient=%s", recipient)
+    logger.info("brevo test completed ok recipient=%s", recipient)
     return result
 
 
@@ -3326,7 +3301,7 @@ def send_practitioner_access_email(
     access_url = frontend_access_url(raw_token)
     email_sent = False
     email_error = ""
-    if smtp_configured():
+    if brevo_configured():
         try:
             email_sent = send_email(
                 target.email,
@@ -3357,7 +3332,7 @@ def send_practitioner_access_email(
             "practitioner_id": practitioner.id,
             "purpose": payload.purpose,
             "email_sent": email_sent,
-            "smtp_configured": smtp_configured(),
+            "brevo_configured": brevo_configured(),
             "email_error": email_error[:180] if email_error else "",
         },
         clinic_id=user.clinic_id,
@@ -3369,7 +3344,7 @@ def send_practitioner_access_email(
         user_id=target.id,
         email=target.email,
         email_sent=email_sent,
-        smtp_configured=smtp_configured(),
+        brevo_configured=brevo_configured(),
         expires_at=token.expires_at,
         activation_url=access_url,
     )

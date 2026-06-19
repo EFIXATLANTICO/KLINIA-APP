@@ -28,13 +28,9 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_redirect_uri: str | None = None
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    smtp_username: str | None = None
-    smtp_password: str | None = None
-    smtp_from_email: str | None = None
-    smtp_from_name: str = "Klinia"
-    smtp_starttls: bool = True
+    brevo_api_key: str | None = None
+    brevo_from_email: str | None = None
+    brevo_from_name: str = "Klinia"
     access_token_expire_hours: int = 72
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -52,8 +48,8 @@ class Settings(BaseSettings):
         return bool(self.google_client_id)
 
     @property
-    def smtp_enabled(self) -> bool:
-        return bool(self.smtp_host and self.smtp_from_email)
+    def brevo_enabled(self) -> bool:
+        return bool(self.brevo_api_key and self.brevo_from_email)
 
 
 @lru_cache
