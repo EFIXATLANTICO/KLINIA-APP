@@ -344,7 +344,7 @@ def hash_access_token(raw_token: str) -> str:
 
 def frontend_access_url(raw_token: str) -> str:
     base = str(settings.frontend_url or "https://www.kliniasolutions.com/").rstrip("/")
-    return f"{base}/?access_token={raw_token}"
+    return f"{base}/activar-acceso?{urlencode({'token': raw_token})}"
 
 
 def create_user_access_token(
@@ -1488,8 +1488,27 @@ def set_password_from_access_token(payload: AccessTokenPasswordSetIn, request: R
         db.commit()
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Este enlace ha caducado. Solicita uno nuevo.")
     target = db.get(User, token.user_id)
-    if not target or not target.active:
-        audit_action(db, target, "access-token-password-failed", "auth", token.id, {"reason": "inactive_or_missing"}, result="failure", clinic_id=token.clinic_id, request=request)
+    if target and token.clinic_id and target.clinic_id != token.clinic_id:
+        audit_action(db, target, "access-token-password-failed", "auth", token.id, {"reason": "clinic_mismatch", "user_id": target.id}, result="failure", clinic_id=token.clinic_id, request=request)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Este enlace no corresponde a este usuario.")
+    practitioner_linked = False
+    if target:
+        token_metadata: dict = {}
+        try:
+            token_metadata = json.loads(token.metadata_json or "{}")
+        except json.JSONDecodeError:
+            token_metadata = {}
+        practitioner_id = token_metadata.get("practitioner_id")
+        if practitioner_id and target.role == UserRole.practitioner and target.clinic_id:
+            practitioner = db.get(Practitioner, practitioner_id)
+            if practitioner and practitioner.clinic_id == target.clinic_id:
+                if practitioner.user_id != target.id:
+                    practitioner.user_id = target.id
+                practitioner_linked = True
+        target.active = True
+    if not target:
+        audit_action(db, target, "access-token-password-failed", "auth", token.id, {"reason": "missing_user"}, result="failure", clinic_id=token.clinic_id, request=request)
         db.commit()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="El usuario no está activo.")
     target.password_hash = hash_password(validate_new_password(payload.new_password))
@@ -1501,7 +1520,7 @@ def set_password_from_access_token(payload: AccessTokenPasswordSetIn, request: R
         "access-token-password-set",
         "user",
         target.id,
-        {"token_id": token.id, "purpose": token.purpose},
+        {"token_id": token.id, "purpose": token.purpose, "activated": True, "practitioner_linked": practitioner_linked},
         clinic_id=target.clinic_id,
         request=request,
     )

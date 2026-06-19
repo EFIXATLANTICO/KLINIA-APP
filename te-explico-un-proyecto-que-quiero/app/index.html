@@ -16,9 +16,34 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260610-subscription-payment-confirmation" />
+    <link rel="stylesheet" href="./styles.css?v=20260619-access-activation-screen" />
   </head>
   <body class="login-mode">
+    <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
+      <div class="activation-card">
+        <img class="activation-logo" src="./assets/klinia-logo.svg" alt="Klinia" />
+        <p class="eyebrow">Acceso seguro</p>
+        <h1>Crear contraseña</h1>
+        <p class="activation-copy">Define tu contraseña para acceder a Klinia.</p>
+        <form id="activation-access-form" novalidate>
+          <label>
+            Nueva contraseña
+            <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+            <span class="field-hint">Mínimo 8 caracteres, con mayúscula, minúscula y un número o símbolo.</span>
+          </label>
+          <label>
+            Repetir contraseña
+            <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <p class="form-error" id="activation-access-error" role="alert"></p>
+          <p class="form-success" id="activation-access-success" role="status"></p>
+          <div class="activation-actions">
+            <button class="primary-button" id="activation-submit-button" type="submit">Guardar contraseña</button>
+            <button class="secondary-button hidden" id="activation-login-button" type="button">Ir a iniciar sesión</button>
+          </div>
+        </form>
+      </div>
+    </section>
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
       <div class="public-shell">
         <header class="public-nav" aria-label="Navegación pública">
@@ -2746,7 +2771,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260610-subscription-payment-confirmation"></script>
+    <script src="./app.js?v=20260619-access-activation-screen"></script>
   </body>
 </html>
 

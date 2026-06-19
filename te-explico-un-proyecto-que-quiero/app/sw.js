@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-brevo-api-email-20260619";
+const KLINIA_CACHE = "klinia-access-activation-screen-20260619";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260619-brevo-api-email",
-  "./app.js?v=20260619-brevo-api-email",
+  "./styles.css?v=20260619-access-activation-screen",
+  "./app.js?v=20260619-access-activation-screen",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

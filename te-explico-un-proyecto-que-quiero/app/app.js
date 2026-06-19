@@ -3508,57 +3508,98 @@ async function saveGoogleRecoveredPassword() {
   }
 }
 
-function openAccessTokenDialogFromUrl() {
-  let token = "";
+function accessTokenFromUrl() {
   try {
-    token = new URLSearchParams(window.location.search).get("access_token") || "";
+    const params = new URLSearchParams(window.location.search);
+    return params.get("token") || params.get("access_token") || "";
   } catch (error) {
-    token = "";
+    return "";
   }
-  if (!token) return;
+}
+
+function isActivationAccessRoute() {
+  return Boolean(accessTokenFromUrl()) || window.location.pathname.replace(/\/+$/, "") === "/activar-acceso";
+}
+
+function activationAccessErrorMessage(error) {
+  const statusCode = Number(error?.status || error?.statusCode || 0);
+  const message = String(error?.message || "");
+  if (statusCode === 410 && message.toLowerCase().includes("caduc")) {
+    return "Este enlace ha caducado. Solicita uno nuevo.";
+  }
+  if (statusCode === 404 || statusCode === 410 || message.toLowerCase().includes("utilizado") || message.toLowerCase().includes("válido")) {
+    return "Este enlace no es válido o ya ha sido utilizado.";
+  }
+  return "No se pudo crear la contraseña. Inténtalo de nuevo o contacta con la clínica.";
+}
+
+function showActivationAccessScreen() {
+  const token = accessTokenFromUrl();
+  if (!token && !isActivationAccessRoute()) return;
   pendingAccessToken = token;
-  const form = $("#access-token-form");
-  const dialog = $("#access-token-dialog");
-  if (!form || !dialog) return;
+  const screen = $("#activation-screen");
+  const form = $("#activation-access-form");
+  const success = $("#activation-access-success");
+  const loginButton = $("#activation-login-button");
+  const submitButton = $("#activation-submit-button");
+  if (!screen || !form) return;
+  screen.hidden = false;
+  document.body.classList.add("activation-mode");
+  document.body.classList.add("login-mode");
   form.reset();
-  setInlineError("#access-token-error");
-  if (!dialog.open) {
-    dialog.showModal();
+  setInlineError("#activation-access-error");
+  success?.classList.remove("visible");
+  if (success) success.textContent = "";
+  loginButton?.classList.toggle("hidden", Boolean(token));
+  if (submitButton) {
+    submitButton.disabled = !token;
+    submitButton.classList.toggle("hidden", !token);
+  }
+  if (!token) {
+    setInlineError("#activation-access-error", "Este enlace no es válido o ya ha sido utilizado.");
   }
 }
 
 function clearAccessTokenFromUrl() {
   try {
     const url = new URL(window.location.href);
+    url.searchParams.delete("token");
     url.searchParams.delete("access_token");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    const nextPath = url.pathname.replace(/\/activar-acceso\/?$/, "/");
+    window.history.replaceState({}, "", `${nextPath}${url.search}${url.hash}`);
   } catch (error) {
     // No bloquea el alta de contraseña si el navegador no permite modificar la URL.
   }
 }
 
 function setupAccessTokenPasswordDialog() {
-  const form = $("#access-token-form");
+  const form = $("#activation-access-form");
   if (!form) return;
+  $("#activation-login-button")?.addEventListener("click", () => {
+    document.body.classList.remove("activation-mode");
+    $("#activation-screen")?.setAttribute("hidden", "");
+    showPublicView("login", { updateHash: true, resetLogin: true, allowSavedCredentials: false });
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setInlineError("#access-token-error");
+    setInlineError("#activation-access-error");
+    $("#activation-access-success")?.classList.remove("visible");
     const newPassword = form.elements.newPassword.value || "";
     const confirmPassword = form.elements.confirmPassword.value || "";
     const policyMessage = registerPasswordPolicyMessage(newPassword).replace("contrasena", "contraseña");
     if (!pendingAccessToken) {
-      setInlineError("#access-token-error", "El enlace no es válido. Solicita un nuevo acceso a tu clínica.");
+      setInlineError("#activation-access-error", "Este enlace no es válido o ya ha sido utilizado.");
       return;
     }
     if (policyMessage) {
-      setInlineError("#access-token-error", policyMessage);
+      setInlineError("#activation-access-error", policyMessage);
       return;
     }
     if (newPassword !== confirmPassword) {
-      setInlineError("#access-token-error", "Las dos contraseñas no coinciden.");
+      setInlineError("#activation-access-error", "Las dos contraseñas no coinciden.");
       return;
     }
-    const submitButton = form.querySelector('button[type="submit"]');
+    const submitButton = $("#activation-submit-button") || form.querySelector('button[type="submit"]');
     submitButton.disabled = true;
     try {
       await backendRequest("/auth/access-token/password", {
@@ -3571,15 +3612,21 @@ function setupAccessTokenPasswordDialog() {
       });
       pendingAccessToken = "";
       clearAccessTokenFromUrl();
-      $("#access-token-dialog")?.close();
-      await showNotice("Contraseña creada", "Ya puedes iniciar sesión en Klinia con tu email y la contraseña que acabas de crear.", { variant: "success" });
+      const success = $("#activation-access-success");
+      if (success) {
+        success.textContent = "Contraseña creada correctamente. Ya puedes iniciar sesión en Klinia.";
+        success.classList.add("visible");
+      }
+      $("#activation-login-button")?.classList.remove("hidden");
+      submitButton.classList.add("hidden");
     } catch (error) {
-      setInlineError("#access-token-error", error.message || "No se pudo crear la contraseña. Solicita un nuevo enlace.");
-    } finally {
+      setInlineError("#activation-access-error", activationAccessErrorMessage(error));
       submitButton.disabled = false;
+    } finally {
+      if (pendingAccessToken) submitButton.disabled = false;
     }
   });
-  openAccessTokenDialogFromUrl();
+  showActivationAccessScreen();
 }
 
 function apiPatientToUi(patient, previous = {}) {
@@ -10762,6 +10809,10 @@ function clearAuthenticatedSessionForBackend(message = "") {
 }
 
 async function restoreAuthenticatedSessionOnLoad() {
+  if (isActivationAccessRoute()) {
+    stopBackendAutoSync();
+    return;
+  }
   if (!isAuthenticated) {
     stopBackendAutoSync();
     setActiveSection("agenda", false);

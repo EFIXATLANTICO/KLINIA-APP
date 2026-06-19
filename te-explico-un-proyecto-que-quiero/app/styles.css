@@ -83,6 +83,90 @@ body.login-mode .app-shell {
   display: none;
 }
 
+.activation-screen {
+  display: none;
+  min-height: 100vh;
+  padding: clamp(20px, 5vw, 56px);
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #edf6f1 0%, #f8faf7 52%, #e7efeb 100%);
+}
+
+body.activation-mode {
+  background: linear-gradient(135deg, #edf6f1 0%, #f8faf7 52%, #e7efeb 100%);
+}
+
+body.activation-mode .activation-screen {
+  display: grid;
+}
+
+body.activation-mode .login-screen,
+body.activation-mode .app-shell {
+  display: none !important;
+}
+
+.activation-card {
+  width: min(460px, 100%);
+  padding: clamp(28px, 5vw, 44px);
+  border: 1px solid rgba(16, 35, 31, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 28px 80px rgba(16, 35, 31, 0.16);
+}
+
+.activation-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  margin-bottom: 24px;
+  box-shadow: 0 16px 42px rgba(16, 35, 31, 0.16);
+}
+
+.activation-card h1 {
+  margin: 0 0 8px;
+  font-size: clamp(32px, 7vw, 42px);
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.activation-copy {
+  margin: 0 0 24px;
+  color: var(--muted);
+}
+
+.activation-card form {
+  display: grid;
+  gap: 16px;
+}
+
+.activation-card label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.activation-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.form-success {
+  display: none;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(22, 135, 118, 0.28);
+  border-radius: 10px;
+  background: rgba(22, 135, 118, 0.08);
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.form-success.visible {
+  display: block;
+}
+
 .login-shell {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(360px, 440px);
