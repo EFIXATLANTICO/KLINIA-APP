@@ -766,6 +766,7 @@ let consentTemplates = loadClinicState("consent-templates", []);
 let googleConfig = { enabled: false, client_id: "" };
 let googleScriptLoading = null;
 let googlePendingContext = "";
+let googleInitializedClientId = "";
 let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
 let pendingAccessToken = "";
 const googleScriptSrc = "https://accounts.google.com/gsi/client?hl=es";
@@ -1210,6 +1211,52 @@ function saveBackendSessionForAccount(accountKey, session = {}) {
   saveClinicAccounts();
 }
 
+function friendlyBackendDetailMessage(message, status = 0) {
+  const text = Array.isArray(message)
+    ? message.map((item) => item?.msg || item?.message || String(item || "")).join(", ")
+    : String(message || "");
+  const lower = text.toLowerCase();
+  if (lower.includes("valid email") || lower.includes("value is not a valid email") || lower.includes("email address")) {
+    return "El email introducido no es válido.";
+  }
+  if (lower.includes("invalid email or password")) {
+    return "Usuario o contraseña incorrectos.";
+  }
+  if (lower.includes("too many login attempts")) {
+    return "Se han hecho demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
+  }
+  if (lower.includes("google login is not configured")) {
+    return "Entrar con Google no está disponible en este momento.";
+  }
+  if (lower.includes("invalid google token") || lower.includes("could not verify google identity")) {
+    return "No se pudo verificar la cuenta de Google. Inténtalo de nuevo.";
+  }
+  if (lower.includes("google email is not verified")) {
+    return "El correo de Google no está verificado.";
+  }
+  if (lower.includes("password must have at least 8 characters")) {
+    return "La contraseña debe tener al menos 8 caracteres.";
+  }
+  if (lower.includes("password must include at least one uppercase")) {
+    return "La contraseña debe incluir al menos una mayúscula.";
+  }
+  if (lower.includes("password must include at least one lowercase")) {
+    return "La contraseña debe incluir al menos una minúscula.";
+  }
+  if (lower.includes("password must include at least one number or symbol")) {
+    return "La contraseña debe incluir al menos un número o símbolo.";
+  }
+  if (lower.includes("password is too long")) {
+    return "La contraseña es demasiado larga.";
+  }
+  if (lower.includes("not found") || lower.includes("404_not_found")) {
+    return status === 404 ? "No hemos encontrado el recurso solicitado." : text;
+  }
+  if (lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("connection error")) {
+    return "No hemos podido conectar con el servidor. Inténtalo de nuevo.";
+  }
+  return text || `Error ${status || "desconocido"}`;
+}
 async function backendRequest(path, options = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -1235,8 +1282,8 @@ async function backendRequest(path, options = {}) {
   } catch (fetchError) {
     const aborted = fetchError?.name === "AbortError";
     const error = new Error(aborted
-      ? "La API de Klinia ha tardado demasiado en responder. Si estabas creando una clínica, intentaremos recuperar el alta automáticamente."
-      : "No se puede conectar con la API de Klinia. Revisa la conexion, actualiza la pagina y confirma que el backend esta desplegado.");
+      ? "Klinia ha tardado demasiado en responder. Inténtalo de nuevo."
+      : "No hemos podido conectar con el servidor. Inténtalo de nuevo.");
     error.status = 0;
     error.network = true;
     error.timeout = aborted;
@@ -1256,7 +1303,7 @@ async function backendRequest(path, options = {}) {
   }
   if (!response.ok) {
     const message = payload?.detail || `Error ${response.status}`;
-    const error = new Error(Array.isArray(message) ? message.map((item) => item.msg || item.message || String(item)).join(", ") : String(message));
+    const error = new Error(friendlyBackendDetailMessage(message, response.status));
     error.status = response.status;
     error.payload = payload;
     throw error;
@@ -2919,11 +2966,11 @@ function backendLoginMessage(error) {
   }
   if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
     if (error?.serverReachable) {
-      return "El servidor de Klinia responde, pero esta sesión no ha podido completar el acceso. Cierra esta pestaña, abre Klinia de nuevo e inicia sesión otra vez.";
+      return "No hemos podido completar el acceso. Inténtalo de nuevo.";
     }
-    return "No se pudo conectar con el servidor de Klinia. Revisa la conexion y actualiza la pagina.";
+    return "No hemos podido conectar con el servidor. Inténtalo de nuevo.";
   }
-  return error?.message || "No se pudo comprobar el acceso con el backend.";
+  return error?.message || "No hemos podido comprobar el acceso. Inténtalo de nuevo.";
 }
 
 function looksLikeEmail(value) {
@@ -3358,7 +3405,8 @@ async function initializeGoogleAuth() {
       throw new Error("Google Identity Services no está disponible en esta página.");
     }
     window.google.accounts.id.disableAutoSelect?.();
-    window.google.accounts.id.initialize({
+    if (googleInitializedClientId !== googleConfig.client_id) {
+      window.google.accounts.id.initialize({
       client_id: googleConfig.client_id,
       callback: handleGoogleCredential,
       ux_mode: "popup",
@@ -3367,22 +3415,29 @@ async function initializeGoogleAuth() {
       use_fedcm_for_button: false,
       button_auto_select: false,
       context: "signin"
-    });
-    googleAuthLog("initialize ejecutado");
+      });
+      googleInitializedClientId = googleConfig.client_id;
+      googleAuthLog("initialize ejecutado");
+    } else {
+      googleAuthLog("initialize omitido: cliente ya inicializado");
+    }
     slots.forEach((slot) => {
       const context = slot.dataset.googleContext || "login";
       slot.innerHTML = "";
-      ["click", "mousedown", "touchstart"].forEach((eventName) => {
-        slot.addEventListener(eventName, () => {
-          googlePendingContext = context;
-        }, { passive: true });
-      });
+      if (slot.dataset.googleContextBound !== "true") {
+        ["click", "mousedown", "touchstart"].forEach((eventName) => {
+          slot.addEventListener(eventName, () => {
+            googlePendingContext = slot.dataset.googleContext || "login";
+          }, { passive: true });
+        });
+        slot.dataset.googleContextBound = "true";
+      }
       window.google.accounts.id.renderButton(slot, {
         type: "standard",
         theme: "outline",
         size: "large",
         shape: "rectangular",
-        text: context === "register" ? "signup_with" : "continue_with",
+        text: context === "register" ? "signup_with" : "signin_with",
         logo_alignment: "left",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
         state: context,
@@ -3398,7 +3453,7 @@ async function initializeGoogleAuth() {
   } catch (error) {
     console.warn("[Klinia Google] No se pudo activar Google Identity Services", error);
     $$(".google-auth-status").forEach((item) => {
-      item.textContent = error.message || "No se pudo activar Google.";
+      item.textContent = "Google no está disponible ahora mismo. Puedes entrar con email y contraseña.";
     });
   }
 }
@@ -3609,7 +3664,7 @@ function isActivationAccessRoute() {
 
 function activationAccessErrorMessage(error) {
   const statusCode = Number(error?.status || error?.statusCode || 0);
-  const message = String(error?.message || "");
+  const message = friendlyBackendDetailMessage(error?.message || "", statusCode);
   if (statusCode === 410 && message.toLowerCase().includes("caduc")) {
     return "Este enlace ha caducado. Solicita uno nuevo.";
   }
@@ -3702,6 +3757,8 @@ function setupAccessTokenPasswordDialog() {
       });
       pendingAccessToken = "";
       clearAccessTokenFromUrl();
+      forgetSavedLoginCredentials();
+      clearRealLoginFields();
       const success = $("#activation-access-success");
       if (success) {
         success.textContent = "Contraseña creada correctamente. Ya puedes iniciar sesión en Klinia.";
