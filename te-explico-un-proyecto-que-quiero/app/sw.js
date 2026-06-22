@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-help-redesign-20260622";
+const KLINIA_CACHE = "klinia-agenda-billing-sync-20260622";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260622-help-redesign",
-  "./app.js?v=20260622-help-redesign",
+  "./styles.css?v=20260622-agenda-billing-sync",
+  "./app.js?v=20260622-agenda-billing-sync",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -1,4 +1,4 @@
-﻿const defaultPractitioners = [
+const defaultPractitioners = [
   { id: "ana", name: "Ana Martin", specialty: "Fisioterapia deportiva", color: "#11736d", commissionRate: 0.42, target: 2600, availabilityStart: "08:00", availabilityEnd: "15:00" },
   { id: "luis", name: "Luis Ortega", specialty: "Readaptacion", color: "#436c9f", commissionRate: 0.38, target: 2400, availabilityStart: "09:00", availabilityEnd: "18:00" },
   { id: "clara", name: "Clara Vidal", specialty: "Suelo pelvico", color: "#c9624b", commissionRate: 0.45, target: 2200, availabilityStart: "10:00", availabilityEnd: "20:00" }
@@ -10690,6 +10690,35 @@ function stopBackendAutoSync() {
   }
 }
 
+function isBackendRealtimeSection(section = activeSection) {
+  return ["agenda", "facturacion"].includes(section);
+}
+
+async function refreshRealtimeClinicData(reason = "manual") {
+  if (!shouldAutoSyncBackend({ force: true }) || backendAutoSyncInProgress) {
+    return false;
+  }
+  backendAutoSyncInProgress = true;
+  try {
+    return await hydrateFromApi({ silent: true });
+  } catch (error) {
+    console.warn(`Klinia realtime refresh failed (${reason}).`, error);
+    showToast("No se pudieron actualizar agenda y facturación desde backend. Actualiza la vista si falta algún dato.", "warning");
+    return false;
+  } finally {
+    backendAutoSyncInProgress = false;
+  }
+}
+
+function requestRealtimeRefresh(reason = "navigation") {
+  if (!isBackendRealtimeSection()) {
+    return;
+  }
+  window.setTimeout(() => {
+    refreshRealtimeClinicData(reason);
+  }, 0);
+}
+
 function startBackendAutoSync() {
   stopBackendAutoSync();
   if (!shouldAutoSyncBackend({ force: true })) {
@@ -10747,6 +10776,9 @@ function setActiveSection(section, persist = true) {
   updateTopbarChrome();
   if (persist) {
     saveState("active-section", activeSection);
+  }
+  if (isBackendRealtimeSection(activeSection)) {
+    requestRealtimeRefresh(`section:${activeSection}`);
   }
   return true;
 }
@@ -10882,7 +10914,7 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
       setActiveSection("suscripcion", false);
     }
   });
-  hydrateFromApi({ silent: true });
+  refreshRealtimeClinicData("enter-platform");
 }
 
 function clearAuthenticatedSessionForBackend(message = "") {
@@ -10919,14 +10951,14 @@ async function restoreAuthenticatedSessionOnLoad() {
 
   if (!backendAuthoritativeMode(account)) {
     startBackendAutoSync();
-    hydrateFromApi({ silent: true });
+    await refreshRealtimeClinicData("restore-session-local");
     return;
   }
 
   try {
     await backendRequest("/me", { account });
     startBackendAutoSync();
-    await hydrateFromApi({ silent: true });
+    await refreshRealtimeClinicData("restore-session");
   } catch (error) {
     if ([401, 403].includes(error.status)) {
       clearAuthenticatedSessionForBackend("Tu sesion ha caducado. Inicia sesion de nuevo para cargar los datos reales.");
@@ -12278,6 +12310,9 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
   updateAppointmentOutsideHoursWarning(form);
   resetRecurrenceReview();
   renderAll();
+  if (isBackendRealtimeSection()) {
+    refreshRealtimeClinicData("appointment-create");
+  }
 }
 
 function openAppointmentDialog(defaults = {}) {
@@ -12953,6 +12988,9 @@ function setupAppointmentDetail() {
           requestedPaymentStatus
         );
         finish(savedAppointment);
+        if (isBackendRealtimeSection()) {
+          refreshRealtimeClinicData("appointment-payment-save");
+        }
         if (["cash", "card"].includes(requestedPaymentStatus)) {
           showToast("Cobro registrado correctamente.");
         }
@@ -15232,6 +15270,9 @@ function moveSelectedDate(amount) {
   }
   saveState("selected-date", selectedDate);
   renderAll();
+  if (isBackendRealtimeSection()) {
+    refreshRealtimeClinicData("calendar-navigation");
+  }
 }
 
 function setupCalendarControls() {
@@ -15463,5 +15504,3 @@ setupBillingControls();
 setupPerformance();
 restoreAuthenticatedSessionOnLoad();
 renderAll();
-
-
