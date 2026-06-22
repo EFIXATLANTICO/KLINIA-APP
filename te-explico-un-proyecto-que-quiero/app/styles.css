@@ -7087,3 +7087,88 @@ body.superadmin-mode .public-view.active.superadmin-view {
     grid-template-columns: 1fr;
   }
 }
+
+.performance-breakdown {
+  display: grid;
+  gap: 10px;
+}
+
+.performance-breakdown h3 {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.billing-board.compact article small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+@media (max-width: 760px) {
+  body:not(.login-mode):not(.superadmin-mode) .app-shell {
+    display: block;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    width: 100%;
+    min-height: auto;
+    padding: 12px;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .sidebar .nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .nav-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .main {
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .topbar,
+  .toolbar,
+  .topbar-actions,
+  .filters {
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .topbar-actions,
+  .filters,
+  .performance-date-filters {
+    width: 100%;
+  }
+
+  dialog,
+  .modal-panel {
+    width: min(100% - 20px, 620px);
+    max-height: calc(100dvh - 20px);
+  }
+
+  dialog form,
+  .modal-body {
+    max-height: calc(100dvh - 120px);
+    overflow: auto;
+  }
+
+  .table-wrap,
+  .schedule-scroll,
+  .billing-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

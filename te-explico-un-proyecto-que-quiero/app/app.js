@@ -5889,6 +5889,7 @@ function appointmentPassesAgendaFilters(appointment) {
 function renderFilters() {
   fillSelect($("#filter-room"), rooms, "name", "Todas las salas");
   fillSelect($("#worker-profile-select"), practitioners);
+  fillSelect($("#performance-service-filter"), services, "name", "Todos los servicios");
   const workerFilter = $("#filter-practitioner");
   const workerMenu = workerFilter.querySelector(".worker-filter-menu");
   const validIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
@@ -8678,10 +8679,16 @@ function dateInRange(dateValue, range) {
   return dateValue >= range.start && dateValue <= range.end;
 }
 
-function groupCompletedSessionsForPractitioner(practitioner, range = performanceFilterRange()) {
+function performanceSelectedServiceId() {
+  const value = $("#performance-service-filter")?.value || "all";
+  return value === "all" ? "" : value;
+}
+
+function groupCompletedSessionsForPractitioner(practitioner, range = performanceFilterRange(), serviceFilterId = "") {
   return groupCompletions
     .filter((entry) => String(entry.practitionerId) === String(practitioner.id))
     .filter((entry) => dateInRange(entry.date || selectedDate, range))
+    .filter((entry) => !serviceFilterId || String(entry.serviceId || groups.find((item) => String(item.id) === String(entry.groupId))?.serviceId || "") === String(serviceFilterId))
     .map((entry) => {
       const group = groups.find((item) => String(item.id) === String(entry.groupId));
       const historicalGroup = group ? {
@@ -8786,11 +8793,12 @@ function practitionerOccupancyReport(practitioner, range = calendarRange()) {
   };
 }
 
-function practitionerReport(practitioner, range = performanceFilterRange()) {
+function practitionerReport(practitioner, range = performanceFilterRange(), serviceFilterId = "") {
   const ownAppointments = billableAppointments()
     .filter((appointment) => String(appointment.practitionerId) === String(practitioner.id))
-    .filter((appointment) => dateInRange(appointment.date || selectedDate, range));
-  const ownGroupSessions = groupCompletedSessionsForPractitioner(practitioner, range);
+    .filter((appointment) => dateInRange(appointment.date || selectedDate, range))
+    .filter((appointment) => !serviceFilterId || String(appointment.serviceId || "") === String(serviceFilterId));
+  const ownGroupSessions = groupCompletedSessionsForPractitioner(practitioner, range, serviceFilterId);
   const serviceLines = performanceLinesForPractitioner(practitioner, ownAppointments, ownGroupSessions);
   const revenue = roundMoney(serviceLines.reduce((total, line) => total + Number(line.revenue || 0), 0));
   const minutesBooked = ownAppointments.reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0)
@@ -8818,6 +8826,8 @@ function practitionerReport(practitioner, range = performanceFilterRange()) {
 function renderPerformance() {
   ensurePerformanceFilterDefaults();
   const range = performanceFilterRange();
+  const serviceFilterId = performanceSelectedServiceId();
+  const serviceFilter = serviceFilterId ? byId(services, serviceFilterId) : null;
   const selectedWorker = isOwner()
     ? byId(practitioners, $("#worker-profile-select").value) || practitioners[0]
     : currentPractitioner();
@@ -8827,44 +8837,47 @@ function renderPerformance() {
       <div>
         <span>Rendimiento</span>
         <strong>Sin trabajadores</strong>
-        <p>Crea trabajadores en esta clinica para calcular rendimiento propio.</p>
+        <p>Crea trabajadores en esta clínica para calcular rendimiento propio.</p>
       </div>
     `;
-    $("#worker-billing").innerHTML = `<article><span>Sin datos de rendimiento para esta clinica.</span></article>`;
-    $("#worker-activity").innerHTML = `<article class="compact-item"><span>No hay sesiones facturables asociadas a trabajadores de esta clinica.</span></article>`;
+    $("#worker-billing").innerHTML = `<article><span>Sin datos de rendimiento para esta clínica.</span></article>`;
+    $("#worker-activity").innerHTML = `<article class="compact-item"><span>No hay sesiones facturables asociadas a trabajadores de esta clínica.</span></article>`;
     $("#owner-summary").innerHTML = `
-      <div><span>Facturacion equipo</span><strong>0 EUR</strong></div>
+      <div><span>Facturación equipo</span><strong>0 EUR</strong></div>
       <div><span>Operaciones</span><strong>0</strong></div>
-      <div><span>Mayor facturacion</span><strong>-</strong></div>
+      <div><span>Comisión estimada</span><strong>0 EUR</strong></div>
+      <div><span>Mayor facturación</span><strong>-</strong></div>
     `;
-    $("#owner-report-table").innerHTML = `<tr><td colspan="4">Sin trabajadores en esta clinica.</td></tr>`;
+    $("#owner-report-table").innerHTML = `<tr><td colspan="5">Sin trabajadores en esta clínica.</td></tr>`;
     return;
   }
-  const workerReport = practitionerReport(selectedWorker, range);
-  const allReports = practitioners.map((practitioner) => practitionerReport(practitioner, range)).sort((a, b) => b.revenue - a.revenue);
-  const totalRevenue = allReports.reduce((total, report) => total + report.revenue, 0);
+
+  const workerReport = practitionerReport(selectedWorker, range, serviceFilterId);
+  const allReports = practitioners.map((practitioner) => practitionerReport(practitioner, range, serviceFilterId)).sort((a, b) => b.revenue - a.revenue);
+  const totalRevenue = roundMoney(allReports.reduce((total, report) => total + report.revenue, 0));
   const totalOperations = allReports.reduce((total, report) => total + Number(report.operationCount || 0), 0);
+  const totalPayout = roundMoney(allReports.reduce((total, report) => total + Number(report.payout || 0), 0));
   const topReport = allReports[0];
   $$("#worker-performance .permission-note").forEach((note) => note.remove());
   if (!isOwner()) {
     $("#worker-performance").insertAdjacentHTML(
       "afterbegin",
-      `<p class="permission-note">Vista limitada al perfil del trabajador. El informe completo queda reservado para Direccion.</p>`
+      `<p class="permission-note">Vista limitada al perfil del trabajador. El informe completo queda reservado para Dirección.</p>`
     );
   }
 
   $("#worker-summary").innerHTML = `
     <div>
       <span>Perfil de trabajador</span>
-      <strong>${selectedWorker.name}</strong>
-      <p>${selectedWorker.specialty} · ${range.label}</p>
+      <strong>${escapeHtml(selectedWorker.name)}</strong>
+      <p>${escapeHtml(selectedWorker.specialty || "Sin especialidad")} · ${escapeHtml(range.label)}${serviceFilter ? ` · ${escapeHtml(serviceFilter.name)}` : ""}</p>
     </div>
     <div>
-      <span>Facturacion</span>
+      <span>Facturación</span>
       <strong>${workerReport.revenue} EUR</strong>
     </div>
     <div>
-      <span>Comision estimada</span>
+      <span>Comisión estimada</span>
       <strong>${workerReport.payout} EUR</strong>
     </div>
     <div>
@@ -8874,70 +8887,85 @@ function renderPerformance() {
     </div>
   `;
 
+  const individualRevenue = roundMoney(workerReport.appointments.reduce((total, appointment) => total + appointmentRevenueAmount(appointment), 0));
+  const groupRevenue = roundMoney(workerReport.groupSessions.reduce((total, session) => total + Number(session.revenue || 0), 0));
+  const groupAttendees = workerReport.groupSessions.reduce((total, session) => total + groupSessionOperationUnits(session), 0);
+  const recordCount = workerReport.appointments.length + workerReport.groupSessions.length;
+  const commissionServices = Object.values(normalizeServiceCommissions(selectedWorker.serviceCommissions)).filter((item) => item?.enabled).length;
+
   $("#worker-billing").innerHTML = `
-    <article><span>Operaciones</span><strong>${workerReport.operationCount}</strong></article>
-    <article><span>Producción total</span><strong>${workerReport.revenue} EUR</strong></article>
-    <article><span>Comisión estimada</span><strong>${workerReport.payout} EUR</strong></article>
-    <article><span>Ticket medio</span><strong>${workerReport.averageTicket} EUR</strong></article>
-    <article><span>Servicios con comisión</span><strong>${Object.values(normalizeServiceCommissions(selectedWorker.serviceCommissions)).filter((item) => item?.enabled).length}</strong></article>
+    <article><span>Citas individuales</span><strong>${workerReport.appointments.length}</strong><small>${individualRevenue} EUR</small></article>
+    <article><span>Sesiones grupales</span><strong>${workerReport.groupSessions.length}</strong><small>${groupRevenue} EUR</small></article>
+    <article><span>Asistentes</span><strong>${groupAttendees}</strong><small>en sesiones grupales</small></article>
+    <article><span>Registros</span><strong>${recordCount}</strong><small>citas + grupos</small></article>
+    <article><span>Producción generada</span><strong>${workerReport.revenue} EUR</strong><small>base de comisión</small></article>
+    <article><span>Comisión estimada</span><strong>${workerReport.payout} EUR</strong><small>según servicio</small></article>
+    <article><span>Operaciones</span><strong>${workerReport.operationCount}</strong><small>cobros + asistentes</small></article>
+    <article><span>Servicios con comisión</span><strong>${commissionServices}</strong><small>configurados</small></article>
   `;
 
-  const activityItems = [
-    ...workerReport.serviceLines.map((line) => ({
-      type: "service-summary",
-      start: "00:00",
-      label: `${line.serviceName}: ${line.revenue} EUR × ${Math.round(line.rate * 10000) / 100}% = ${line.payout} EUR`,
-      detail: `${line.operations} operaciones · ${line.sessions} registro(s)`,
-      priority: 0
-    })),
-    ...workerReport.appointments.map((appointment) => ({
-      type: "appointment",
-      start: appointment.start,
-      label: `${appointment.start} - ${byId(patients, appointment.patientId)?.name || "Paciente no encontrado"}`,
-      detail: `${byId(services, appointment.serviceId)?.name || "Servicio"} - ${byId(rooms, appointment.roomId)?.name || "Sala"}`,
-      priority: 1
-    })),
-    ...(workerReport.groupSessions || []).map((session) => ({
-      type: "group",
-      start: session.start,
-      label: `${session.start} - ${session.groupName}`,
-      detail: `${session.serviceName} - ${session.roomName} - ${session.attendees} asistentes - ${session.revenue} EUR`,
-      priority: 1
-    }))
-  ];
-
-  $("#worker-activity").innerHTML = activityItems.length
-    ? activityItems
+  const serviceLineItems = workerReport.serviceLines.length
+    ? workerReport.serviceLines.map((line) => `
+      <article class="compact-item">
+        <strong>${escapeHtml(line.serviceName)}</strong>
+        <span>${line.sessions} registro(s) · ${line.operations} operaciones · ${line.revenue} EUR × ${Math.round(line.rate * 10000) / 100}% = ${line.payout} EUR</span>
+      </article>
+    `).join("")
+    : `<article class="compact-item"><span>No hay servicios con producción en este filtro.</span></article>`;
+  const appointmentItems = workerReport.appointments.length
+    ? workerReport.appointments
         .slice()
-        .sort((a, b) => (a.priority - b.priority) || minutes(a.start) - minutes(b.start))
-        .map((item) => `
+        .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || minutes(a.start) - minutes(b.start))
+        .map((appointment) => `
           <article class="compact-item">
-            <strong>${item.label}</strong>
-            <span>${item.detail}</span>
+            <strong>${escapeHtml(appointment.date || selectedDate)} · ${escapeHtml(appointment.start || "")} · ${escapeHtml(byId(patients, appointment.patientId)?.name || "Paciente")}</strong>
+            <span>${escapeHtml(byId(services, appointment.serviceId)?.name || "Servicio")} · ${escapeHtml(byId(rooms, appointment.roomId)?.name || "Sala")} · ${appointmentRevenueAmount(appointment)} EUR</span>
           </article>
-        `)
-        .join("")
-    : `<article class="compact-item"><span>Sin sesiones facturables todavia.</span></article>`;
+        `).join("")
+    : `<article class="compact-item"><span>Sin citas individuales facturables en este filtro.</span></article>`;
+  const groupItems = workerReport.groupSessions.length
+    ? workerReport.groupSessions
+        .slice()
+        .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || minutes(a.start) - minutes(b.start))
+        .map((session) => `
+          <article class="compact-item">
+            <strong>${escapeHtml(session.date || selectedDate)} · ${escapeHtml(session.start || "")} · ${escapeHtml(session.groupName)}</strong>
+            <span>${escapeHtml(session.serviceName)} · ${escapeHtml(session.roomName)} · ${session.attendees || 0} asistentes · ${session.revenue || 0} EUR</span>
+          </article>
+        `).join("")
+    : `<article class="compact-item"><span>Sin sesiones grupales completadas en este filtro.</span></article>`;
+
+  $("#worker-activity").innerHTML = `
+    <div class="performance-breakdown">
+      <h3>Comisión por servicio</h3>
+      ${serviceLineItems}
+      <h3>Citas individuales</h3>
+      ${appointmentItems}
+      <h3>Sesiones grupales</h3>
+      ${groupItems}
+    </div>
+  `;
 
   $("#owner-summary").innerHTML = `
-    <div><span>Facturacion equipo</span><strong>${totalRevenue} EUR</strong></div>
+    <div><span>Facturación equipo</span><strong>${totalRevenue} EUR</strong></div>
     <div><span>Operaciones</span><strong>${totalOperations}</strong></div>
-    <div><span>Mayor facturacion</span><strong>${topReport ? topReport.practitioner.name : "-"}</strong></div>
+    <div><span>Comisión estimada</span><strong>${totalPayout} EUR</strong></div>
+    <div><span>Mayor facturación</span><strong>${topReport ? escapeHtml(topReport.practitioner.name) : "-"}</strong></div>
   `;
 
   $("#owner-report-table").innerHTML = allReports.length
     ? allReports.map((report) => `
       <tr>
-        <td><strong>${report.practitioner.name}</strong><br><span>${report.practitioner.specialty}</span></td>
+        <td><strong>${escapeHtml(report.practitioner.name)}</strong><br><span>${escapeHtml(report.practitioner.specialty || "")}</span></td>
         <td>${report.operationCount}</td>
         <td>${report.revenue} EUR</td>
+        <td>${report.payout} EUR</td>
         <td>${report.averageTicket} EUR</td>
       </tr>
     `)
     .join("")
-    : `<tr><td colspan="4">Sin trabajadores en esta clinica.</td></tr>`;
+    : `<tr><td colspan="5">Sin trabajadores en esta clínica.</td></tr>`;
 }
-
 
 function appointmentDateTime(appointment) {
   return new Date(`${appointment.date || selectedDate}T${appointment.start || "00:00"}:00`);
@@ -8982,10 +9010,25 @@ function reminderMessage(reminder) {
     .replaceAll("{{servicio}}", service?.name || "servicio");
 }
 
+function reminderReferenceCreatedAt(appointment) {
+  const raw = appointment.createdAt || appointment.created_at || appointment.updatedAt || appointment.updated_at || "";
+  const value = raw ? Date.parse(raw) : NaN;
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function effectiveReminderSendAt(appointment, rawSendAt, appointmentAt) {
+  const createdAt = reminderReferenceCreatedAt(appointment);
+  if (createdAt && appointmentAt.getTime() > createdAt && rawSendAt.getTime() < createdAt) {
+    return new Date(createdAt + 60 * 1000);
+  }
+  return rawSendAt;
+}
+
 function reminderSlotFromAppointment(appointment, slot) {
   const appointmentAt = appointmentDateTime(appointment);
   const patient = byId(patients, appointment.patientId);
-  const sendAt = new Date(appointmentAt.getTime() - Number(slot.hoursBefore || 0) * 60 * 60 * 1000);
+  const rawSendAt = new Date(appointmentAt.getTime() - Number(slot.hoursBefore || 0) * 60 * 60 * 1000);
+  const sendAt = effectiveReminderSendAt(appointment, rawSendAt, appointmentAt);
   return {
     id: reminderKey(appointment.id, slot.windowKey),
     appointmentId: appointment.id,
@@ -9457,8 +9500,8 @@ function renderSaasSettings() {
   $("#subscription-after-price").textContent = `${displayedPaidPlan.price} EUR / ${displayedPaidPlan.interval}`;
 
   statusCard.innerHTML = isTrial
-    ? `<strong>Al finalizar tu prueba gratuita</strong><span>Tu plan pasará a Profesional y se cobrará ${professionalPlan.price} EUR al mes cuando Stripe esté conectado.</span>`
-    : `<strong>${subscriptionStatusLabel(status)}</strong><span>${account.stripeCustomerId ? "Cliente Stripe conectado." : "Pago pendiente de conectar con Stripe."}</span>`;
+    ? `<strong>Al finalizar tu prueba gratuita</strong><span>Completa el método de pago para activar el Plan Profesional al terminar la prueba.</span>`
+    : `<strong>${subscriptionStatusLabel(status)}</strong><span>${account.stripeCustomerId ? "Método de pago conectado." : "Configura el método de pago para mantener la suscripción activa."}</span>`;
 
   const currentPlan = $("#subscription-current-plan");
   if (currentPlan) {
@@ -9536,7 +9579,7 @@ function renderSaasSettings() {
     billingSummary.innerHTML = `
       <div class="subscription-billing-row">
         <span>Método de pago</span>
-        <strong>${account.stripeCustomerId ? "Stripe conectado" : "Pendiente de Stripe"}</strong>
+        <strong>${account.stripeCustomerId ? "Método conectado" : "Configurar método de pago"}</strong>
       </div>
       <div class="subscription-billing-row">
         <span>Próximo cobro</span>
@@ -15353,6 +15396,7 @@ function setupCalendarControls() {
 
 function setupPerformance() {
   $("#worker-profile-select").addEventListener("change", renderPerformance);
+  $("#performance-service-filter")?.addEventListener("change", renderPerformance);
   $("#performance-range-mode")?.addEventListener("change", () => {
     ensurePerformanceFilterDefaults();
     renderPerformance();
