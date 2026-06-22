@@ -3220,6 +3220,54 @@ function googleAuthLog(step, detail = undefined) {
   }
 }
 
+function normalizeHelpSearch(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function filterHelpContent() {
+  const query = normalizeHelpSearch($("#help-search-input")?.value || "");
+  const faqItems = $$("[data-help-faq]");
+  let visibleCount = 0;
+  faqItems.forEach((item) => {
+    const haystack = normalizeHelpSearch(`${item.textContent || ""} ${item.dataset.search || ""}`);
+    const visible = !query || haystack.includes(query);
+    item.classList.toggle("hidden", !visible);
+    if (visible) visibleCount += 1;
+  });
+  $$("[data-help-category]").forEach((category) => {
+    const hasVisibleFaq = Array.from(category.querySelectorAll("[data-help-faq]")).some((item) => !item.classList.contains("hidden"));
+    category.classList.toggle("hidden", !hasVisibleFaq);
+  });
+  $("#help-search-empty")?.classList.toggle("hidden", visibleCount > 0);
+}
+
+function setPlatformStatus(name, status, label) {
+  const item = $(`[data-status-item="${name}"]`);
+  if (!item) return;
+  const dot = item.querySelector(".status-dot");
+  const text = item.querySelector("small");
+  dot?.classList.remove("status-ok", "status-warn", "status-error");
+  dot?.classList.add(status === "ok" ? "status-ok" : status === "error" ? "status-error" : "status-warn");
+  if (text) text.textContent = label;
+}
+
+async function updateHelpPlatformStatus() {
+  if (!$("#platform-status-list")) return;
+  try {
+    const health = await backendRequest("/health", { auth: false, timeoutMs: 8000 });
+    const ready = health?.ok && health?.backend_setup_status === "ready";
+    setPlatformStatus("api", health?.ok ? "ok" : "error", health?.ok ? "Operativa" : "Incidencia");
+    setPlatformStatus("database", ready ? "ok" : "warn", ready ? "Operativa" : "Revisando");
+  } catch {
+    setPlatformStatus("api", "error", "No disponible");
+    setPlatformStatus("database", "warn", "No comprobada");
+  }
+}
+
 async function loadGoogleAuthConfig() {
   try {
     googleConfig = await backendRequest("/auth/google/config", { auth: false, timeoutMs: 10000 });
@@ -11425,6 +11473,9 @@ function setupPublicAccessNavigation() {
   $$("[data-help-expand-faq]").forEach((button) => {
     button.addEventListener("click", () => $$("#help-faq details").forEach((item) => item.open = true));
   });
+  $("#help-search-input")?.addEventListener("input", filterHelpContent);
+  filterHelpContent();
+  updateHelpPlatformStatus();
   $("#forgot-password")?.addEventListener("click", () => {
     const dialog = $("#access-recovery-dialog");
     const form = $("#access-recovery-form");

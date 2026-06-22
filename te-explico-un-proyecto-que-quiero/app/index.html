@@ -16,7 +16,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260619-login-healthcheck" />
+    <link rel="stylesheet" href="./styles.css?v=20260622-help-redesign" />
   </head>
   <body class="login-mode">
     <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
@@ -300,77 +300,142 @@
 
         <section class="public-view" data-public-screen="help" aria-label="Ayuda de Klinia">
           <button class="link-button public-back-button" type="button" data-public-view-target="landing">&larr; Volver a planes</button>
-          <div class="help-main-grid">
-            <section class="help-intro-panel">
-              <h1>¿En que podemos ayudarte?</h1>
-              <p>Estamos aqui para resolver tus dudas y acompanarte en todo momento.</p>
-              <div class="help-feature-grid" aria-label="Compromisos de soporte">
-                <article><span>AT</span><strong>Atención cercana</strong><p>Te ayudamos en todo lo que necesites.</p></article>
-                <article><span>15</span><strong>Respuesta rapida</strong><p>Nuestro equipo responde en el menor tiempo posible.</p></article>
-                <article><span>RG</span><strong>Seguridad</strong><p>Tu información está siempre protegida.</p></article>
-                <article><span>OK</span><strong>Soluciones</strong><p>Buscamos la mejor opción para tu clínica.</p></article>
-              </div>
-              <div class="help-account-card">
-                <span>?</span>
-                <div>
-                  <strong>¿Necesitas ayuda con tu cuenta o suscripcion?</strong>
-                  <p>Nuestro equipo de atención al cliente puede ayudarte con planes, acceso, facturación y puesta en marcha.</p>
-                  <button class="secondary-button" type="button" data-help-scroll-faq>Ver preguntas frecuentes</button>
+          <section class="help-page-shell">
+            <section class="help-hero-premium">
+              <div>
+                <p class="eyebrow">Soporte Klinia</p>
+                <h1>¿Necesitas ayuda?</h1>
+                <p>Nuestro equipo está disponible para ayudarte con tu cuenta, agenda, pacientes y facturación.</p>
+                <div class="help-hero-actions">
+                  <a class="primary-button" href="mailto:angelmoscosofernandez@kliniasolutions.com">Contactar soporte</a>
+                  <button class="secondary-button" type="button" data-help-scroll-faq>Centro de ayuda</button>
                 </div>
+              </div>
+              <aside class="help-response-card" aria-label="Tiempo de respuesta">
+                <span>15</span>
+                <strong>Tiempo medio de respuesta</strong>
+                <p>&lt; 15 minutos en horario de atención.</p>
+              </aside>
+            </section>
+
+            <div class="help-search-panel">
+              <label for="help-search-input">Buscar en ayuda</label>
+              <input id="help-search-input" type="search" placeholder="Buscar ayuda..." autocomplete="off" />
+              <p id="help-search-empty" class="help-search-empty hidden">No hay resultados con esa búsqueda.</p>
+            </div>
+
+            <div class="help-content-grid">
+              <aside class="help-support-card" aria-label="Datos de soporte Klinia">
+                <div class="support-card-head">
+                  <img src="./assets/klinia-logo.svg" alt="" />
+                  <div>
+                    <p class="eyebrow">Atención al cliente</p>
+                    <h2>Soporte Klinia</h2>
+                  </div>
+                </div>
+                <dl>
+                  <div><dt>Nombre</dt><dd>Ángel Moscoso Fernández</dd></div>
+                  <div><dt>Email</dt><dd><a href="mailto:angelmoscosofernandez@kliniasolutions.com">angelmoscosofernandez@kliniasolutions.com</a></dd></div>
+                  <div><dt>Teléfono</dt><dd><a href="tel:+34676608216">+34 676 608 216</a></dd></div>
+                  <div><dt>Horario</dt><dd>Lunes a viernes de 9:00 a 18:00 (CET)</dd></div>
+                </dl>
+                <div class="help-contact-actions">
+                  <a class="primary-button" href="mailto:angelmoscosofernandez@kliniasolutions.com">Enviar email</a>
+                  <a class="secondary-button" href="https://wa.me/34676608216" target="_blank" rel="noopener">Abrir WhatsApp</a>
+                </div>
+              </aside>
+
+              <section class="help-status-card" aria-label="Estado de plataforma">
+                <div class="help-section-title">
+                  <p class="eyebrow">Operación</p>
+                  <h2>Estado de plataforma</h2>
+                </div>
+                <div class="platform-status-list" id="platform-status-list">
+                  <article data-status-item="api"><span class="status-dot status-warn"></span><strong>API</strong><small>Comprobando...</small></article>
+                  <article data-status-item="database"><span class="status-dot status-warn"></span><strong>Base de datos</strong><small>Comprobando...</small></article>
+                  <article data-status-item="emails"><span class="status-dot status-ok"></span><strong>Emails</strong><small>Operativo</small></article>
+                  <article data-status-item="whatsapp"><span class="status-dot status-ok"></span><strong>WhatsApp</strong><small>Soporte manual</small></article>
+                </div>
+              </section>
+            </div>
+
+            <section class="help-faq-premium" id="help-faq">
+              <div class="help-section-title">
+                <p class="eyebrow">Centro de ayuda</p>
+                <h2>Preguntas frecuentes</h2>
+                <p>Respuestas claras para operar Klinia con seguridad desde el primer día.</p>
+              </div>
+              <div class="help-faq-categories" id="help-faq-categories">
+                <section class="help-faq-category" data-help-category>
+                  <h3><span>CA</span>Cuenta y acceso</h3>
+                  <details data-help-faq data-search="cuenta acceso contraseña clave google trabajador dirección">
+                    <summary>¿Cómo recupero una clave de acceso?</summary>
+                    <p>Desde la pantalla de entrada puedes solicitar recuperación. Dirección también puede reenviar un acceso seguro a trabajadores desde Configuración.</p>
+                  </details>
+                  <details data-help-faq data-search="trabajador usuario email acceso">
+                    <summary>¿Cómo entra un trabajador?</summary>
+                    <p>Dirección crea el trabajador, envía el acceso por email y el profesional define su propia contraseña desde un enlace seguro.</p>
+                  </details>
+                </section>
+                <section class="help-faq-category" data-help-category>
+                  <h3><span>FA</span>Facturación</h3>
+                  <details data-help-faq data-search="facturación cobro tarjeta efectivo bono stripe">
+                    <summary>¿Qué métodos de cobro puedo registrar?</summary>
+                    <p>Klinia permite diferenciar efectivo, tarjeta, bonos y movimientos manuales para mantener una lectura clara de la caja.</p>
+                  </details>
+                  <details data-help-faq data-search="cancelar plan suscripción stripe">
+                    <summary>¿Puedo cancelar cuando quiera?</summary>
+                    <p>Sí. La suscripción SaaS se gestiona desde Mi suscripción y el portal de pagos cuando Stripe está conectado.</p>
+                  </details>
+                </section>
+                <section class="help-faq-category" data-help-category>
+                  <h3><span>AG</span>Agenda</h3>
+                  <details data-help-faq data-search="agenda citas semana día horario trabajador disponibilidad">
+                    <summary>¿Puedo trabajar con horarios por minutos?</summary>
+                    <p>Sí. Las citas se colocan por hora real de inicio y duración del servicio, tanto en vista Día como Semana.</p>
+                  </details>
+                  <details data-help-faq data-search="recordatorios cita whatsapp email">
+                    <summary>¿Los recordatorios se enlazan con citas?</summary>
+                    <p>Los recordatorios se generan desde citas reales y deben actualizarse si cambia la cita o se cancela.</p>
+                  </details>
+                </section>
+                <section class="help-faq-category" data-help-category>
+                  <h3><span>PA</span>Pacientes</h3>
+                  <details data-help-faq data-search="pacientes ficha clínica historial bonos documentos">
+                    <summary>¿Qué incluye la ficha del paciente?</summary>
+                    <p>Datos personales, historial, consentimientos, bonos, facturación asociada y documentación clínica.</p>
+                  </details>
+                </section>
+                <section class="help-faq-category" data-help-category>
+                  <h3><span>RG</span>RGPD</h3>
+                  <details data-help-faq data-search="rgpd protección datos seguridad permisos auditoría">
+                    <summary>¿Cumple RGPD?</summary>
+                    <p>Klinia incorpora permisos, separación por clínica, auditoría y buenas prácticas de minimización. La clínica debe completar sus textos legales y contratos de tratamiento.</p>
+                  </details>
+                </section>
               </div>
             </section>
 
-            <aside class="help-contact-panel" aria-label="Departamento de atención al cliente">
-              <h2>Departamento de atención al cliente</h2>
-              <div class="support-profile">
-                <span class="support-avatar">AT</span>
-                <div>
-                  <strong>Angel Moscoso Fernandez</strong>
-                  <p><span>Tel</span> +34 676 608 216</p>
-                  <p><span>Email</span> angelmoscosofernandez@kliniasolutions.com</p>
-                </div>
+            <section class="help-videos-section">
+              <div class="help-section-title">
+                <p class="eyebrow">Onboarding</p>
+                <h2>Primeros pasos en Klinia</h2>
               </div>
-              <div class="support-hours">
-                <span>09</span>
-                <div>
-                  <strong>Horario de atención</strong>
-                  <p>Lunes a viernes de 9:00 a 18:00 (CET)</p>
-                </div>
+              <div class="help-video-grid">
+                <article><span>01</span><strong>Crear paciente</strong><p>Guía rápida para dar de alta una ficha clínica.</p><small>Vídeo próximamente</small></article>
+                <article><span>02</span><strong>Crear trabajador</strong><p>Alta de profesional, permisos y acceso seguro.</p><small>Vídeo próximamente</small></article>
+                <article><span>03</span><strong>Cobrar una cita</strong><p>Registro de efectivo, tarjeta o bono sin duplicados.</p><small>Vídeo próximamente</small></article>
+                <article><span>04</span><strong>Configurar agenda</strong><p>Días de atención, horarios y disponibilidad.</p><small>Vídeo próximamente</small></article>
               </div>
-              <div class="contact-method-list">
-                <h3>Otras formas de contacto</h3>
-                <p>Elige la opcion que mejor se adapte a ti.</p>
-                <a href="mailto:angelmoscosofernandez@kliniasolutions.com"><span>Email</span><strong>Enviar un correo</strong><small>Te responderemos lo antes posible.</small></a>
-                <a href="https://wa.me/34676608216" target="_blank" rel="noopener"><span>WA</span><strong>WhatsApp</strong><small>Escribenos directamente por WhatsApp.</small></a>
-              </div>
-            </aside>
-          </div>
+            </section>
 
-          <section class="public-faq-preview help-faq" id="help-faq">
-            <div class="help-faq-head">
-              <div>
-                <h2>Preguntas frecuentes</h2>
-                <p>Encuentra respuestas rapidas a las dudas mas comunes.</p>
-              </div>
-              <button class="secondary-button" type="button" data-help-expand-faq>Ver todas las preguntas</button>
-            </div>
-            <div class="faq-grid">
-              <details><summary>¿Puedo cancelar cuando quiera?</summary><p>Sí. La prueba no tiene permanencia y el plan Profesional puede cancelarse desde la configuración de facturación.</p></details>
-              <details><summary>¿Incluye soporte?</summary><p>Sí. Incluye soporte por email y ayuda de onboarding para configurar la clínica.</p></details>
-              <details><summary>¿Cumple RGPD?</summary><p>Klinia incluye permisos, copias y criterios de minimización. En producción deben completarse contratos y políticas legales.</p></details>
-              <details><summary>¿Que metodos de pago aceptais?</summary><p>El plan Profesional queda preparado para Stripe. En local se simula el estado de suscripcion.</p></details>
-              <details><summary>¿Los pacientes pueden reservar online?</summary><p>La agenda esta preparada para planificar citas; la reserva online queda como ampliacion conectable.</p></details>
-              <details><summary>¿Puedo probar antes de contratar?</summary><p>Si. Puedes abrir la demo visual o crear una prueba gratuita durante un mes.</p></details>
-            </div>
-          </section>
-
-          <section class="help-security-strip">
-            <span>RG</span>
-            <div>
-              <strong>Tu tranquilidad es nuestra prioridad</strong>
-              <p>Cumplimos con el RGPD y utilizamos buenas prácticas para proteger la información de tu clínica.</p>
-            </div>
-            <strong>Información 100% segura</strong>
+            <footer class="help-footer">
+              <a href="#help-faq">Estado plataforma</a>
+              <a href="#help-faq">RGPD</a>
+              <a href="mailto:angelmoscosofernandez@kliniasolutions.com">Contacto</a>
+              <a href="#help-faq">Documentación</a>
+              <span>Versión actual 2026.06</span>
+            </footer>
           </section>
         </section>
 
@@ -2771,7 +2836,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260619-login-healthcheck"></script>
+    <script src="./app.js?v=20260622-help-redesign"></script>
   </body>
 </html>
 
