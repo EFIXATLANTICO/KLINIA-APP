@@ -3380,7 +3380,7 @@ function loadGoogleScript() {
     script.addEventListener("load", complete, { once: true });
     script.addEventListener("error", () => {
       googleScriptLoading = null;
-      reject(new Error("No se pudo cargar Google Identity Services. Revisa CSP, conexión o bloqueadores del navegador."));
+      reject(new Error("No hemos podido cargar el acceso con Google. Inténtalo de nuevo o usa email y contraseña."));
     }, { once: true });
     complete();
   });
