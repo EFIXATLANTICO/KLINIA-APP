@@ -6845,6 +6845,7 @@ body.superadmin-mode .public-view.active.superadmin-view {
 .superadmin-status.canceled,
 .superadmin-status.archived,
 .superadmin-status.incomplete,
+.superadmin-status.review_required,
 .superadmin-status.local_pending_backend,
 .superadmin-status.inactive {
   background: #ffe9e9;
