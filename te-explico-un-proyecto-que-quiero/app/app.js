@@ -1586,7 +1586,7 @@ function localSuperadminClinics(backendClinics = []) {
       email: account.email || account.ownerEmail || "",
       phone: account.phone || "",
       subscription_plan: account.paymentPlan || "local",
-      subscription_status: "local_pending_backend",
+      subscription_status: "review_required",
       created_at: account.createdAt || "",
       users_count: 0,
       last_activity_at: null,
@@ -1746,7 +1746,8 @@ function superadminStatusLabel(value) {
     incomplete: "Incompleta",
     canceled: "Cancelada",
     archived: "Archivada",
-    local_pending_backend: "Pendiente backend"
+    review_required: "Revisión requerida",
+    local_pending_backend: "Revisión requerida"
   }[value] || value || "-";
 }
 
