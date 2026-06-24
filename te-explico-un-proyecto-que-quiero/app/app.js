@@ -8,19 +8,19 @@ const defaultRooms = [
   { id: "sala-1", name: "Sala 1", type: "Camilla" },
   { id: "sala-2", name: "Sala 2", type: "Camilla" },
   { id: "gimnasio", name: "Gimnasio", type: "Ejercicio terapeutico" },
-  { id: "sala-grupal", name: "Sala grupal", type: "Sesion grupal" }
+  { id: "sala-grupal", name: "Sala grupal", type: "Sesión grupal" }
 ];
 
 const defaultServices = [
   { id: "fisio", name: "Fisioterapia general", description: "Tratamiento individual", duration: 60, price: 45, active: true },
   { id: "deportiva", name: "Fisioterapia deportiva", description: "Lesiones y sobrecargas deportivas", duration: 60, price: 55, active: true },
   { id: "readaptacion", name: "Readaptacion", description: "Trabajo funcional y fuerza", duration: 75, price: 65, active: true },
-  { id: "sesion-grupal", name: "Sesion grupal", description: "Actividad grupal", duration: 50, price: 12, active: true, type: "group", capacity: 6, monthlyPrice: 45, dropInPrice: 12, commissionPerPatient: 35 }
+  { id: "sesion-grupal", name: "Sesión grupal", description: "Actividad grupal", duration: 50, price: 12, active: true, type: "group", capacity: 6, monthlyPrice: 45, dropInPrice: 12, commissionPerPatient: 35 }
 ];
 
 const defaultPatients = [
   { id: "p1", name: "Marta Soler", phone: "600 123 456", email: "marta@example.com", last: "23 abr", status: "Activo", alert: "Dolor lumbar recurrente" },
-  { id: "p2", name: "Carlos Ruiz", phone: "611 234 567", email: "carlos@example.com", last: "25 abr", status: "Activo", alert: "Recuperacion de rodilla" },
+  { id: "p2", name: "Carlos Ruiz", phone: "611 234 567", email: "carlos@example.com", last: "25 abr", status: "Activo", alert: "Recuperación de rodilla" },
   { id: "p3", name: "Elena Pardo", phone: "622 345 678", email: "elena@example.com", last: "18 abr", status: "Revision", alert: "Revisar evolucion cervical" },
   { id: "p4", name: "Javier Lobo", phone: "633 456 789", email: "javier@example.com", last: "26 abr", status: "Activo", alert: "Sin alertas relevantes" }
 ];
@@ -50,14 +50,14 @@ const defaultAppointments = [
   { id: 1, date: todayIso(), patientId: "p1", practitionerId: "ana", roomId: "sala-1", serviceId: "deportiva", start: "09:00", status: "confirmed", internalNotes: "" },
   { id: 2, date: todayIso(), patientId: "p2", practitionerId: "luis", roomId: "gimnasio", serviceId: "readaptacion", start: "10:00", status: "confirmed", internalNotes: "" },
   { id: 3, date: todayIso(), patientId: "p3", practitionerId: "clara", roomId: "sala-2", serviceId: "fisio", start: "11:00", status: "pending", internalNotes: "" },
-  { id: 4, date: todayIso(1), patientId: "p4", practitionerId: "ana", roomId: "sala-1", serviceId: "fisio", start: "13:00", status: "completed", internalNotes: "Sesion realizada y cobrada en clinica." },
+  { id: 4, date: todayIso(1), patientId: "p4", practitionerId: "ana", roomId: "sala-1", serviceId: "fisio", start: "13:00", status: "completed", internalNotes: "Sesión realizada y cobrada en clinica." },
   { id: 5, date: todayIso(7), patientId: "p1", practitionerId: "clara", roomId: "sala-grupal", serviceId: "sesion-grupal", start: "16:00", status: "confirmed", internalNotes: "" }
 ];
 
 const defaultGroups = [
   {
     id: "grp-demo-sesion-grupal",
-    name: "Sesion grupal tarde",
+    name: "Sesión grupal tarde",
     serviceId: "sesion-grupal",
     practitionerId: "clara",
     roomId: "sala-grupal",
@@ -87,9 +87,9 @@ const permissionLabels = {
   agenda: "Agenda",
   pacientes: "Pacientes",
   automatizaciones: "Recordatorios",
-  facturacion: "Facturacion",
+  facturacion: "Facturación",
   rendimiento: "Rendimiento",
-  configuracion: "Configuracion completa",
+  configuracion: "Configuración completa",
   disponibilidad: "Disponibilidad / vacaciones"
 };
 
@@ -284,6 +284,9 @@ const backendSyncedClinicDataKeys = new Set([
 ]);
 
 function saveSyncedClinicState(key, value) {
+  if (isSuperadminSession()) {
+    return;
+  }
   saveClinicState(key, value);
   if (!backendSyncedClinicDataKeys.has(key) || !backendDataEnabled()) {
     return;
@@ -453,7 +456,7 @@ function loginPrincipalByIdentifier(value) {
         account,
         profile: "owner",
         password: ownerPasswordForAccount(account),
-        label: account.ownerName || "Direccion"
+        label: account.ownerName || "Dirección"
       };
     }
     if (String(account.staffEmail || "").trim().toLowerCase() === normalized) {
@@ -561,7 +564,7 @@ function normalizeAppointments(savedAppointments) {
 function normalizeGroups(savedGroups) {
   return (Array.isArray(savedGroups) ? savedGroups : []).map((group) => ({
     id: `grp-${Date.now()}`,
-    name: "Sesion grupal",
+    name: "Sesión grupal",
     serviceId: services?.[0]?.id || "",
     practitionerId: practitioners?.[0]?.id || "",
     roomId: rooms?.[0]?.id || "",
@@ -798,6 +801,7 @@ let draggedAppointmentId = "";
 let suppressAppointmentClickUntil = 0;
 let backendAutoSyncTimer = null;
 let backendAutoSyncInProgress = false;
+let backendInitialLoadPending = false;
 let backendLastSyncAt = 0;
 const backendAutoSyncIntervalMs = 30000;
 const backendAutoSyncMinIntervalMs = 8000;
@@ -830,10 +834,10 @@ const sectionTitles = {
   agenda: "Agenda",
   pacientes: "Pacientes",
   automatizaciones: "Recordatorios",
-  facturacion: "Facturacion",
+  facturacion: "Facturación",
   rendimiento: "Rendimiento",
   suscripcion: "Mi suscripción",
-  configuracion: "Configuracion",
+  configuracion: "Configuración",
   permisos: "Permisos"
 };
 
@@ -1014,6 +1018,9 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
 }
 
 function persistActiveClinicScope() {
+  if (isSuperadminSession()) {
+    return;
+  }
   saveClinicState("clinic", clinic);
   saveClinicState("patients", patients);
   saveClinicState("appointments", appointments);
@@ -1068,7 +1075,7 @@ function renderLoginProfiles() {
   const account = clinicAccountByKey(selectedKey);
   const loginPractitioners = normalizePractitioners(loadClinicStateFor(selectedKey, "practitioners", selectedKey === demoClinicKey ? defaultPractitioners : []));
   profileSelect.innerHTML = "";
-  profileSelect.append(new Option("Direccion", "owner"));
+  profileSelect.append(new Option("Dirección", "owner"));
   if (account?.staffEmail) {
     profileSelect.append(new Option("Recepcion / empleado", "staff"));
   }
@@ -1513,12 +1520,12 @@ const superadminModuleMeta = {
   "clinic-detail": ["Detalle de clinica", "Vista operativa de una clinica: usuarios, suscripcion, actividad y acciones."],
   users: ["Usuarios", "Usuarios globales por clinica, rol, estado y ultimo acceso."],
   subscriptions: ["Planes y suscripciones", "Catalogo y estado de suscripciones conectado a datos reales disponibles."],
-  billing: ["Facturacion", "Resumen preparado para ingresos, facturas, impagos y exportacion."],
+  billing: ["Facturación", "Resumen preparado para ingresos, facturas, impagos y exportacion."],
   support: ["Soporte y tickets", "Base para incidencias, prioridad, estado, asignacion e historial."],
   audit: ["Auditoria", "Eventos persistentes de backend con filtros por clinica, usuario, accion y fecha."],
   communications: ["Comunicaciones", "Base para emails, campanas, aperturas e historico."],
   reports: ["Informes", "Metricas clave y exportaciones operativas."],
-  settings: ["Configuracion", "Parametros globales, seguridad, branding, API y webhooks."],
+  settings: ["Configuración", "Parametros globales, seguridad, branding, API y webhooks."],
   system: ["Integraciones y logs", "Estado tecnico de integraciones, errores, advertencias y eventos del sistema."]
 };
 const superadminActionLabels = {
@@ -1535,7 +1542,7 @@ const superadminActionLabels = {
   "create-practitioner": "Trabajador creado",
   "update-practitioner": "Trabajador actualizado",
   "delete-practitioner": "Trabajador eliminado",
-  "update-clinic-settings": "Configuracion actualizada",
+  "update-clinic-settings": "Configuración actualizada",
   "superadmin-reset-password": "Clave reseteada",
   "superadmin-repair-access": "Acceso reparado",
   "superadmin-impersonate-clinic": "Impersonacion",
@@ -2071,7 +2078,7 @@ function renderSuperadminPreparedPanels() {
     </section>
   `;
   $("#superadmin-communications-grid").innerHTML = `<section class="superadmin-card superadmin-card-wide"><div class="superadmin-card-head"><h2>Comunicaciones</h2><span>Vista informativa</span></div><p>Aun no hay proveedor de email conectado desde superadmin. No se muestran botones de envio para evitar acciones aparentes. Cuando se conecte email transaccional, aqui se centralizaran altas, recuperaciones, avisos de pago y campanas.</p></section>`;
-  $("#superadmin-reports-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Informe operativo</h2><span>Datos backend</span></div><dl class="superadmin-definition-list"><dt>Clinicas activas</dt><dd>${activeClinics.length}</dd><dt>Clinicas de prueba</dt><dd>${trialClinics.length}</dd><dt>Conversion prueba a pago</dt><dd>${conversionRate}%</dd><dt>Usuarios activos</dt><dd>${(superadminData.users || []).filter((user) => user.active).length}</dd><dt>Facturacion estimada mensual</dt><dd>${activeClinics.length * 50} EUR</dd></dl></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>Alcance actual</h2><span>Operativo</span></div><p>Los informes actuales usan clinicas, usuarios, estados de suscripcion y auditoria de backend. La facturacion real cobrada por Stripe se ampliara cuando se persista el libro de invoices en backend.</p></section>`;
+  $("#superadmin-reports-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Informe operativo</h2><span>Datos backend</span></div><dl class="superadmin-definition-list"><dt>Clinicas activas</dt><dd>${activeClinics.length}</dd><dt>Clinicas de prueba</dt><dd>${trialClinics.length}</dd><dt>Conversion prueba a pago</dt><dd>${conversionRate}%</dd><dt>Usuarios activos</dt><dd>${(superadminData.users || []).filter((user) => user.active).length}</dd><dt>Facturación estimada mensual</dt><dd>${activeClinics.length * 50} EUR</dd></dl></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>Alcance actual</h2><span>Operativo</span></div><p>Los informes actuales usan clinicas, usuarios, estados de suscripcion y auditoria de backend. La facturacion real cobrada por Stripe se ampliara cuando se persista el libro de invoices en backend.</p></section>`;
   $("#superadmin-settings-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Seguridad</h2><span>Activo</span></div><p>Superadmin protegido por rol backend, claves hasheadas, claves temporales con cambio obligatorio y freno de intentos de login activo. MFA queda como siguiente mejora de seguridad.</p></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>API y webhooks</h2><span>Supervisado</span></div><p>Stripe webhook y API publica se consultan desde backend. No se exponen secretos en UI y los estados se verifican desde Sistema.</p></section>`;
   const loadErrors = superadminData.loadErrors || [];
   $("#superadmin-system-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Estado del sistema</h2><span>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</span></div><dl class="superadmin-definition-list"><dt>App</dt><dd>${escapeHtml(superadminData.health?.app || "Klinia")}</dd><dt>Entorno</dt><dd>${escapeHtml(superadminData.health?.env || "-")}</dd><dt>Stripe</dt><dd>${superadminData.health?.stripe_configured ? "Configurado" : "No configurado"}</dd><dt>Setup</dt><dd>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</dd><dt>Carga del panel</dt><dd>${loadErrors.length ? escapeHtml(`${loadErrors.length} aviso(s)`) : "Completa"}</dd></dl>${loadErrors.length ? `<p class="superadmin-sync-note">${escapeHtml(loadErrors.join(" | "))}</p>` : ""}</section>`;
@@ -2133,7 +2140,7 @@ function superadminRowsForExport() {
       { metrica: "Clinicas de prueba", valor: trialClinics.length },
       { metrica: "Conversion prueba a pago", valor: `${payingPool ? Math.round((activeClinics.length / payingPool) * 100) : 0}%` },
       { metrica: "Usuarios activos", valor: (superadminData.users || []).filter((user) => user.active).length },
-      { metrica: "Facturacion estimada mensual", valor: `${activeClinics.length * 50} EUR` },
+      { metrica: "Facturación estimada mensual", valor: `${activeClinics.length * 50} EUR` },
       { metrica: "Eventos auditoria", valor: superadminData.audit.length },
       { metrica: "Incidencias acceso", valor: (superadminData.accessIssues || []).length }
     ];
@@ -2613,7 +2620,7 @@ async function superadminImpersonateClinic(clinicId) {
       ownerEmail: clinic.email || ""
     });
     enterPlatform("owner", accountKey);
-    showToast(`Sesion temporal abierta en ${clinic.name}.`, "success");
+    showToast(`Sesión temporal abierta en ${clinic.name}.`, "success");
   } catch (error) {
     showToast(`No se pudo impersonar la clinica: ${error.message}`, "error");
   }
@@ -2755,6 +2762,10 @@ async function loadSuperadminPanel(options = {}) {
 }
 
 function enterSuperadmin(session, me, options = {}) {
+  stopBackendAutoSync();
+  currentSession = { role: "superadmin", practitionerId: null };
+  saveState("session", currentSession);
+  backendInitialLoadPending = false;
   superadminSession = {
     ...session,
     user: me?.user || null
@@ -2960,7 +2971,7 @@ function backendLoginMessage(error) {
     return "Ese email existe en mas de una clinica. Entra usando el email de la clinica o selecciona la clinica guardada.";
   }
   if (error?.status === 422) {
-    return "Faltan usuario o contraseña, o la app esta usando una version antigua. Actualiza la pagina y vuelve a intentarlo.";
+    return "Faltan usuario o contraseña, o la app esta usando una version antigua. Actualiza la página y vuelve a intentarlo.";
   }
   if (error?.status === 429) {
     return "Se han hecho demasiados intentos de acceso. Espera unos minutos y vuelve a intentarlo.";
@@ -2992,7 +3003,7 @@ function profileLoginIdentity(account, profile, practitioner = null) {
     return {
       email: ownerEmailForAccount(account),
       password: ownerPasswordForAccount(account),
-      label: account.ownerName || "Direccion"
+      label: account.ownerName || "Dirección"
     };
   }
   if (profile === "staff") {
@@ -3022,7 +3033,7 @@ function currentSessionAccessIdentity() {
   const account = currentClinicAccount();
   if (isOwner()) {
     return {
-      label: "Direccion",
+      label: "Dirección",
       email: ownerEmailForAccount(account),
       localPassword: ownerPasswordForAccount(account),
       backendUserId: null,
@@ -4597,6 +4608,10 @@ function isPractitionerSession() {
   return currentSession.role === "practitioner";
 }
 
+function isSuperadminSession() {
+  return superadminSession?.user?.role === "superadmin";
+}
+
 function canViewClinicAgenda() {
   return isOwner() || isStaff() || isPractitionerSession();
 }
@@ -4949,7 +4964,7 @@ function serviceCommissionAmount(appointment, practitioner) {
 }
 
 function serviceKindLabel(service) {
-  return service?.type === "group" ? "Sesion grupal" : "Individual";
+  return service?.type === "group" ? "Sesión grupal" : "Individual";
 }
 
 function packServiceLabel(pack) {
@@ -6232,10 +6247,11 @@ function renderSchedule() {
     : "1fr";
 
   if (!visiblePractitioners.length) {
+    const loading = backendInitialLoadPending && backendDataEnabled();
     schedule.innerHTML = `
       <div class="empty-schedule">
-        <strong>Sin profesionales visibles</strong>
-        <span>Marca al menos un trabajador para ver su agenda.</span>
+        <strong>${loading ? "Cargando..." : "Sin profesionales visibles"}</strong>
+        <span>${loading ? "Estamos cargando agenda, trabajadores y salas." : "Marca al menos un trabajador para ver su agenda."}</span>
       </div>
     `;
     return;
@@ -6991,7 +7007,7 @@ function showGroupSummary(group, dateValue = selectedDate) {
     const practitioner = byId(practitioners, group.practitionerId);
     const room = byId(rooms, group.roomId);
     const names = groupFixedPatients(group).map((patient) => patient.name).join(", ") || "Sin pacientes inscritos";
-    showNotice("Sesion grupal", `${group.name}\n${service?.name || "Servicio"}\n${weekDayLabels[dayKeyFor(dateValue)] || dateValue} ${group.start} - ${groupEnd(group)}\n${practitioner?.name || "Profesional"} - ${room?.name || "Sala"}\n${groupEnrollmentLabel(group, dateValue)}\nPacientes fijos: ${names}`);
+    showNotice("Sesión grupal", `${group.name}\n${service?.name || "Servicio"}\n${weekDayLabels[dayKeyFor(dateValue)] || dateValue} ${group.start} - ${groupEnd(group)}\n${practitioner?.name || "Profesional"} - ${room?.name || "Sala"}\n${groupEnrollmentLabel(group, dateValue)}\nPacientes fijos: ${names}`);
     return;
   }
 
@@ -7031,12 +7047,12 @@ function renderGroupSessionPanel(group, dateValue) {
         </div>
       </article>
     `).join("")
-    : `<article class="compact-item"><span>Sin pacientes fijos inscritos. Gestiona los fijos desde Configuracion > Sesiones grupales.</span></article>`;
+    : `<article class="compact-item"><span>Sin pacientes fijos inscritos. Gestiona los fijos desde Configuración > Sesiones grupales.</span></article>`;
 
   extrasList.innerHTML = extras.length
     ? extras.map((entry) => {
         const patient = byId(patients, entry.patientId);
-        return `<article class="compact-item dropin-item"><div><strong>${patient?.name || entry.name || "Paciente"}</strong><span>Sesion suelta - ${entry.createdAt || ""}</span></div><button class="secondary-button" type="button" data-dropin-remove="${entry.id}">Quitar</button></article>`;
+        return `<article class="compact-item dropin-item"><div><strong>${patient?.name || entry.name || "Paciente"}</strong><span>Sesión suelta - ${entry.createdAt || ""}</span></div><button class="secondary-button" type="button" data-dropin-remove="${entry.id}">Quitar</button></article>`;
       }).join("")
     : `<article class="compact-item"><span>Sin sesiones sueltas para este dia.</span></article>`;
 
@@ -7082,16 +7098,16 @@ function renderGroupSessionPanel(group, dateValue) {
   const completedButton = $("#complete-group-session");
   if (completedButton) {
     completedButton.disabled = completed;
-    completedButton.textContent = completed ? "Sesion completada" : "Marcar sesion completada";
+    completedButton.textContent = completed ? "Sesión completada" : "Marcar sesion completada";
   }
   const completedLabel = $("#group-session-completed-label");
   if (completedLabel) {
     const production = groupSessionProduction(group, dateValue);
     completedLabel.textContent = completed
-      ? `Sesion completada. Base trabajador: ${production.revenue} EUR (${production.fixedSessionRevenue} EUR cuota prorrateada + ${production.dropinRevenue} EUR sueltos). Liquidacion: ${production.payout} EUR.`
+      ? `Sesión completada. Base trabajador: ${production.revenue} EUR (${production.fixedSessionRevenue} EUR cuota prorrateada + ${production.dropinRevenue} EUR sueltos). Liquidacion: ${production.payout} EUR.`
       : `Pendiente. Al completar se calculara la liquidacion del trabajador con cuota fija prorrateada y sueltos del dia (${production.payout} EUR estimados).`;
   }
-  $("#group-session-warning").textContent = free ? "" : "Sesion completa para este dia.";
+  $("#group-session-warning").textContent = free ? "" : "Sesión completa para este dia.";
   $("#group-session-capacity").textContent = groupEnrollmentLabel(group, dateValue);
 
   $$('[data-fixed-remove]').forEach((button) => {
@@ -7550,7 +7566,7 @@ function renderPatientDetail() {
         </div>
         <button class="secondary-button" type="button" data-reprint-pack-invoice="${pack.id}">${pack.invoiceGenerated ? "Reimprimir" : "Facturar"}</button>
       </article>
-    `)].join("") || `<article class="compact-item"><span>Sin facturas generadas todavia.</span></article>`;
+    `)].join("") || `<article class="compact-item"><span>Sin facturas generadas todavía.</span></article>`;
   }
   $$("[data-reprint-invoice]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -7608,7 +7624,7 @@ function renderPatientDetail() {
         `;
         })
         .join("")
-    : `<article class="compact-item"><span>Sin notas clinicas todavia.</span></article>`;
+    : `<article class="compact-item"><span>Sin notas clinicas todavía.</span></article>`;
 
   $$("[data-open-note], [data-edit-note], [data-delete-note]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -7639,7 +7655,7 @@ function generateGroupWorkerInvoiceForSession(groupId, dateValue) {
   const group = baseGroup ? groupInstanceForDate(baseGroup, dateValue) : null;
   const completion = group ? groupCompletionFor(group, dateValue) : null;
   if (!group || !completion) {
-    showNotice("Sesion no completada", "Marca primero la sesion grupal como completada para generar la liquidacion del trabajador.", { variant: "warning" });
+    showNotice("Sesión no completada", "Marca primero la sesion grupal como completada para generar la liquidacion del trabajador.", { variant: "warning" });
     return;
   }
 
@@ -7718,7 +7734,7 @@ function renderTeam() {
   `);
 
   $("#team-grid").innerHTML = [...professionalCards, ...roomCards].join("")
-    || `<article class="team-card"><span class="tag">Configuracion</span><h2>Clinica sin equipo todavia</h2><p>Crea trabajadores y salas para empezar a construir esta clinica.</p></article>`;
+    || `<article class="team-card"><span class="tag">Configuración</span><h2>Clinica sin equipo todavía</h2><p>Crea trabajadores y salas para empezar a construir esta clinica.</p></article>`;
 
   $$("[data-team-edit-practitioner]").forEach((button) => button.addEventListener("click", () => openPractitionerEditor(button.dataset.teamEditPractitioner)));
   $$("[data-team-delete-practitioner]").forEach((button) => button.addEventListener("click", () => deletePractitionerById(button.dataset.teamDeletePractitioner)));
@@ -7757,7 +7773,7 @@ function renderSettings() {
         </label>
         <div>
           <strong>${practitioner.name}</strong>
-          <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autonomo"}</span>
+          <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autónomo"}</span>
           <span>${practitioner.accessRole === "staff" ? "Acceso recepcion / administracion" : "Acceso trabajador sanitario"}</span>
           <span>${Object.values(normalizeServiceCommissions(practitioner.serviceCommissions)).filter((item) => item?.enabled).length || "Sin"} servicios con comisión configurada</span>
           <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.backendUserId || practitioner.userId ? "Usuario backend vinculado" : "Acceso pendiente"}</span>
@@ -7856,7 +7872,7 @@ function renderSettings() {
           <strong>${service.name}</strong>
           <span>${serviceKindLabel(service)} - ${service.duration} min - ${service.active ? "Activo" : "Inactivo"}</span>
           ${service.type === "group" ? `
-            <span>Mensual ${service.monthlyPrice || 0} EUR - Sesion suelta ${service.dropInPrice || service.price || 0} EUR - Comision por trabajador</span>
+            <span>Mensual ${service.monthlyPrice || 0} EUR - Sesión suelta ${service.dropInPrice || service.price || 0} EUR - Comision por trabajador</span>
           ` : `
             <span>Precio ${service.price || 0} EUR</span>
           `}
@@ -7971,7 +7987,7 @@ function renderServices() {
         <td>${service.duration} min</td>
         <td>
           ${service.type === "group"
-            ? `Sesion grupal - ${service.dropInPrice || service.price || 0} EUR/sesion - ${service.monthlyPrice || 0} EUR/mes - comision por trabajador`
+            ? `Sesión grupal - ${service.dropInPrice || service.price || 0} EUR/sesion - ${service.monthlyPrice || 0} EUR/mes - comision por trabajador`
             : `${service.price || 0} EUR`}
         </td>
         <td><span class="status-pill ${service.active ? "confirmed" : "cancelled"}">${service.active ? "Activo" : "Inactivo"}</span></td>
@@ -8168,6 +8184,27 @@ function sortBillingRows(rows) {
   });
 }
 
+function billingSourceLabel(row) {
+  return {
+    appointment: "Cita individual",
+    "group-monthly": "Sesión grupal",
+    "group-dropin": "Sesión grupal",
+    pack: "Bono",
+    manual: Number(row.amount || 0) < 0 ? "Gasto" : "Ingreso manual"
+  }[row.sourceType] || "Movimiento";
+}
+
+function billingMovementReference(row) {
+  const id = row.appointmentId || row.manualId || row.groupMonthlyKey || row.id || "";
+  return String(id).slice(0, 12) || "-";
+}
+
+function billingDateTimeLabel(row) {
+  const date = row.date || billingRowDate(row);
+  const time = row.time || String(row.sortKey || "").slice(11, 16) || "";
+  return `${formatShortDate(date)}${time ? ` · ${time}` : ""}`;
+}
+
 function renderBilling() {
   updateBillingFilterControls();
   const range = billingFilterRange();
@@ -8307,7 +8344,9 @@ function renderBilling() {
         <th></th>
       `
       : `
-        <th>Cita</th>
+        <th>Fecha/hora</th>
+        <th>Origen</th>
+        <th>Movimiento</th>
         <th>Paciente</th>
         <th>Profesional</th>
         <th>Estado</th>
@@ -8334,7 +8373,7 @@ function renderBilling() {
       if (simplified) {
         return `
           <tr>
-            <td>${row.sortKey || row.concept}</td>
+            <td>${billingDateTimeLabel(row)}</td>
             <td>${row.patient}</td>
             <td>${row.practitioner}</td>
             <td>${row.paymentText || (row.invoiceGenerated ? "Facturado" : "Pendiente")}</td>
@@ -8345,7 +8384,9 @@ function renderBilling() {
       }
       return `
         <tr>
-          <td>${row.concept}</td>
+          <td>${billingDateTimeLabel(row)}</td>
+          <td>${billingSourceLabel(row)}</td>
+          <td><strong>${row.concept}</strong><small>${billingMovementReference(row)}</small></td>
           <td>${row.patient}</td>
           <td>${row.practitioner}</td>
           <td><span class="status-pill ${row.status}">${row.statusText}</span></td>
@@ -8355,10 +8396,10 @@ function renderBilling() {
         </tr>
       `;
     })
-    .join("") || `<tr><td colspan="${simplified ? 6 : 7}">No hay movimientos con estos filtros.</td></tr>`;
+    .join("") || `<tr><td colspan="${simplified ? 6 : 9}">No hay movimientos con estos filtros.</td></tr>`;
 
-  $("#billing-pagination").innerHTML = `
-    <span>${sortedRows.length} movimientos · pagina ${billingFilterState.page} de ${totalPages}</span>
+  $("#billing-págination").innerHTML = `
+    <span>${sortedRows.length} movimientos · página ${billingFilterState.page} de ${totalPages}</span>
     <button class="secondary-button" type="button" data-billing-page="prev" ${billingFilterState.page <= 1 ? "disabled" : ""}>Anterior</button>
     <button class="secondary-button" type="button" data-billing-page="next" ${billingFilterState.page >= totalPages ? "disabled" : ""}>Siguiente</button>
   `;
@@ -8473,7 +8514,7 @@ function downloadBillingPdfReport() {
     `Clinica: ${clinic.name || "Clinica"}`,
     `Periodo: ${billingReportRangeLabel(report)}`,
     `Generado: ${new Date().toLocaleString("es-ES")}`,
-    `Orden: ${report.sort === "asc" ? "Mas antiguos" : "Mas recientes"}`,
+    `Orden: ${report.sort === "asc" ? "Más antiguos" : "Más recientes"}`,
     "",
     `Cobrado: ${Number(totals.paid || 0)} EUR`,
     `Pendiente: ${Number(totals.pending || 0)} EUR`,
@@ -8705,7 +8746,7 @@ function groupCompletedSessionsForPractitioner(practitioner, range = performance
       return {
         ...entry,
         ...(production || {}),
-        groupName: group?.name || "Sesion grupal",
+        groupName: group?.name || "Sesión grupal",
         serviceName: service?.name || "Servicio grupal",
         roomName: room?.name || "Sala",
         duration: service?.duration || 60,
@@ -9406,13 +9447,27 @@ function renderAutomations() {
   historyList.innerHTML = "";
   history.forEach((reminder) => historyList.append(renderReminderCard(reminder, "history")));
   if (!history.length) {
-    historyList.innerHTML = `<article class="compact-item"><span>Sin historial de recordatorios todavia.</span></article>`;
+    historyList.innerHTML = `<article class="compact-item"><span>Sin historial de recordatorios todavía.</span></article>`;
   }
 
 }
 
+function visibleGroupsInCurrentRange() {
+  const range = calendarRange();
+  const items = [];
+  for (let cursor = range.start; cursor <= range.end; cursor = addDaysIso(cursor, 1)) {
+    groupsForDate(cursor)
+      .filter(groupVisibleToCurrentSession)
+      .filter(groupPassesAgendaFilters)
+      .forEach((group) => items.push({ ...group, date: cursor }));
+  }
+  return items;
+}
+
 function renderMetrics() {
   const visible = visibleAppointments();
+  const visibleGroups = visibleGroupsInCurrentRange();
+  const visibleOperationalItems = visible.length + visibleGroups.length;
   const revenueAppointments = visible.filter(appointmentIsCharged);
   const revenue = revenueAppointments.reduce((total, item) => total + appointmentRevenueAmount(item), 0);
   const occupancy = occupancyReportForRange(calendarRange());
@@ -9430,7 +9485,7 @@ function renderMetrics() {
       ? "1 profesional en filtro"
       : `${visiblePractitionerCount} profesionales en filtro`;
   }
-  $("#metric-appointments").textContent = visible.length;
+  $("#metric-appointments").textContent = visibleOperationalItems;
   if ($("#metric-occupancy")) {
     $("#metric-occupancy").textContent = `${occupancy.percent}%`;
   }
@@ -9839,7 +9894,7 @@ function handleBillingReturnFromStripe() {
     return;
   }
   if (billing === "stripe-demo" || billing === "portal-demo") {
-    showToast("Stripe no esta configurado todavia con claves reales.", "warning");
+    showToast("Stripe no esta configurado todavía con claves reales.", "warning");
   }
 }
 
@@ -10334,7 +10389,7 @@ function saveAccessRecoveryRequests() {
 
 function accessRecoveryLabel(request) {
   return {
-    owner: "Direccion",
+    owner: "Dirección",
     staff: "Recepcion"
   }[request.profile] || request.label || "Trabajador";
 }
@@ -10463,7 +10518,7 @@ async function resolveBackendAccessRecoveryRequest(requestId) {
   const request = backendAccessRecoveryRequests.find((item) => item.id === requestId);
   if (!request) return;
   const confirmed = await showConfirm({
-    eyebrow: "Recuperacion de acceso",
+    eyebrow: "Recuperación de acceso",
     title: "Generar clave temporal",
     message: `Vas a generar una clave temporal para ${request.user_email}.`,
     detail: "La clave actual dejara de funcionar, el usuario debera cambiarla al entrar y la accion quedara auditada.",
@@ -10769,7 +10824,7 @@ function shouldAutoSyncBackend(options = {}) {
 }
 
 async function syncCurrentClinicFromBackend(options = {}) {
-  if (!shouldAutoSyncBackend(options) || backendAutoSyncInProgress) {
+  if (isSuperadminSession() || !shouldAutoSyncBackend(options) || backendAutoSyncInProgress) {
     return false;
   }
   const minInterval = Number(options.minIntervalMs ?? backendAutoSyncMinIntervalMs);
@@ -10777,6 +10832,7 @@ async function syncCurrentClinicFromBackend(options = {}) {
     return false;
   }
   backendAutoSyncInProgress = true;
+  backendInitialLoadPending = true;
   try {
     return await hydrateFromApi({ silent: true });
   } finally {
@@ -10796,7 +10852,7 @@ function isBackendRealtimeSection(section = activeSection) {
 }
 
 async function refreshRealtimeClinicData(reason = "manual") {
-  if (!shouldAutoSyncBackend({ force: true }) || backendAutoSyncInProgress) {
+  if (isSuperadminSession() || !shouldAutoSyncBackend({ force: true }) || backendAutoSyncInProgress) {
     return false;
   }
   backendAutoSyncInProgress = true;
@@ -10808,6 +10864,7 @@ async function refreshRealtimeClinicData(reason = "manual") {
     return false;
   } finally {
     backendAutoSyncInProgress = false;
+    backendInitialLoadPending = false;
   }
 }
 
@@ -10963,7 +11020,7 @@ function applyRolePermissions() {
 
 function currentSessionName() {
   if (isOwner()) {
-    return "Direccion";
+    return "Dirección";
   }
   if (isStaff()) {
     return "Recepcion";
@@ -11000,6 +11057,9 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   renderAppointmentFormOptions();
   renderSession();
   setEntrySection(true);
+  if (backendDataEnabled()) {
+    backendInitialLoadPending = true;
+  }
   renderAll();
   if (blocked) {
     showToast(subscriptionBlockMessage(account), "warning");
@@ -11296,7 +11356,7 @@ function resetRegisterFlow(planId = "trial") {
   setRegisterSubmitting(false);
   form.dataset.registerFlow = normalizeSaasPlanId(planId);
   form.elements.ownerName.value = "";
-  form.elements.ownerRole.value = "Direccion";
+  form.elements.ownerRole.value = "Dirección";
   form.elements.password.value = "";
   form.elements.confirmPassword.value = "";
   form.elements.paymentPlan.value = form.dataset.registerFlow;
@@ -11643,7 +11703,7 @@ function setupPublicAccessNavigation() {
     await showNotice(
       "Solicitud enviada",
       localQueued
-        ? "Si el email existe en una clinica, direccion vera la solicitud en Configuracion > Trabajadores y podra generar una clave nueva."
+        ? "Si el email existe en una clinica, direccion vera la solicitud en Configuración > Trabajadores y podra generar una clave nueva."
         : "Si el email existe en backend, direccion o soporte podran revisar la solicitud y generar una clave nueva.",
       { variant: "success" }
     );
@@ -11765,7 +11825,7 @@ function setupLogin() {
       }
     }
     if (backendAuthoritativeMode(account)) {
-      showProfileLoginError("Este perfil debe entrar con un usuario backend valido. Revisa el acceso desde Direccion o Superadmin.", form.elements.password);
+      showProfileLoginError("Este perfil debe entrar con un usuario backend valido. Revisa el acceso desde Dirección o Superadmin.", form.elements.password);
       return;
     }
     if (!identity.password) {
@@ -11888,7 +11948,7 @@ function setupLogin() {
       email: form.elements.email?.value.trim() || "",
       phone: clinicPhone || "No indicado",
       ownerPhone: form.elements.phone?.value.trim() || "",
-      ownerRole: form.elements.ownerRole?.value || "Direccion",
+      ownerRole: form.elements.ownerRole?.value || "Dirección",
       password: form.elements.password.value,
       ownerEmail: form.elements.email?.value.trim() || "",
       ownerPassword: form.elements.password.value,
@@ -12461,7 +12521,7 @@ function openAppointmentDialog(defaults = {}) {
   $("#form-error").textContent = "";
   const missing = appointmentSetupMissing();
   if (missing.length) {
-    $("#form-error").textContent = `Antes de crear citas configura: ${missing.join(", ")}. Puedes hacerlo en Configuracion.`;
+    $("#form-error").textContent = `Antes de crear citas configura: ${missing.join(", ")}. Puedes hacerlo en Configuración.`;
     $("#form-error").classList.add("visible");
   }
   updateAppointmentOutsideHoursWarning(form);
@@ -13553,7 +13613,7 @@ async function deleteGroupById(groupId) {
   saveSyncedClinicState("group-completions", groupCompletions);
   saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
   renderAll();
-  showToast("Sesion grupal eliminada.");
+  showToast("Sesión grupal eliminada.");
 }
 
 function refreshGroupFormOptions(form = $("#group-form")) {
@@ -13665,7 +13725,7 @@ function setupGroupDialog() {
     });
     if (outsideDays.length) {
       const confirmedOutside = await showConfirm({
-        title: "Sesion fuera de horario",
+        title: "Sesión fuera de horario",
         message: `${practitioner?.name || "El trabajador"} no tiene jornada configurada para ${outsideDays.map((day) => weekDayLabels[day] || day).join(", ")} a las ${group.start}.`,
         detail: "Puedes guardar la sesion igualmente, pero revisa la disponibilidad del trabajador.",
         confirmLabel: "Guardar igualmente",
@@ -13737,7 +13797,7 @@ function setupGroupSessionDialog() {
     updateGroupSessionHeader(updatedGroup, dateValue);
     renderGroupSessionPanel(updatedGroup, dateValue);
     renderAll();
-    showToast(updatedGroup.sessionOverride ? "Sesion puntual actualizada." : "Sesion restaurada a la serie.");
+    showToast(updatedGroup.sessionOverride ? "Sesión puntual actualizada." : "Sesión restaurada a la serie.");
   });
   $("#clear-group-exception")?.addEventListener("click", () => {
     const baseGroup = groupBaseById(dialog.dataset.groupId);
@@ -13749,7 +13809,7 @@ function setupGroupSessionDialog() {
     updateGroupSessionHeader(updatedGroup, dateValue);
     renderGroupSessionPanel(updatedGroup, dateValue);
     renderAll();
-    showToast("Sesion restaurada.");
+    showToast("Sesión restaurada.");
   });
   $("#edit-group-from-session")?.addEventListener("click", () => {
     const group = groups.find((item) => item.id === dialog.dataset.groupId);
@@ -13823,7 +13883,7 @@ function setupGroupSessionDialog() {
     const patientId = $("#group-dropin-patient")?.value;
     if (!group || !patientId) return;
     if (!groupHasFreeSpot(group, dateValue)) {
-      $("#group-session-warning").textContent = "Sesion completa para este dia.";
+      $("#group-session-warning").textContent = "Sesión completa para este dia.";
       return;
     }
     const alreadyAdded = groupDropIns.some((entry) => entry.groupId === group.id && entry.date === dateValue && entry.patientId === patientId);
@@ -14806,7 +14866,7 @@ function renderPatientConsentTemplateList(selectedTemplateId = "", locked = fals
   if (!list || !form) return;
   const choices = patientConsentTemplateChoices(selectedTemplateId, existing);
   if (!choices.length) {
-    list.innerHTML = `<article class="compact-item consent-template-empty"><span>Crea primero una plantilla en Configuracion para poder firmarla con el paciente.</span></article>`;
+    list.innerHTML = `<article class="compact-item consent-template-empty"><span>Crea primero una plantilla en Configuración para poder firmarla con el paciente.</span></article>`;
     return;
   }
   list.innerHTML = choices.map((template) => {
@@ -14838,7 +14898,7 @@ function renderPatientConsentDialogData(patient) {
     <dd>${escapeHtml(patient?.email || "No indicado")}</dd>
     <dt>Telefono</dt>
     <dd>${escapeHtml(patient?.phone || "No indicado")}</dd>
-    <dt>Direccion</dt>
+    <dt>Dirección</dt>
     <dd>${escapeHtml(patientLocationLine(patient) || "No indicada")}</dd>
   `;
 }
@@ -14872,7 +14932,7 @@ function openPatientConsentDialog(consentId = "") {
   $("#patient-consent-error").classList.remove("visible");
   $("#patient-consent-error").textContent = existing?.revoked
     ? `Revocado ${existing.revokedAt ? new Date(existing.revokedAt).toLocaleString("es-ES") : ""}. Este registro queda solo para revision.`
-    : (consentTemplates.length ? "" : "Crea primero una plantilla de consentimiento en Configuracion.");
+    : (consentTemplates.length ? "" : "Crea primero una plantilla de consentimiento en Configuración.");
   $("#patient-consent-error").classList.toggle("visible", Boolean(existing?.revoked));
   $("#save-patient-consent").disabled = Boolean(existing?.revoked) || (!consentTemplates.length && !existing);
   setupPatientConsentSignatureCanvas();
@@ -14969,7 +15029,7 @@ function setupPatientConsentsAndPacks() {
     const patient = byId(patients, selectedPatientId);
     const pack = byId(sessionPacks, $("#patient-pack-template")?.value);
     if (!patient || !pack) {
-      $("#patient-packs").innerHTML = `<article class="compact-item"><span>Crea primero un bono en Configuracion.</span></article>`;
+      $("#patient-packs").innerHTML = `<article class="compact-item"><span>Crea primero un bono en Configuración.</span></article>`;
       return;
     }
     patientPacks = [...patientPacks, {
@@ -15074,7 +15134,7 @@ async function consumePatientPack(packId) {
     renderBilling();
     return;
   }
-  showToast(`Sesion descontada. Quedan ${result.remaining} sesiones.`);
+  showToast(`Sesión descontada. Quedan ${result.remaining} sesiones.`);
   renderPatientDetail();
   renderBilling();
 }
