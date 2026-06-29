@@ -6794,7 +6794,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
     : item
   );
   saveClinicState("appointments", appointments);
-  syncReminderLinksFromAppointments();
+  syncReminderLinksForAppointments([movedAppointment]);
   selectedDate = dateValue;
   saveState("selected-date", selectedDate);
   renderAll();
@@ -9238,6 +9238,58 @@ function syncReminderLinksFromAppointments({ persist = true } = {}) {
   return reminderActions;
 }
 
+function syncReminderLinksForAppointments(changedAppointments = [], { persist = true, rerender = false } = {}) {
+  const changedList = (Array.isArray(changedAppointments) ? changedAppointments : [changedAppointments]).filter(Boolean);
+  const changedIds = new Set(changedList.map((appointment) => String(appointment.id)));
+  if (!changedIds.size) {
+    return syncReminderLinksFromAppointments({ persist });
+  }
+  const now = new Date().toISOString();
+  const existingActions = dedupeReminderActions(reminderActions);
+  const actionById = new Map(existingActions.map((item) => [String(item.id), item]));
+  const keepActions = existingActions.filter((action) => !changedIds.has(String(action.appointmentId)));
+  const nextActionsForChanged = [];
+  changedIds.forEach((appointmentId) => {
+    const appointment = byId(appointments, appointmentId);
+    if (!appointment) {
+      return;
+    }
+    const nextSlots = reminderSlotsForAppointment(appointment);
+    const nextSlotIds = new Set(nextSlots.map((slot) => String(slot.id)));
+    existingActions
+      .filter((action) => String(action.appointmentId) === appointmentId && !nextSlotIds.has(String(action.id)) && isFinalReminderStatus(action.status))
+      .forEach((action) => nextActionsForChanged.push({ ...action, updatedAt: action.updatedAt || now }));
+    nextSlots.forEach((slot) => {
+      const existing = actionById.get(String(slot.id));
+      const status = normalizeAppointmentStatus(appointment.status) === "cancelled" && !isFinalReminderStatus(existing?.status)
+        ? "cancelled"
+        : (existing?.status || "pending");
+      nextActionsForChanged.push({
+        ...(existing || {}),
+        ...slot,
+        status,
+        message: reminderMessage(slot),
+        createdAt: existing?.createdAt || now,
+        updatedAt: now
+      });
+    });
+  });
+  const next = dedupeReminderActions([...nextActionsForChanged, ...keepActions]);
+  if (JSON.stringify(next) !== JSON.stringify(reminderActions)) {
+    reminderActions = next;
+    if (persist) {
+      saveSyncedClinicState("reminder-actions", reminderActions);
+    } else {
+      saveClinicState("reminder-actions", reminderActions);
+    }
+  }
+  if (rerender) {
+    renderAutomations();
+    renderMetrics();
+  }
+  return reminderActions;
+}
+
 function saveReminderAction(reminder, status) {
   const normalizedStatus = status === "confirmed" ? "sent" : status;
   const finalStatus = isFinalReminderStatus(normalizedStatus);
@@ -10660,29 +10712,32 @@ function renderPermissions() {
   if (!list) {
     return;
   }
+  permissionSettings = normalizePermissionSettings(permissionSettings || defaultPermissionSettings);
+  const practitionerRows = practitioners.map((practitioner) => permissionRowHtml(
+    `practitioner:${practitioner.id}`,
+    practitioner.name,
+    permissionSettings.practitioners?.[practitioner.id] || defaultPractitionerPermissions()
+  ));
   list.innerHTML = [
-    permissionRowHtml("staff", "Recepcion / administracion", permissionSettings.staff),
-    ...practitioners.map((practitioner) => permissionRowHtml(
-      `practitioner:${practitioner.id}`,
-      practitioner.name,
-      permissionSettings.practitioners?.[practitioner.id] || defaultPractitionerPermissions()
-    ))
+    permissionRowHtml("staff", "Recepci\u00f3n / administraci\u00f3n", permissionSettings.staff),
+    ...practitionerRows,
+    practitionerRows.length ? "" : `<article class="compact-item"><span>Los permisos de trabajadores aparecer\u00e1n aqu\u00ed cuando exista al menos un trabajador.</span></article>`
   ].join("");
 
-  $$("[data-permission-target]").forEach((input) => {
+  $$('[data-permission-target]').forEach((input) => {
     input.addEventListener("change", () => {
       const target = input.dataset.permissionTarget;
-      const checkedSections = $$(`[data-permission-target="${target}"]:checked`).map((item) => item.value);
+      const checkedSections = $$('[data-permission-target="' + target + '"]:checked').map((item) => item.value);
       if (target === "staff") {
-        permissionSettings = { ...permissionSettings, staff: checkedSections };
+        permissionSettings = normalizePermissionSettings({ ...permissionSettings, staff: checkedSections });
       } else {
         const practitionerId = target.replace("practitioner:", "");
-        permissionSettings = {
+        permissionSettings = normalizePermissionSettings({
           ...permissionSettings,
           practitioners: { ...(permissionSettings.practitioners || {}), [practitionerId]: checkedSections }
-        };
+        });
       }
-      saveClinicState("permissions", permissionSettings);
+      saveSyncedClinicState("permissions", permissionSettings);
       renderPermissions();
       applyRolePermissions();
     });
@@ -12440,7 +12495,7 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
   }
   appointments = [...appointments, ...items];
   saveClinicState("appointments", appointments);
-  syncReminderLinksFromAppointments();
+  syncReminderLinksForAppointments(items);
   selectedDate = items[0]?.date || selectedDate;
   saveState("selected-date", selectedDate);
   dialog.close();
@@ -13104,7 +13159,7 @@ function setupAppointmentDetail() {
         return updatedAppointment;
       });
       saveClinicState("appointments", appointments);
-      syncReminderLinksFromAppointments();
+      syncReminderLinksForAppointments([updatedAppointment]);
       syncPatientPackUsageFromAppointments({ persist: true });
       $("#appointment-detail-dialog").close();
       renderAll();

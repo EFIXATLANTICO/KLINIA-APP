@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-audit-fixes-20260624";
+const KLINIA_CACHE = "klinia-regression-fixes-20260629";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260624-audit-fixes",
-  "./app.js?v=20260624-audit-fixes",
+  "./styles.css?v=20260629-regression-fixes",
+  "./app.js?v=20260629-regression-fixes",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
