@@ -10990,6 +10990,9 @@ function setActiveSection(section, persist = true) {
   if (persist) {
     saveState("active-section", activeSection);
   }
+  if (activeSection === "permisos") {
+    renderPermissions();
+  }
   if (isBackendRealtimeSection(activeSection)) {
     requestRealtimeRefresh(`section:${activeSection}`);
   }
