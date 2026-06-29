@@ -790,6 +790,31 @@ let auditLog = loadClinicState("audit-log", []);
 let accessRecoveryRequests = loadState("access-recovery-requests", []);
 let backendAccessRecoveryRequests = [];
 let autoReminderRunning = false;
+let reminderActionsPersistPromise = Promise.resolve();
+
+function persistReminderActionsState(persist = true) {
+  if (!persist) {
+    saveClinicState("reminder-actions", reminderActions);
+    return Promise.resolve(reminderActions);
+  }
+  saveClinicState("reminder-actions", reminderActions);
+  if (!backendSyncedClinicDataKeys.has("reminder-actions") || !backendDataEnabled() || isSuperadminSession()) {
+    reminderActionsPersistPromise = Promise.resolve(reminderActions);
+    return reminderActionsPersistPromise;
+  }
+  reminderActionsPersistPromise = saveClinicDataToBackend("reminder-actions", reminderActions)
+    .then(() => reminderActions)
+    .catch((error) => {
+      console.warn("Klinia backend sync failed for reminder-actions", error);
+      showToast(`No se pudo sincronizar recordatorios con backend: ${error.message}`, "warning");
+      return reminderActions;
+    });
+  return reminderActionsPersistPromise;
+}
+
+function flushReminderActionsSync() {
+  return reminderActionsPersistPromise.catch(() => reminderActions);
+}
 let pendingRecurringReview = null;
 let patientProfileOpen = false;
 const patientPackConsumptionLocks = new Set();
@@ -1040,7 +1065,7 @@ function persistActiveClinicScope() {
   saveClinicState("patient-packs", patientPacks);
   saveClinicState("manual-billing-movements", manualBillingMovements);
   saveClinicState("attendance-records", attendanceRecords);
-  saveClinicState("reminder-actions", reminderActions);
+  persistReminderActionsState(false);
   saveClinicState("reminder-settings", reminderSettings);
 }
 
@@ -6795,6 +6820,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
   );
   saveClinicState("appointments", appointments);
   syncReminderLinksForAppointments([movedAppointment]);
+  await flushReminderActionsSync();
   selectedDate = dateValue;
   saveState("selected-date", selectedDate);
   renderAll();
@@ -9024,6 +9050,13 @@ function reminderWindowSlots() {
   ];
 }
 
+const reminderNewAppointmentGraceMinutes = 15;
+
+function appointmentAllowsPendingReminder(appointment) {
+  const status = String(appointment?.status || "confirmed").toLowerCase();
+  return status === "confirmed";
+}
+
 function formatDateTimeForReminder(date) {
   return new Intl.DateTimeFormat("es-ES", {
     day: "2-digit",
@@ -9061,7 +9094,10 @@ function reminderReferenceCreatedAt(appointment) {
 function effectiveReminderSendAt(appointment, rawSendAt, appointmentAt) {
   const createdAt = reminderReferenceCreatedAt(appointment);
   if (createdAt && appointmentAt.getTime() > createdAt && rawSendAt.getTime() < createdAt) {
-    return new Date(createdAt + 60 * 1000);
+    const earliest = createdAt + 60 * 1000;
+    const grace = createdAt + reminderNewAppointmentGraceMinutes * 60 * 1000;
+    const latestBeforeAppointment = appointmentAt.getTime() - 60 * 1000;
+    return new Date(Math.max(earliest, Math.min(grace, latestBeforeAppointment)));
   }
   return rawSendAt;
 }
@@ -9088,7 +9124,7 @@ function reminderSlotFromAppointment(appointment, slot) {
 }
 
 function reminderSlotsForAppointment(appointment) {
-  if (normalizeAppointmentStatus(appointment.status) !== "confirmed") {
+  if (!appointmentAllowsPendingReminder(appointment)) {
     return [];
   }
   const patient = byId(patients, appointment.patientId);
@@ -9106,7 +9142,7 @@ function reminderWithCurrentAppointment(reminder) {
   const slot = reminderWindowSlots().find((item) => item.windowKey === reminder.windowKey)
     || { windowKey: reminder.windowKey || "manual", label: reminder.label || "Recordatorio", hoursBefore: 0 };
   const current = reminderSlotFromAppointment(appointment, slot);
-  const status = normalizeAppointmentStatus(appointment.status) === "cancelled"
+  const status = !appointmentAllowsPendingReminder(appointment)
     ? "cancelled"
     : reminder.status;
   return {
@@ -9197,7 +9233,7 @@ function syncReminderLinksFromAppointments({ persist = true } = {}) {
     if (!current) {
       return;
     }
-    const status = normalizeAppointmentStatus(appointment.status) === "cancelled" && !isFinalReminderStatus(action.status)
+    const status = !appointmentAllowsPendingReminder(appointment) && !isFinalReminderStatus(action.status)
       ? "cancelled"
       : current.status;
     nextActions.push({
@@ -9231,9 +9267,9 @@ function syncReminderLinksFromAppointments({ persist = true } = {}) {
   }
   reminderActions = next;
   if (persist) {
-    saveSyncedClinicState("reminder-actions", reminderActions);
+    persistReminderActionsState(true);
   } else {
-    saveClinicState("reminder-actions", reminderActions);
+    persistReminderActionsState(false);
   }
   return reminderActions;
 }
@@ -9261,7 +9297,7 @@ function syncReminderLinksForAppointments(changedAppointments = [], { persist = 
       .forEach((action) => nextActionsForChanged.push({ ...action, updatedAt: action.updatedAt || now }));
     nextSlots.forEach((slot) => {
       const existing = actionById.get(String(slot.id));
-      const status = normalizeAppointmentStatus(appointment.status) === "cancelled" && !isFinalReminderStatus(existing?.status)
+      const status = !appointmentAllowsPendingReminder(appointment) && !isFinalReminderStatus(existing?.status)
         ? "cancelled"
         : (existing?.status || "pending");
       nextActionsForChanged.push({
@@ -9278,9 +9314,9 @@ function syncReminderLinksForAppointments(changedAppointments = [], { persist = 
   if (JSON.stringify(next) !== JSON.stringify(reminderActions)) {
     reminderActions = next;
     if (persist) {
-      saveSyncedClinicState("reminder-actions", reminderActions);
+      persistReminderActionsState(true);
     } else {
-      saveClinicState("reminder-actions", reminderActions);
+      persistReminderActionsState(false);
     }
   }
   if (rerender) {
@@ -9306,7 +9342,7 @@ function saveReminderAction(reminder, status) {
     .filter((item) => item.id !== reminder.id);
 
   reminderActions = dedupeReminderActions([next, ...reminderActions]);
-  saveSyncedClinicState("reminder-actions", reminderActions);
+  persistReminderActionsState(true);
   renderAll();
 }
 
@@ -9344,7 +9380,7 @@ function openAppointmentFromReminder(reminder) {
   const appointment = byId(appointments, reminder.appointmentId);
   if (!appointment) {
     reminderActions = reminderActions.filter((item) => String(item.appointmentId) !== String(reminder.appointmentId));
-    saveSyncedClinicState("reminder-actions", reminderActions);
+    persistReminderActionsState(true);
     renderAll();
     showNotice("Cita no encontrada", "Este recordatorio ya no tiene una cita activa asociada.", { variant: "warning" });
     return;
@@ -9451,7 +9487,7 @@ function renderReminderCard(reminder, mode = "pending") {
     reopen.textContent = "Reabrir";
     reopen.addEventListener("click", () => {
       reminderActions = reminderActions.filter((item) => item.id !== reminder.id);
-      saveSyncedClinicState("reminder-actions", reminderActions);
+      persistReminderActionsState(true);
       renderAll();
     });
     article.append(reopen);
@@ -10844,7 +10880,7 @@ async function hydrateFromApi(options = {}) {
     saveSyncedClinicState("patient-packs", patientPacks);
     saveClinicState("consent-templates", consentTemplates);
     saveClinicState("patient-consents", patientConsents);
-    saveClinicState("reminder-actions", reminderActions);
+    persistReminderActionsState(false);
     saveClinicState("reminder-settings", reminderSettings);
     saveClinicState("permissions", permissionSettings);
     saveSyncedClinicState("availability-blocks", availabilityBlocks);
@@ -12499,6 +12535,7 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
   appointments = [...appointments, ...items];
   saveClinicState("appointments", appointments);
   syncReminderLinksForAppointments(items);
+  await flushReminderActionsSync();
   selectedDate = items[0]?.date || selectedDate;
   saveState("selected-date", selectedDate);
   dialog.close();
@@ -13151,7 +13188,7 @@ function setupAppointmentDetail() {
       internal_notes: form.elements.internalNotes.value.trim() || null
     };
 
-    const finish = (updatedAppointment) => {
+    const finish = async (updatedAppointment) => {
       form.dataset.saving = "";
       const submitButton = form.querySelector('button[type="submit"]');
       if (submitButton) submitButton.disabled = false;
@@ -13163,6 +13200,7 @@ function setupAppointmentDetail() {
       });
       saveClinicState("appointments", appointments);
       syncReminderLinksForAppointments([updatedAppointment]);
+      await flushReminderActionsSync();
       syncPatientPackUsageFromAppointments({ persist: true });
       $("#appointment-detail-dialog").close();
       renderAll();
@@ -13206,7 +13244,7 @@ function setupAppointmentDetail() {
           },
           requestedPaymentStatus
         );
-        finish(savedAppointment);
+        await finish(savedAppointment);
         if (isBackendRealtimeSection()) {
           refreshRealtimeClinicData("appointment-payment-save");
         }
@@ -13224,7 +13262,7 @@ function setupAppointmentDetail() {
       return;
     }
 
-    finish(localUpdate);
+    await finish(localUpdate);
     form.dataset.saving = "";
     if (submitButton) submitButton.disabled = false;
   });
