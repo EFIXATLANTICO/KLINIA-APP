@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-reminders-autorefresh-20260630";
+const KLINIA_CACHE = "klinia-reminders-send-state-20260630-reminders-send-state";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260630-reminders-autorefresh",
+  "./app.js?v=20260630-reminders-send-state",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

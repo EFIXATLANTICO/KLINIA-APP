@@ -9328,7 +9328,6 @@ function syncReminderLinksForAppointments(changedAppointments = [], { persist = 
 
 function saveReminderAction(reminder, status) {
   const normalizedStatus = status === "confirmed" ? "sent" : status;
-  const finalStatus = isFinalReminderStatus(normalizedStatus);
   const previous = reminderActionFor(reminder.id);
   const next = {
     ...(previous || reminder),
@@ -9343,7 +9342,8 @@ function saveReminderAction(reminder, status) {
 
   reminderActions = dedupeReminderActions([next, ...reminderActions]);
   persistReminderActionsState(true);
-  renderAll();
+  renderAutomations();
+  renderMetrics();
 }
 
 function whatsappReminderUrl(reminder) {
@@ -9488,7 +9488,8 @@ function renderReminderCard(reminder, mode = "pending") {
     reopen.addEventListener("click", () => {
       reminderActions = reminderActions.filter((item) => item.id !== reminder.id);
       persistReminderActionsState(true);
-      renderAll();
+      renderAutomations();
+      renderMetrics();
     });
     article.append(reopen);
   }
@@ -9502,7 +9503,7 @@ function renderAutomations() {
   if (!pendingList || !historyList) {
     return;
   }
-  syncReminderLinksFromAppointments({ persist: false });
+  syncReminderLinksFromAppointments({ persist: true });
   const queue = buildReminderQueue();
   const history = buildReminderHistory();
   const today = todayIso();
