@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-staff-sync-permissions-20260630-staff-sync-permissions";
+const KLINIA_CACHE = "klinia-payment-render-guard-20260630-appointment-payment-render-guard";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260630-staff-sync-permissions",
+  "./app.js?v=20260630-appointment-payment-render-guard",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

@@ -8908,6 +8908,16 @@ function practitionerReport(practitioner, range = performanceFilterRange(), serv
 }
 
 function renderPerformance() {
+  const performanceRoot = $("#worker-performance");
+  const workerSummary = $("#worker-summary");
+  const workerBilling = $("#worker-billing");
+  const workerActivity = $("#worker-activity");
+  const ownerSummary = $("#owner-summary");
+  const ownerReportTable = $("#owner-report-table");
+  if (!performanceRoot || !workerSummary || !workerBilling || !workerActivity || !ownerSummary || !ownerReportTable) {
+    console.warn("Klinia performance render skipped: required containers are not mounted.");
+    return;
+  }
   ensurePerformanceFilterDefaults();
   const range = performanceFilterRange();
   const serviceFilterId = performanceSelectedServiceId();
@@ -8917,22 +8927,22 @@ function renderPerformance() {
     : currentPractitioner();
   if (!selectedWorker) {
     $$("#worker-performance .permission-note").forEach((note) => note.remove());
-    $("#worker-summary").innerHTML = `
+    workerSummary.innerHTML = `
       <div>
         <span>Rendimiento</span>
         <strong>Sin trabajadores</strong>
         <p>Crea trabajadores en esta clínica para calcular rendimiento propio.</p>
       </div>
     `;
-    $("#worker-billing").innerHTML = `<article><span>Sin datos de rendimiento para esta clínica.</span></article>`;
-    $("#worker-activity").innerHTML = `<article class="compact-item"><span>No hay sesiones facturables asociadas a trabajadores de esta clínica.</span></article>`;
-    $("#owner-summary").innerHTML = `
+    workerBilling.innerHTML = `<article><span>Sin datos de rendimiento para esta clínica.</span></article>`;
+    workerActivity.innerHTML = `<article class="compact-item"><span>No hay sesiones facturables asociadas a trabajadores de esta clínica.</span></article>`;
+    ownerSummary.innerHTML = `
       <div><span>Facturación equipo</span><strong>0 EUR</strong></div>
       <div><span>Operaciones</span><strong>0</strong></div>
       <div><span>Comisión estimada</span><strong>0 EUR</strong></div>
       <div><span>Mayor facturación</span><strong>-</strong></div>
     `;
-    $("#owner-report-table").innerHTML = `<tr><td colspan="5">Sin trabajadores en esta clínica.</td></tr>`;
+    ownerReportTable.innerHTML = `<tr><td colspan="5">Sin trabajadores en esta clínica.</td></tr>`;
     return;
   }
 
@@ -8944,13 +8954,13 @@ function renderPerformance() {
   const topReport = allReports[0];
   $$("#worker-performance .permission-note").forEach((note) => note.remove());
   if (!isOwner()) {
-    $("#worker-performance").insertAdjacentHTML(
+    performanceRoot.insertAdjacentHTML(
       "afterbegin",
       `<p class="permission-note">Vista limitada al perfil del trabajador. El informe completo queda reservado para Dirección.</p>`
     );
   }
 
-  $("#worker-summary").innerHTML = `
+  workerSummary.innerHTML = `
     <div>
       <span>Perfil de trabajador</span>
       <strong>${escapeHtml(selectedWorker.name)}</strong>
@@ -8977,7 +8987,7 @@ function renderPerformance() {
   const recordCount = workerReport.appointments.length + workerReport.groupSessions.length;
   const commissionServices = Object.values(normalizeServiceCommissions(selectedWorker.serviceCommissions)).filter((item) => item?.enabled).length;
 
-  $("#worker-billing").innerHTML = `
+  workerBilling.innerHTML = `
     <article><span>Citas individuales</span><strong>${workerReport.appointments.length}</strong><small>${individualRevenue} EUR</small></article>
     <article><span>Sesiones grupales</span><strong>${workerReport.groupSessions.length}</strong><small>${groupRevenue} EUR</small></article>
     <article><span>Asistentes</span><strong>${groupAttendees}</strong><small>en sesiones grupales</small></article>
@@ -9019,7 +9029,7 @@ function renderPerformance() {
         `).join("")
     : `<article class="compact-item"><span>Sin sesiones grupales completadas en este filtro.</span></article>`;
 
-  $("#worker-activity").innerHTML = `
+  workerActivity.innerHTML = `
     <div class="performance-breakdown">
       <h3>Comisión por servicio</h3>
       ${serviceLineItems}
@@ -9030,14 +9040,14 @@ function renderPerformance() {
     </div>
   `;
 
-  $("#owner-summary").innerHTML = `
+  ownerSummary.innerHTML = `
     <div><span>Facturación equipo</span><strong>${totalRevenue} EUR</strong></div>
     <div><span>Operaciones</span><strong>${totalOperations}</strong></div>
     <div><span>Comisión estimada</span><strong>${totalPayout} EUR</strong></div>
     <div><span>Mayor facturación</span><strong>${topReport ? escapeHtml(topReport.practitioner.name) : "-"}</strong></div>
   `;
 
-  $("#owner-report-table").innerHTML = allReports.length
+  ownerReportTable.innerHTML = allReports.length
     ? allReports.map((report) => `
       <tr>
         <td><strong>${escapeHtml(report.practitioner.name)}</strong><br><span>${escapeHtml(report.practitioner.specialty || "")}</span></td>
@@ -13222,8 +13232,13 @@ function setupAppointmentDetail() {
       syncReminderLinksForAppointments([updatedAppointment]);
       await flushReminderActionsSync();
       syncPatientPackUsageFromAppointments({ persist: true });
-      $("#appointment-detail-dialog").close();
-      renderAll();
+      $("#appointment-detail-dialog")?.close();
+      try {
+        renderAll();
+      } catch (renderError) {
+        console.error("Klinia appointment saved but render refresh failed", renderError);
+        showToast("Cita guardada. Actualiza la vista si no ves el cambio al instante.", "warning");
+      }
     };
 
     const localUpdate = {
