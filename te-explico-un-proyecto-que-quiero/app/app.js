@@ -10939,7 +10939,7 @@ function stopBackendAutoSync() {
 }
 
 function isBackendRealtimeSection(section = activeSection) {
-  return ["agenda", "facturacion"].includes(section);
+  return ["agenda", "facturacion", "automatizaciones"].includes(section);
 }
 
 async function refreshRealtimeClinicData(reason = "manual") {
@@ -11028,6 +11028,9 @@ function setActiveSection(section, persist = true) {
   }
   if (activeSection === "permisos") {
     renderPermissions();
+  }
+  if (activeSection === "automatizaciones") {
+    renderAutomations();
   }
   if (isBackendRealtimeSection(activeSection)) {
     requestRealtimeRefresh(`section:${activeSection}`);
