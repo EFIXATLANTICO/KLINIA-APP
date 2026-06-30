@@ -306,7 +306,7 @@ function saveSyncedClinicState(key, value) {
   saveClinicDataToBackend(key, value).catch((error) => {
     console.warn(`Klinia backend sync failed for ${key}`, error);
     if (!isBackendPermissionError(error)) {
-      showToast("No se pudieron guardar algunos datos en la nube. Inténtalo de nuevo.", "warning");
+      showToast("No se pudieron guardar algunos datos en la nube. Intï¿½ntalo de nuevo.", "warning");
     }
   });
 }
@@ -4231,17 +4231,20 @@ async function saveAppointmentPaymentToBackend(appointment, paymentStatus) {
   if (!backendDataEnabled() || !looksLikeBackendId(appointment?.id)) {
     return appointment;
   }
-  const amountCents = Number.isFinite(Number(appointment.paymentAmountCents))
-    ? Math.max(0, Math.round(Number(appointment.paymentAmountCents)))
+  const normalizedPaymentStatus = paymentStatus || appointmentPaymentStatus(appointment);
+  const localPaymentFields = appointmentPaymentFields(appointment, normalizedPaymentStatus);
+  const amountCents = Number.isFinite(Number(localPaymentFields.paymentAmountCents))
+    ? Math.max(0, Math.round(Number(localPaymentFields.paymentAmountCents)))
     : Math.max(0, Math.round(servicePrice(appointment) * 100));
   const saved = await backendRequest(`/appointments/${encodeURIComponent(appointment.id)}/payment`, {
     method: "POST",
     body: JSON.stringify({
-      payment_status: paymentStatus || appointmentPaymentStatus(appointment),
+      payment_status: normalizedPaymentStatus,
       amount_cents: amountCents
     })
   });
-  return apiAppointmentToUi(saved, appointment);
+  const savedAppointment = apiAppointmentToUi(saved, { ...appointment, ...localPaymentFields });
+  return normalizeAppointments([{ ...savedAppointment, ...localPaymentFields }])[0];
 }
 
 async function saveClinicSettingsToBackend(nextClinic) {
@@ -13281,7 +13284,12 @@ function setupAppointmentDetail() {
         );
         await finish(savedAppointment);
         if (isBackendRealtimeSection()) {
-          refreshRealtimeClinicData("appointment-payment-save");
+          await refreshRealtimeClinicData("appointment-payment-save");
+          try {
+            renderAll();
+          } catch (renderError) {
+            console.error("Klinia appointment payment refreshed but render failed", renderError);
+          }
         }
         if (["cash", "card"].includes(requestedPaymentStatus)) {
           showToast("Cobro registrado correctamente.");
