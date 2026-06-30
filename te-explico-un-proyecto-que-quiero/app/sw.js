@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-payment-flow-20260630-appointment-payment-flow";
+const KLINIA_CACHE = "klinia-payment-reminders-20260630-payment-reminders-persist";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260630-appointment-payment-flow",
+  "./app.js?v=20260630-payment-reminders-persist",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

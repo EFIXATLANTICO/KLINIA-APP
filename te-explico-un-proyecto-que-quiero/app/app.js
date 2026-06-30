@@ -4870,6 +4870,16 @@ function patientPackUnitValue(pack) {
   return Math.round((price / sessions) * 100) / 100;
 }
 
+function appointmentPaymentMovementFor(appointmentId) {
+  if (!appointmentId) return null;
+  const id = String(appointmentId);
+  return manualBillingMovements.find((movement) =>
+    movement?.source === "appointment-payment" &&
+    movement?.type === "charge" &&
+    String(movement?.appointmentId || "") === id
+  ) || null;
+}
+
 function appointmentRevenueAmount(appointment) {
   const packId = appointment?.patientPackId || appointment?.plannedPatientPackId || "";
   if (packId) {
@@ -4881,6 +4891,10 @@ function appointmentRevenueAmount(appointment) {
     const service = byId(services, appointment.serviceId);
     return Number(service?.price || 0);
   }
+  const paymentMovement = appointmentPaymentMovementFor(appointment?.id);
+  if (paymentMovement && Number(paymentMovement.amount) > 0) {
+    return Number(paymentMovement.amount);
+  }
   return servicePrice(appointment);
 }
 
@@ -4891,8 +4905,16 @@ function roundMoney(value) {
 
 function appointmentPaymentStatus(appointment) {
   const status = appointment?.paymentStatus || appointment?.paymentMethod || "";
-  if (["cash", "card", "transfer", "unpaid"].includes(status)) {
+  const paidStatuses = ["cash", "card", "transfer"];
+  if (paidStatuses.includes(status)) {
     return status;
+  }
+  const paymentMovement = appointmentPaymentMovementFor(appointment?.id);
+  if (paymentMovement && paidStatuses.includes(paymentMovement.paymentMethod)) {
+    return paymentMovement.paymentMethod;
+  }
+  if (status === "unpaid") {
+    return "unpaid";
   }
   return appointment?.invoiceGenerated ? "card" : "unpaid";
 }
@@ -4911,7 +4933,8 @@ function appointmentPaymentFields(appointment, nextPaymentStatus) {
   }
   const previousStatus = appointmentPaymentStatus(appointment);
   const keepExistingPayment = previousStatus === nextPaymentStatus && appointment?.paymentPaidAt;
-  const amount = Number(appointment?.paymentAmount || servicePrice(appointment) || 0);
+  const existingPaymentMovement = appointmentPaymentMovementFor(appointment?.id);
+  const amount = Number(appointment?.paymentAmount || existingPaymentMovement?.amount || servicePrice(appointment) || 0);
   return {
     paymentStatus: nextPaymentStatus,
     paymentMethod: nextPaymentStatus,
@@ -8313,7 +8336,13 @@ function renderBilling() {
       };
     });
   const manualRows = manualBillingMovements
-    .filter((movement) => !["group-monthly-fee", "appointment-payment"].includes(movement.source))
+    .filter((movement) => {
+      if (movement.source === "group-monthly-fee") return false;
+      if (movement.source === "appointment-payment") {
+        return !byId(appointments, movement.appointmentId);
+      }
+      return true;
+    })
     .map((movement) => {
       const createdTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(movement.createdAt || ""))
         ? String(movement.createdAt).slice(11, 16)
@@ -9189,7 +9218,8 @@ function reminderActionFor(id) {
 }
 
 function isFinalReminderStatus(status) {
-  return ["sent", "failed", "cancelled"].includes(status === "confirmed" ? "sent" : status);
+  const normalized = status === "confirmed" ? "sent" : status;
+  return ["prepared", "sent", "failed", "cancelled", "handled"].includes(normalized);
 }
 
 function hasFinalReminderForSlot(reminderId) {
@@ -9370,9 +9400,10 @@ function saveReminderAction(reminder, status) {
     .filter((item) => item.id !== reminder.id);
 
   reminderActions = dedupeReminderActions([next, ...reminderActions]);
-  persistReminderActionsState(true);
+  const syncPromise = persistReminderActionsState(true);
   renderAutomations();
   renderMetrics();
+  return syncPromise;
 }
 
 function whatsappReminderUrl(reminder) {
