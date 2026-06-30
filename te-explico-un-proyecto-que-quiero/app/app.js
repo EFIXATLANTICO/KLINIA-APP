@@ -283,17 +283,31 @@ const backendSyncedClinicDataKeys = new Set([
   "clinic-logo"
 ]);
 
+function isBackendPermissionError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return message.includes("insufficient permissions") || message.includes("403") || message.includes("forbidden");
+}
+
+function canWriteSyncedClinicDataKey(key) {
+  return !isSuperadminSession()
+    && backendSyncedClinicDataKeys.has(key)
+    && backendDataEnabled()
+    && isOwner();
+}
+
 function saveSyncedClinicState(key, value) {
   if (isSuperadminSession()) {
     return;
   }
   saveClinicState(key, value);
-  if (!backendSyncedClinicDataKeys.has(key) || !backendDataEnabled()) {
+  if (!canWriteSyncedClinicDataKey(key)) {
     return;
   }
   saveClinicDataToBackend(key, value).catch((error) => {
     console.warn(`Klinia backend sync failed for ${key}`, error);
-    showToast(`No se pudo sincronizar ${key} con backend: ${error.message}`, "warning");
+    if (!isBackendPermissionError(error)) {
+      showToast("No se pudieron guardar algunos datos en la nube. Inténtalo de nuevo.", "warning");
+    }
   });
 }
 
@@ -4337,7 +4351,9 @@ async function syncClinicDataCollection(key, localValue, fallback, normalizer = 
     return normalizedBackend;
   }
   if (!isEmptySyncedClinicData(normalizedLocal)) {
-    await saveClinicDataToBackend(key, normalizedLocal);
+    if (canWriteSyncedClinicDataKey(key)) {
+      await saveClinicDataToBackend(key, normalizedLocal);
+    }
     return normalizedLocal;
   }
   return normalizer(fallback);

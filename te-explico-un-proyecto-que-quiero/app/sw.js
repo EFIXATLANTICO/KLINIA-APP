@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-reminders-send-state-20260630-reminders-send-state";
+const KLINIA_CACHE = "klinia-staff-sync-permissions-20260630-staff-sync-permissions";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260630-reminders-send-state",
+  "./app.js?v=20260630-staff-sync-permissions",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
