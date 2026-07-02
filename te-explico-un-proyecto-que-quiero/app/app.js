@@ -1,3 +1,5 @@
+const KLINIA_BUILD_ID = "DEBUG-COBROS-RECORDATORIOS-20260702-1354";
+console.info("Klinia build:", KLINIA_BUILD_ID);
 const defaultPractitioners = [
   { id: "ana", name: "Ana Martin", specialty: "Fisioterapia deportiva", color: "#11736d", commissionRate: 0.42, target: 2600, availabilityStart: "08:00", availabilityEnd: "15:00" },
   { id: "luis", name: "Luis Ortega", specialty: "Readaptacion", color: "#436c9f", commissionRate: 0.38, target: 2400, availabilityStart: "09:00", availabilityEnd: "18:00" },
