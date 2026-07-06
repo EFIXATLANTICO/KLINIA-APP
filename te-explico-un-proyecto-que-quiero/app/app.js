@@ -806,7 +806,8 @@ let backendAccessRecoveryRequests = [];
 let autoReminderRunning = false;
 let reminderActionsPersistPromise = Promise.resolve();
 
-function persistReminderActionsState(persist = true) {
+function persistReminderActionsState(persist = true, options = {}) {
+  const strict = Boolean(options.strict);
   if (!persist) {
     saveClinicState("reminder-actions", reminderActions);
     return Promise.resolve(reminderActions);
@@ -820,7 +821,10 @@ function persistReminderActionsState(persist = true) {
     .then(() => reminderActions)
     .catch((error) => {
       console.warn("Klinia backend sync failed for reminder-actions", error);
-      showToast(`No se pudo sincronizar recordatorios con backend: ${error.message}`, "warning");
+      showToast("No se pudo guardar el estado del recordatorio en backend. Intentalo de nuevo.", "warning");
+      if (strict) {
+        throw error;
+      }
       return reminderActions;
     });
   return reminderActionsPersistPromise;
@@ -9311,6 +9315,10 @@ function dedupeReminderActions(actions) {
   return result;
 }
 
+function mergeReminderActions(...collections) {
+  return dedupeReminderActions(collections.flat().filter((item) => item && item.id));
+}
+
 function buildReminderQueue() {
   const allSlots = appointments.flatMap(reminderSlotsForAppointment);
   const pendingSlots = allSlots
@@ -9456,25 +9464,43 @@ function syncReminderLinksForAppointments(changedAppointments = [], { persist = 
   return reminderActions;
 }
 
-function saveReminderAction(reminder, status) {
+async function saveReminderAction(reminder, status) {
   const normalizedStatus = status === "confirmed" ? "sent" : status;
   const previous = reminderActionFor(reminder.id);
+  const now = new Date().toISOString();
   const next = {
     ...(previous || reminder),
     ...reminder,
+    id: reminder.id || reminderKey(reminder.appointmentId, reminder.windowKey || "manual"),
+    appointmentId: reminder.appointmentId,
+    patientId: reminder.patientId,
+    windowKey: reminder.windowKey || "manual",
     status: normalizedStatus,
     message: reminderMessage(reminder),
-    updatedAt: new Date().toISOString()
+    updatedAt: now,
+    updatedBy: currentSessionName()
   };
+  if (normalizedStatus === "sent") {
+    next.sentAt = now;
+  }
+  if (normalizedStatus === "prepared") {
+    next.preparedAt = now;
+  }
+  if (normalizedStatus === "failed") {
+    next.failedAt = now;
+  }
 
-  reminderActions = reminderActions
-    .filter((item) => item.id !== reminder.id);
+  const finalForAppointment = isFinalReminderStatus(normalizedStatus);
+  reminderActions = reminderActions.filter((item) => finalForAppointment
+    ? String(item.appointmentId || "") !== String(reminder.appointmentId || "")
+    : String(item.id || "") !== String(reminder.id || "")
+  );
 
   reminderActions = dedupeReminderActions([next, ...reminderActions]);
-  const syncPromise = persistReminderActionsState(true);
   renderAutomations();
   renderMetrics();
-  return syncPromise;
+  await persistReminderActionsState(true, { strict: true });
+  return reminderActions;
 }
 
 function whatsappReminderUrl(reminder) {
@@ -9588,7 +9614,7 @@ function renderReminderCard(reminder, mode = "pending") {
       <button class="secondary-button danger" type="button" data-reminder-action="failed">Fallido</button>
     `;
     actions.querySelectorAll("button").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const action = button.dataset.reminderAction;
         if (action === "appointment") {
           openAppointmentFromReminder(reminder);
@@ -9597,10 +9623,19 @@ function renderReminderCard(reminder, mode = "pending") {
         actions.querySelectorAll("button").forEach((item) => {
           item.disabled = true;
         });
-        if (action === "whatsapp") {
-          openReminderWhatsApp(reminder);
-        } else {
-          saveReminderAction(reminder, action);
+        try {
+          if (action === "whatsapp") {
+            openReminderWhatsApp(reminder);
+            await flushReminderActionsSync();
+          } else {
+            await saveReminderAction(reminder, action);
+          }
+        } catch (error) {
+          console.warn("Klinia reminder action failed", error);
+          showNotice("No se pudo guardar el recordatorio", "El estado no se ha guardado en la nube. Intentalo de nuevo antes de salir.", { variant: "warning" });
+          actions.querySelectorAll("button").forEach((item) => {
+            item.disabled = false;
+          });
         }
       });
     });
@@ -10983,7 +11018,12 @@ async function hydrateFromApi(options = {}) {
     patientPacks = normalizePatientPacks(await syncClinicDataCollection("patient-packs", patientPacks, [], normalizePatientPacks));
     consentTemplates = await syncClinicDataCollection("consent-templates", consentTemplates, [], (value) => Array.isArray(value) ? value : []);
     patientConsents = await syncClinicDataCollection("patient-consents", patientConsents, [], (value) => Array.isArray(value) ? value : []);
-    reminderActions = await syncClinicDataCollection("reminder-actions", reminderActions, [], (value) => Array.isArray(value) ? value : []);
+    const localReminderActions = loadClinicState("reminder-actions", []);
+    const syncedReminderActions = await syncClinicDataCollection("reminder-actions", reminderActions, [], (value) => Array.isArray(value) ? value : []);
+    reminderActions = mergeReminderActions(syncedReminderActions, localReminderActions);
+    if (JSON.stringify(reminderActions) !== JSON.stringify(syncedReminderActions)) {
+      await persistReminderActionsState(true, { strict: false });
+    }
     reminderSettings = {
       ...defaultReminderSettings(),
       ...(await syncClinicDataCollection("reminder-settings", reminderSettings, defaultReminderSettings(), (value) => value && typeof value === "object" && !Array.isArray(value) ? value : defaultReminderSettings()))
