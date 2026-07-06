@@ -1,5 +1,3 @@
-const KLINIA_BUILD_ID = "DEBUG-COBROS-RECORDATORIOS-20260702-1354";
-console.info("Klinia build:", KLINIA_BUILD_ID);
 const defaultPractitioners = [
   { id: "ana", name: "Ana Martin", specialty: "Fisioterapia deportiva", color: "#11736d", commissionRate: 0.42, target: 2600, availabilityStart: "08:00", availabilityEnd: "15:00" },
   { id: "luis", name: "Luis Ortega", specialty: "Readaptacion", color: "#436c9f", commissionRate: 0.38, target: 2400, availabilityStart: "09:00", availabilityEnd: "18:00" },
@@ -8266,7 +8264,48 @@ function billingSourceLabel(row) {
 
 function billingMovementReference(row) {
   const id = row.appointmentId || row.manualId || row.groupMonthlyKey || row.id || "";
-  return String(id).slice(0, 12) || "-";
+  return String(id).slice(0, 6) || "-";
+}
+
+function billingCleanConcept(row) {
+  const raw = String(row?.concept || "Movimiento").trim();
+  return raw
+    .replace(/\s*[0-9a-f]{8}(?:-[0-9a-f]{4,}){2,}[0-9a-f-]*$/i, "")
+    .replace(/([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])([0-9a-f]{8,}(?:-[0-9a-f]{4,})*)$/i, "$1")
+    .trim() || "Movimiento";
+}
+
+function billingRowKey(row) {
+  return [row?.sourceType || "movement", row?.appointmentId || row?.manualId || row?.groupMonthlyKey || row?.id || ""].join(":");
+}
+
+function billingRowByKey(rowKey) {
+  return (lastBillingReport?.rows || []).find((row) => billingRowKey(row) === rowKey) || null;
+}
+
+function openBillingRowDetail(rowKey) {
+  const row = billingRowByKey(rowKey);
+  if (!row) {
+    showNotice("Movimiento no encontrado", "Actualiza Facturación y vuelve a intentarlo.", { variant: "warning" });
+    return;
+  }
+  if (row.appointmentId) {
+    const appointment = byId(appointments, row.appointmentId);
+    if (!appointment) {
+      showNotice("Cita no encontrada", "Este movimiento está asociado a una cita que no está cargada en la agenda actual.", { variant: "warning" });
+      return;
+    }
+    selectedDate = appointment.date || selectedDate;
+    calendarMode = "day";
+    saveState("selected-date", selectedDate);
+    saveState("calendar-mode", calendarMode);
+    setActiveSection("agenda");
+    renderAll();
+    window.setTimeout(() => openAppointmentDetail(row.appointmentId), 0);
+    return;
+  }
+  const detail = `${billingDateTimeLabel(row)} · ${billingSourceLabel(row)} · ${billingCleanConcept(row)} · ${row.amount} EUR · ${row.paymentText || "Sin cobro"}`;
+  showNotice("Detalle de movimiento", detail, { variant: "info" });
 }
 
 function billingDateTimeLabel(row) {
@@ -8423,6 +8462,7 @@ function renderBilling() {
         <th>Fecha/hora</th>
         <th>Origen</th>
         <th>Movimiento</th>
+        <th>Ref.</th>
         <th>Paciente</th>
         <th>Profesional</th>
         <th>Estado</th>
@@ -8433,9 +8473,10 @@ function renderBilling() {
   }
   $("#billing-table").innerHTML = pageRows
     .map((row) => {
+      const rowKey = billingRowKey(row);
       const actions = `
-        ${row.appointmentId ? `<button class="secondary-button row-action" type="button" data-appointment-id="${row.appointmentId}">Abrir</button>` : ""}
-        ${row.groupMonthlyKey && !row.collected ? `<button class="secondary-button row-action" type="button" data-collect-group-monthly="${row.groupMonthlyKey}">Cobrar</button>` : ""}
+        <button class="secondary-button row-action" type="button" data-billing-open-row="${escapeHtml(rowKey)}">Abrir</button>
+        ${row.groupMonthlyKey && !row.collected ? `<button class="secondary-button row-action" type="button" data-collect-group-monthly="${escapeHtml(row.groupMonthlyKey)}">Cobrar</button>` : ""}
         ${row.manualId ? `
           <details class="item-menu table-item-menu">
             <summary aria-label="Opciones de movimiento">...</summary>
@@ -8462,7 +8503,8 @@ function renderBilling() {
         <tr>
           <td>${billingDateTimeLabel(row)}</td>
           <td>${billingSourceLabel(row)}</td>
-          <td><strong>${row.concept}</strong><small>${billingMovementReference(row)}</small></td>
+          <td><strong>${escapeHtml(billingCleanConcept(row))}</strong></td>
+          <td><small>${escapeHtml(billingMovementReference(row))}</small></td>
           <td>${row.patient}</td>
           <td>${row.practitioner}</td>
           <td><span class="status-pill ${row.status}">${row.statusText}</span></td>
@@ -8472,7 +8514,7 @@ function renderBilling() {
         </tr>
       `;
     })
-    .join("") || `<tr><td colspan="${simplified ? 6 : 9}">No hay movimientos con estos filtros.</td></tr>`;
+    .join("") || `<tr><td colspan="${simplified ? 6 : 10}">No hay movimientos con estos filtros.</td></tr>`;
 
   $("#billing-págination").innerHTML = `
     <span>${sortedRows.length} movimientos · página ${billingFilterState.page} de ${totalPages}</span>
@@ -8486,9 +8528,9 @@ function renderBilling() {
     });
   });
 
-  $$(".row-action").forEach((button) => {
-    if (button.dataset.appointmentId) {
-      button.addEventListener("click", () => openAppointmentDetail(button.dataset.appointmentId));
+  $(".row-action").forEach((button) => {
+    if (button.dataset.billingOpenRow) {
+      button.addEventListener("click", () => openBillingRowDetail(button.dataset.billingOpenRow));
     }
     if (button.dataset.collectGroupMonthly) {
       button.addEventListener("click", () => openGroupMonthlyPaymentDialog(button.dataset.collectGroupMonthly));

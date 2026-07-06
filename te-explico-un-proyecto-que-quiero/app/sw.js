@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-debug-cobros-recordatorios-20260702-1354";
+const KLINIA_CACHE = "klinia-billing-open-clean-20260706";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260702-debug-cobros-recordatorios",
+  "./app.js?v=20260706-billing-open-clean",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
