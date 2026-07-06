@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-billing-open-clean-20260706";
+const KLINIA_CACHE = "klinia-20260706-critical-reminders-google-billing";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260706-billing-open-clean",
+  "./app.js?v=20260706-critical-reminders-google-billing",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

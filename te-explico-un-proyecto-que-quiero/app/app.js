@@ -3409,7 +3409,7 @@ function loadGoogleScript() {
     return googleScriptLoading;
   }
   googleScriptLoading = new Promise((resolve, reject) => {
-    let script = document.querySelector(`script[src="${googleScriptSrc}"]`);
+    let script = document.querySelector('script[src="' + googleScriptSrc + '"]') || document.querySelector('script[src^="https://accounts.google.com/gsi/client"]');
     const complete = () => {
       googleAuthLog("script cargado, esperando window.google");
       waitForGoogleIdentity().then(resolve).catch((error) => {
@@ -3430,7 +3430,7 @@ function loadGoogleScript() {
     script.addEventListener("load", complete, { once: true });
     script.addEventListener("error", () => {
       googleScriptLoading = null;
-      reject(new Error("No hemos podido cargar el acceso con Google. Inténtalo de nuevo o usa email y contraseña."));
+      reject(new Error("No hemos podido cargar el acceso con Google. Int\u00e9ntalo de nuevo o usa email y contrase\u00f1a."));
     }, { once: true });
     complete();
   });
@@ -3488,7 +3488,7 @@ async function initializeGoogleAuth() {
         theme: "outline",
         size: "large",
         shape: "rectangular",
-        text: context === "register" ? "signup_with" : "signin_with",
+        text: context === "register" ? "signup_with" : "continue_with",
         logo_alignment: "left",
         width: Math.min(360, Math.max(220, slot.clientWidth || 280)),
         state: context,
@@ -8283,16 +8283,24 @@ function billingRowByKey(rowKey) {
   return (lastBillingReport?.rows || []).find((row) => billingRowKey(row) === rowKey) || null;
 }
 
-function openBillingRowDetail(rowKey) {
+async function openBillingRowDetail(rowKey) {
   const row = billingRowByKey(rowKey);
   if (!row) {
-    showNotice("Movimiento no encontrado", "Actualiza Facturación y vuelve a intentarlo.", { variant: "warning" });
+    showNotice("Movimiento no encontrado", "Actualiza Facturaci\u00f3n y vuelve a intentarlo.", { variant: "warning" });
     return;
   }
   if (row.appointmentId) {
-    const appointment = byId(appointments, row.appointmentId);
+    let appointment = byId(appointments, row.appointmentId);
+    if (!appointment && backendDataEnabled()) {
+      try {
+        await refreshRealtimeClinicData("billing-open-appointment");
+        appointment = byId(appointments, row.appointmentId);
+      } catch (error) {
+        console.warn("Klinia billing open appointment refresh failed", error);
+      }
+    }
     if (!appointment) {
-      showNotice("Cita no encontrada", "Este movimiento está asociado a una cita que no está cargada en la agenda actual.", { variant: "warning" });
+      showNotice("Cita no encontrada", "Este movimiento est\u00e1 asociado a una cita que no est\u00e1 cargada en la agenda actual.", { variant: "warning" });
       return;
     }
     selectedDate = appointment.date || selectedDate;
@@ -8304,7 +8312,11 @@ function openBillingRowDetail(rowKey) {
     window.setTimeout(() => openAppointmentDetail(row.appointmentId), 0);
     return;
   }
-  const detail = `${billingDateTimeLabel(row)} · ${billingSourceLabel(row)} · ${billingCleanConcept(row)} · ${row.amount} EUR · ${row.paymentText || "Sin cobro"}`;
+  if (row.sourceType === "pack" && row.patientId) {
+    openPatientProfile(row.patientId);
+    return;
+  }
+  const detail = billingDateTimeLabel(row) + " - " + billingSourceLabel(row) + " - " + billingCleanConcept(row) + " - " + row.amount + " EUR - " + (row.paymentText || "Sin cobro");
   showNotice("Detalle de movimiento", detail, { variant: "info" });
 }
 
@@ -8528,9 +8540,12 @@ function renderBilling() {
     });
   });
 
-  $(".row-action").forEach((button) => {
+  $$(".row-action").forEach((button) => {
     if (button.dataset.billingOpenRow) {
-      button.addEventListener("click", () => openBillingRowDetail(button.dataset.billingOpenRow));
+      button.addEventListener("click", () => openBillingRowDetail(button.dataset.billingOpenRow).catch((error) => {
+        console.warn("Klinia billing open action failed", error);
+        showNotice("No se pudo abrir el detalle", "Actualiza la vista y vuelve a intentarlo.", { variant: "warning" });
+      }));
     }
     if (button.dataset.collectGroupMonthly) {
       button.addEventListener("click", () => openGroupMonthlyPaymentDialog(button.dataset.collectGroupMonthly));
@@ -9272,6 +9287,14 @@ function hasFinalReminderForSlot(reminderId) {
   );
 }
 
+function hasFinalReminderForAppointment(appointmentId) {
+  const key = String(appointmentId || "");
+  if (!key) return false;
+  return reminderActions.some((item) =>
+    String(item.appointmentId || "") === key && isFinalReminderStatus(item.status)
+  );
+}
+
 function dedupeReminderActions(actions) {
   const ordered = [...actions].sort((a, b) =>
     new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)
@@ -9291,6 +9314,7 @@ function dedupeReminderActions(actions) {
 function buildReminderQueue() {
   const allSlots = appointments.flatMap(reminderSlotsForAppointment);
   const pendingSlots = allSlots
+    .filter((slot) => !hasFinalReminderForAppointment(slot.appointmentId))
     .filter((slot) => !hasFinalReminderForSlot(slot.id))
     .filter((slot) => !isFinalReminderStatus(reminderActionFor(slot.id)?.status))
     .map((slot) => {
@@ -9347,6 +9371,9 @@ function syncReminderLinksFromAppointments({ persist = true } = {}) {
   });
 
   activeSlots.forEach((slot) => {
+    if (nextActions.some((item) => String(item.appointmentId || "") === String(slot.appointmentId || "") && isFinalReminderStatus(item.status))) {
+      return;
+    }
     const existing = actionById.get(String(slot.id));
     if (existing && isFinalReminderStatus(existing.status)) {
       return;
