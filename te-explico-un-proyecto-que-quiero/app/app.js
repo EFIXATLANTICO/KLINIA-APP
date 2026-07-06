@@ -9351,6 +9351,111 @@ function buildReminderHistory() {
     .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
 }
 
+
+function parseReminderMetadata(value) {
+  if (!value) return {};
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function reminderActionFromBackendStatus(row = {}) {
+  const metadata = parseReminderMetadata(row.metadata_json);
+  const id = row.reminder_key || metadata.id || reminderKey(row.appointment_id, row.reminder_type || "manual");
+  return {
+    ...metadata,
+    id,
+    appointmentId: row.appointment_id || metadata.appointmentId,
+    patientId: row.patient_id || metadata.patientId,
+    windowKey: row.reminder_type || metadata.windowKey || "manual",
+    status: row.status || metadata.status || "pending",
+    channel: row.channel || metadata.channel || "whatsapp",
+    updatedAt: row.updated_at || metadata.updatedAt,
+    createdAt: row.created_at || metadata.createdAt,
+    sentAt: row.sent_at || metadata.sentAt,
+    updatedBy: row.updated_by_name || metadata.updatedBy
+  };
+}
+
+function reminderBackendPayload(action = {}) {
+  const reminderKeyValue = action.id || reminderKey(action.appointmentId, action.windowKey || "manual");
+  const metadata = {
+    id: reminderKeyValue,
+    appointmentId: action.appointmentId,
+    patientId: action.patientId,
+    practitionerId: action.practitionerId,
+    serviceId: action.serviceId,
+    windowKey: action.windowKey || "manual",
+    label: action.label || "",
+    sendAt: action.sendAt || "",
+    date: action.date || "",
+    start: action.start || "",
+    phone: action.phone || "",
+    patientName: action.patientName || "",
+    message: action.message || "",
+    status: action.status || "pending"
+  };
+  return {
+    appointment_id: String(action.appointmentId || ""),
+    reminder_key: String(reminderKeyValue),
+    status: action.status || "pending",
+    channel: action.channel || "whatsapp",
+    reminder_type: action.windowKey || "manual",
+    patient_id: action.patientId ? String(action.patientId) : null,
+    sent_at: action.sentAt || (action.status === "sent" ? new Date().toISOString() : null),
+    metadata_json: JSON.stringify(metadata)
+  };
+}
+
+async function loadReminderStatusesFromBackend({ persist = true } = {}) {
+  if (!backendDataEnabled() || isSuperadminSession()) {
+    return reminderActions;
+  }
+  const rows = await backendRequest("/reminder-statuses", { timeoutMs: 15000 });
+  const backendActions = Array.isArray(rows) ? rows.map(reminderActionFromBackendStatus) : [];
+  console.info("[Klinia reminders] loaded statuses", {
+    count: backendActions.length,
+    statuses: backendActions.reduce((acc, item) => {
+      acc[item.status] = (acc[item.status] || 0) + 1;
+      return acc;
+    }, {})
+  });
+  reminderActions = mergeReminderActions(backendActions, reminderActions);
+  saveClinicState("reminder-actions", reminderActions);
+  if (persist && backendActions.length) {
+    await persistReminderActionsState(true, { strict: false });
+  }
+  return reminderActions;
+}
+
+async function saveReminderStatusToBackend(action) {
+  if (!backendDataEnabled() || isSuperadminSession()) {
+    return null;
+  }
+  const payload = reminderBackendPayload(action);
+  console.info("[Klinia reminders] saving status", {
+    reminder_id: payload.reminder_key,
+    appointment_id: payload.appointment_id,
+    patient_id: payload.patient_id,
+    status: payload.status
+  });
+  const row = await backendRequest("/reminder-statuses", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: 15000
+  });
+  console.info("[Klinia reminders] saved status response", {
+    reminder_id: row?.reminder_key,
+    appointment_id: row?.appointment_id,
+    status: row?.status,
+    updated_at: row?.updated_at
+  });
+  return reminderActionFromBackendStatus(row);
+}
+
 function syncReminderLinksFromAppointments({ persist = true } = {}) {
   const now = new Date().toISOString();
   const actionById = new Map(dedupeReminderActions(reminderActions).map((item) => [String(item.id), item]));
@@ -9499,7 +9604,16 @@ async function saveReminderAction(reminder, status) {
   reminderActions = dedupeReminderActions([next, ...reminderActions]);
   renderAutomations();
   renderMetrics();
-  await persistReminderActionsState(true, { strict: true });
+  if (backendDataEnabled() && !isSuperadminSession()) {
+    const backendAction = await saveReminderStatusToBackend(next);
+    if (backendAction) {
+      reminderActions = mergeReminderActions([backendAction], reminderActions);
+      saveClinicState("reminder-actions", reminderActions);
+    }
+    await persistReminderActionsState(true, { strict: false });
+  } else {
+    await persistReminderActionsState(true, { strict: true });
+  }
   return reminderActions;
 }
 
@@ -11021,6 +11135,9 @@ async function hydrateFromApi(options = {}) {
     const localReminderActions = loadClinicState("reminder-actions", []);
     const syncedReminderActions = await syncClinicDataCollection("reminder-actions", reminderActions, [], (value) => Array.isArray(value) ? value : []);
     reminderActions = mergeReminderActions(syncedReminderActions, localReminderActions);
+    await loadReminderStatusesFromBackend({ persist: false }).catch((error) => {
+      console.warn("Klinia reminder statuses load failed", error);
+    });
     if (JSON.stringify(reminderActions) !== JSON.stringify(syncedReminderActions)) {
       await persistReminderActionsState(true, { strict: false });
     }
@@ -11203,6 +11320,15 @@ function setActiveSection(section, persist = true) {
   }
   if (activeSection === "automatizaciones") {
     renderAutomations();
+    loadReminderStatusesFromBackend({ persist: false })
+      .then(() => {
+        syncReminderLinksFromAppointments({ persist: true });
+        renderAutomations();
+        renderMetrics();
+      })
+      .catch((error) => {
+        console.warn("Klinia reminder statuses load failed on section open", error);
+      });
   }
   if (isBackendRealtimeSection(activeSection)) {
     requestRealtimeRefresh(`section:${activeSection}`);

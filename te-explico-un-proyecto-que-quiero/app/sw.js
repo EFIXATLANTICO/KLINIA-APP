@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260706-reminder-persistence-real";
+const KLINIA_CACHE = "klinia-20260706-reminder-statuses-backend";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260706-reminder-persistence-real",
+  "./app.js?v=20260706-reminder-statuses-backend",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

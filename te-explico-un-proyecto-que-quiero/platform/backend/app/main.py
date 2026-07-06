@@ -33,6 +33,7 @@ from .models import (
     ManualBillingMovement,
     Patient,
     Practitioner,
+    ReminderStatus,
     Room,
     Service,
     SupportTicket,
@@ -82,6 +83,8 @@ from .schemas import (
     PractitionerCreate,
     PractitionerOut,
     PractitionerUpdate,
+    ReminderStatusIn,
+    ReminderStatusOut,
     RoomCreate,
     RoomOut,
     RoomUpdate,
@@ -3104,6 +3107,73 @@ def update_clinic_settings(
     db.refresh(user.clinic)
     return user.clinic
 
+
+@app.get("/reminder-statuses", response_model=list[ReminderStatusOut])
+def list_reminder_statuses(
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[ReminderStatus]:
+    items = list(db.scalars(select(ReminderStatus).where(ReminderStatus.clinic_id == user.clinic_id)))
+    logger.info(
+        "Klinia reminder_statuses load clinic_id=%s user_id=%s count=%s statuses=%s",
+        user.clinic_id,
+        user.id,
+        len(items),
+        {item.status: sum(1 for candidate in items if candidate.status == item.status) for item in items},
+    )
+    return items
+
+
+@app.post("/reminder-statuses", response_model=ReminderStatusOut)
+def upsert_reminder_status(
+    payload: ReminderStatusIn,
+    request: Request,
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> ReminderStatus:
+    item = db.scalar(
+        select(ReminderStatus).where(
+            ReminderStatus.clinic_id == user.clinic_id,
+            ReminderStatus.reminder_key == payload.reminder_key,
+        )
+    )
+    now = datetime.now(UTC)
+    if not item:
+        item = ReminderStatus(
+            clinic_id=user.clinic_id,
+            reminder_key=payload.reminder_key,
+            appointment_id=payload.appointment_id,
+        )
+        db.add(item)
+    item.appointment_id = payload.appointment_id
+    item.patient_id = payload.patient_id
+    item.status = payload.status
+    item.channel = payload.channel or "whatsapp"
+    item.reminder_type = payload.reminder_type or "manual"
+    item.updated_by_id = user.id
+    item.updated_by_name = user.name
+    item.sent_at = payload.sent_at or (now if payload.status == "sent" and not item.sent_at else item.sent_at)
+    item.metadata_json = payload.metadata_json
+    logger.info(
+        "Klinia reminder_statuses upsert clinic_id=%s user_id=%s appointment_id=%s reminder_key=%s status=%s",
+        user.clinic_id,
+        user.id,
+        payload.appointment_id,
+        payload.reminder_key,
+        payload.status,
+    )
+    audit_action(
+        db,
+        user,
+        "update-reminder-status",
+        "reminder-status",
+        payload.reminder_key,
+        {"appointment_id": payload.appointment_id, "status": payload.status, "channel": payload.channel},
+        request=request,
+    )
+    db.commit()
+    db.refresh(item)
+    return item
 
 @app.get("/clinic-data/{key}", response_model=ClinicDataBlobOut)
 def get_clinic_data_blob(

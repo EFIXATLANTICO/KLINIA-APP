@@ -185,6 +185,24 @@ class ClinicDataBlob(TimestampMixin, Base):
     data_json: Mapped[str] = mapped_column(Text, default="null", nullable=False)
 
 
+class ReminderStatus(TimestampMixin, Base):
+    __tablename__ = "reminder_statuses"
+    __table_args__ = (UniqueConstraint("clinic_id", "reminder_key", name="uq_reminder_status_clinic_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    appointment_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    reminder_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending", nullable=False)
+    channel: Mapped[str] = mapped_column(String(30), default="whatsapp", nullable=False)
+    reminder_type: Mapped[str] = mapped_column(String(60), default="manual", nullable=False)
+    patient_id: Mapped[str | None] = mapped_column(String(80), index=True)
+    updated_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    updated_by_name: Mapped[str | None] = mapped_column(String(160))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+
+
 class AttendanceRecord(TimestampMixin, Base):
     __tablename__ = "attendance_records"
     __table_args__ = (UniqueConstraint("clinic_id", "practitioner_id", "date", name="uq_attendance_practitioner_date"),)

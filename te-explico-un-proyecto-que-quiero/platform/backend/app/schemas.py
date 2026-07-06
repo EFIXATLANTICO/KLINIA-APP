@@ -166,6 +166,36 @@ class ClinicDataBlobOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class ReminderStatusIn(BaseModel):
+    appointment_id: str = Field(min_length=1, max_length=80)
+    reminder_key: str = Field(min_length=1, max_length=180)
+    status: str = Field(pattern="^(pending|prepared|sent|failed|skipped|cancelled|handled)$")
+    channel: str = Field(default="whatsapp", max_length=30)
+    reminder_type: str = Field(default="manual", max_length=60)
+    patient_id: str | None = Field(default=None, max_length=80)
+    sent_at: datetime | None = None
+    metadata_json: str | None = None
+
+
+class ReminderStatusOut(BaseModel):
+    id: str
+    clinic_id: str
+    appointment_id: str
+    reminder_key: str
+    status: str
+    channel: str
+    reminder_type: str
+    patient_id: str | None = None
+    updated_by_id: str | None = None
+    updated_by_name: str | None = None
+    sent_at: datetime | None = None
+    metadata_json: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class UserOut(BaseModel):
     id: str
     clinic_id: str | None = None
