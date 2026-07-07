@@ -1,4 +1,4 @@
-const KLINIA_CACHE = "klinia-20260706-reminder-statuses-backend";
+const KLINIA_CACHE = "klinia-20260707-clinic-isolation-login-performance";
 const APP_SHELL = [
   "./",
   "./index.html",

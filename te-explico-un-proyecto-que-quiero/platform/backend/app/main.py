@@ -2751,6 +2751,7 @@ def superadmin_delete_clinic_permanently(
         "rooms": db.scalar(select(func.count()).select_from(Room).where(Room.clinic_id == clinic.id)) or 0,
         "services": db.scalar(select(func.count()).select_from(Service).where(Service.clinic_id == clinic.id)) or 0,
         "manual_billing_movements": db.scalar(select(func.count()).select_from(ManualBillingMovement).where(ManualBillingMovement.clinic_id == clinic.id)) or 0,
+        "reminder_statuses": db.scalar(select(func.count()).select_from(ReminderStatus).where(ReminderStatus.clinic_id == clinic.id)) or 0,
         "support_tickets": db.scalar(select(func.count()).select_from(SupportTicket).where(SupportTicket.clinic_id == clinic.id)) or 0,
     }
     audit_action(
@@ -2767,6 +2768,7 @@ def superadmin_delete_clinic_permanently(
     db.query(AttendanceRecord).filter(AttendanceRecord.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(Appointment).filter(Appointment.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(ManualBillingMovement).filter(ManualBillingMovement.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(ReminderStatus).filter(ReminderStatus.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(ClinicDataBlob).filter(ClinicDataBlob.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(AuditLog).filter(AuditLog.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(Practitioner).filter(Practitioner.clinic_id == clinic.id).delete(synchronize_session=False)

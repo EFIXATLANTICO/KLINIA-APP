@@ -163,6 +163,11 @@ function slugifyClinicName(value) {
     .replace(/^-+|-+$/g, "") || "clinica";
 }
 
+function backendClinicStorageKey(backendClinicId) {
+  const id = String(backendClinicId || "").trim();
+  return id ? `backend-${id}` : "";
+}
+
 const demoClinicKey = slugifyClinicName(defaultClinic.name);
 let activeClinicKey = loadState("active-clinic-key", demoClinicKey);
 
@@ -413,6 +418,7 @@ function normalizeClinicAccounts(accounts) {
 }
 
 let clinicAccounts = normalizeClinicAccounts(loadState("clinic-accounts", [defaultClinicAccount]));
+let selectedPerformancePractitionerId = loadState("selected-performance-practitioner-id", "");
 
 if (activeClinicKey !== demoClinicKey && !clinicAccounts.some((account) => account.key === activeClinicKey)) {
   activeClinicKey = demoClinicKey;
@@ -545,8 +551,12 @@ function subscriptionBlockMessage(account = currentClinicAccount()) {
 }
 
 function ensureClinicAccount(account) {
+  const backendId = String(account?.backendClinicId || "").trim();
   clinicAccounts = normalizeClinicAccounts([
-    ...clinicAccounts.filter((item) => item.key !== account.key),
+    ...clinicAccounts.filter((item) => (
+      item.key !== account.key
+        && (!backendId || String(item.backendClinicId || "").trim() !== backendId)
+    )),
     { password: "", ownerEmail: "", ownerPassword: "", staffPassword: "", staffEmail: "", ...account }
   ]);
   saveClinicAccounts();
@@ -821,7 +831,7 @@ function persistReminderActionsState(persist = true, options = {}) {
     .then(() => reminderActions)
     .catch((error) => {
       console.warn("Klinia backend sync failed for reminder-actions", error);
-      showToast("No se pudo guardar el estado del recordatorio en backend. Intentalo de nuevo.", "warning");
+      showToast("No se pudo guardar el estado del recordatorio. Int?ntalo de nuevo.", "warning");
       if (strict) {
         throw error;
       }
@@ -2918,7 +2928,7 @@ async function sendPractitionerAccessEmail(practitioner, purpose = "invite") {
     throw new Error("Inicia sesión con backend activo para enviar accesos por email.");
   }
   if (!practitioner?.id || !looksLikeBackendId(practitioner.id)) {
-    throw new Error("Guarda primero el trabajador en backend.");
+    throw new Error("Guarda primero el trabajador.");
   }
   const result = await backendRequest(`/practitioners/${encodeURIComponent(practitioner.id)}/access-email`, {
     method: "POST",
@@ -3130,7 +3140,8 @@ async function applyBackendSession(session, me, options = {}) {
     return { handled: true, session, me };
   }
   const cleanIdentifier = String(options.identifier || me?.user?.email || "").trim();
-  const accountKey = options.account?.key || slugifyClinicName(me?.clinic?.name || session.clinic_id || cleanIdentifier || "clinica");
+  const backendClinicId = session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "";
+  const accountKey = backendClinicStorageKey(backendClinicId) || options.account?.key || slugifyClinicName(me?.clinic?.name || cleanIdentifier || "clinica");
   const nextAccount = {
     ...(options.account || {}),
     key: accountKey,
@@ -3145,7 +3156,7 @@ async function applyBackendSession(session, me, options = {}) {
     billingStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.billingStatus || "trialing",
     trialEndsAt: (me?.clinic?.trial_ends_at || options.account?.trialEndsAt || "").slice(0, 10) || addDaysIso(todayIso(), 30),
     backendToken: session.access_token,
-    backendClinicId: session.clinic_id || me?.clinic?.id || options.account?.backendClinicId || "",
+    backendClinicId,
     openingStart: me?.clinic?.opening_start || options.account?.openingStart || "09:00",
     openingEnd: me?.clinic?.opening_end || options.account?.openingEnd || "20:00",
     workingDays: normalizeWorkingDays(me?.clinic?.working_days || options.account?.workingDays),
@@ -3240,7 +3251,7 @@ async function submitPasswordChange(form) {
     } catch (backendError) {
       error.textContent = backendError.status === 401
         ? "La clave actual no es correcta."
-        : `No se pudo actualizar la clave en backend: ${backendError.message}`;
+        : `No se pudo actualizar la clave: ${backendError.message}`;
       error.classList.add("visible");
       return;
     }
@@ -3276,9 +3287,13 @@ async function tryBackendLogin(identifier, password, options = {}) {
   if (!cleanIdentifier || !password) {
     return { handled: false, error: null };
   }
-  const resolvedAccount = options.account || clinicAccountByClinicIdentifier(cleanIdentifier) || clinicAccountByLogin(cleanIdentifier);
+  const identifierIsEmail = looksLikeEmail(cleanIdentifier);
+  const explicitAccount = options.account || null;
+  const resolvedByClinic = identifierIsEmail ? null : clinicAccountByClinicIdentifier(cleanIdentifier);
+  const resolvedAccount = explicitAccount || resolvedByClinic || clinicAccountByLogin(cleanIdentifier);
   const backendEmail = cleanIdentifier;
-  const backendClinicEmail = options.clinicEmail || resolvedAccount?.email || resolvedAccount?.name || "";
+  const backendClinicEmail = options.clinicEmail || (identifierIsEmail ? "" : (resolvedAccount?.email || resolvedAccount?.name || cleanIdentifier));
+  const backendClinicId = options.clinicId || explicitAccount?.backendClinicId || "";
   try {
     const session = await backendRequestWithNetworkRetry("/auth/login", {
       method: "POST",
@@ -3287,7 +3302,7 @@ async function tryBackendLogin(identifier, password, options = {}) {
       body: JSON.stringify({
         email: backendEmail,
         password,
-        clinic_id: options.clinicId || resolvedAccount?.backendClinicId || undefined,
+        clinic_id: backendClinicId || undefined,
         clinic_email: backendClinicEmail || undefined
       })
     }, 3);
@@ -5975,7 +5990,17 @@ function appointmentPassesAgendaFilters(appointment) {
 
 function renderFilters() {
   fillSelect($("#filter-room"), rooms, "name", "Todas las salas");
-  fillSelect($("#worker-profile-select"), practitioners);
+  const performanceSelect = $("#worker-profile-select");
+  const previousPerformanceWorker = selectedPerformancePractitionerId || performanceSelect?.value || "";
+  fillSelect(performanceSelect, practitioners);
+  const nextPerformanceWorker = practitioners.some((item) => String(item.id) === String(previousPerformanceWorker))
+    ? previousPerformanceWorker
+    : practitioners[0]?.id || "";
+  if (performanceSelect) {
+    performanceSelect.value = nextPerformanceWorker;
+  }
+  selectedPerformancePractitionerId = nextPerformanceWorker;
+  saveState("selected-performance-practitioner-id", selectedPerformancePractitionerId);
   fillSelect($("#performance-service-filter"), services, "name", "Todos los servicios");
   const workerFilter = $("#filter-practitioner");
   const workerMenu = workerFilter.querySelector(".worker-filter-menu");
@@ -6856,7 +6881,7 @@ async function moveAppointmentByDrag(appointmentId, dateValue, hour, targetPract
     try {
       movedAppointment = await saveAppointmentToBackend(movedAppointment, appointment.id);
     } catch (error) {
-      await showNotice("No se puede mover la cita", `No se pudo actualizar en backend: ${error.message}`, { variant: "warning" });
+      await showNotice("No se puede mover la cita", `No se pudo actualizar: ${error.message}`, { variant: "warning" });
       return;
     }
   }
@@ -9017,8 +9042,9 @@ function renderPerformance() {
   const range = performanceFilterRange();
   const serviceFilterId = performanceSelectedServiceId();
   const serviceFilter = serviceFilterId ? byId(services, serviceFilterId) : null;
+  const selectedWorkerId = selectedPerformancePractitionerId || $("#worker-profile-select")?.value || "";
   const selectedWorker = isOwner()
-    ? byId(practitioners, $("#worker-profile-select").value) || practitioners[0]
+    ? byId(practitioners, selectedWorkerId) || null
     : currentPractitioner();
   if (!selectedWorker) {
     $$("#worker-performance .permission-note").forEach((note) => note.remove());
@@ -10167,7 +10193,7 @@ function setupSaasSettings() {
         applyBackendBillingStatus(status);
         $("#saas-save-status").textContent = "Datos fiscales guardados y sincronizados con el backend.";
       } catch (error) {
-        $("#saas-save-status").textContent = `Datos guardados localmente. No se pudo sincronizar backend: ${error.message}`;
+        $("#saas-save-status").textContent = `Datos guardados. No se pudieron actualizar en la nube: ${error.message}`;
       }
     } else {
       $("#saas-save-status").textContent = "Datos fiscales guardados localmente. Vincula esta clinica al backend para activar Stripe real.";
@@ -10944,7 +10970,7 @@ async function resetPractitionerAccessKey(practitionerId) {
         return;
       }
     } catch (error) {
-      backendNotice = ` No se pudo resetear en backend: ${error.message}.`;
+      backendNotice = ` No se pudo resetear el acceso: ${error.message}.`;
     }
   }
   practitioners = practitioners.map((item) => (
@@ -10967,7 +10993,7 @@ async function resetPractitionerAccessKey(practitionerId) {
         backendNotice = " Usuario backend creado.";
       }
     } catch (error) {
-      backendNotice = ` No se pudo crear usuario backend: ${error.message}.`;
+      backendNotice = ` No se pudo crear el usuario de acceso: ${error.message}.`;
     }
   }
   renderLoginProfiles();
@@ -11183,8 +11209,8 @@ async function hydrateFromApi(options = {}) {
     return true;
   } catch (error) {
     console.warn("Klinia backend data unavailable, keeping local cache.", error);
-    if (!options.silent) {
-      showToast(`No se pudo sincronizar datos con backend: ${error.message}`, "warning");
+    if (!options.silent && !isBackendPermissionError(error)) {
+      showToast("No se pudieron actualizar algunos datos. Inténtalo de nuevo en unos segundos.", "warning");
     }
     return false;
   }
@@ -11240,7 +11266,9 @@ async function refreshRealtimeClinicData(reason = "manual") {
     return await hydrateFromApi({ silent: true });
   } catch (error) {
     console.warn(`Klinia realtime refresh failed (${reason}).`, error);
-    showToast("No se pudieron actualizar agenda y facturación desde backend. Actualiza la vista si falta algún dato.", "warning");
+    if (!isBackendPermissionError(error)) {
+      showToast("No se pudieron actualizar algunos datos. Inténtalo de nuevo en unos segundos.", "warning");
+    }
     return false;
   } finally {
     backendAutoSyncInProgress = false;
@@ -11520,7 +11548,7 @@ async function restoreAuthenticatedSessionOnLoad() {
       clearAuthenticatedSessionForBackend("Tu sesion ha caducado. Inicia sesion de nuevo para cargar los datos reales.");
       return;
     }
-    showToast(`No se pudo sincronizar con backend: ${error.message}`, "warning");
+    showToast(`No se pudieron actualizar los datos: ${error.message}`, "warning");
   }
 }
 
@@ -11581,15 +11609,15 @@ function registerPasswordPolicyMessage(password) {
 function registerBackendErrorMessage(error) {
   const detail = String(error?.message || "").toLowerCase();
   if (error?.status === 409) {
-    return "Ya existe una clínica con ese email o NIF/CIF en el backend. Si acabas de crearla, entra con el email y contraseña que has elegido.";
+    return "Ya existe una clínica con ese email o NIF/CIF. Si acabas de crearla, entra con el email y la contraseña que has elegido.";
   }
   if (detail.includes("password")) {
     return "La contraseña debe tener al menos 8 caracteres e incluir mayúscula, minúscula y un número o símbolo.";
   }
   if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
-    return "No se ha podido crear la clínica en el backend: no hay conexión con la API de Klinia. Revisa la conexión y vuelve a intentarlo.";
+    return "No se ha podido crear la clínica. Revisa la conexión y vuelve a intentarlo.";
   }
-  return `No se ha podido crear la clínica en el backend. Comprueba conexión/API y vuelve a intentarlo. Detalle: ${error?.message || "error desconocido"}`;
+  return "No se ha podido crear la clínica. Inténtalo de nuevo o contacta con soporte.";
 }
 
 function clearRegisterError() {
@@ -12099,7 +12127,7 @@ function setupPublicAccessNavigation() {
       "Solicitud enviada",
       localQueued
         ? "Si el email existe en una clinica, direccion vera la solicitud en Configuración > Trabajadores y podra generar una clave nueva."
-        : "Si el email existe en backend, direccion o soporte podran revisar la solicitud y generar una clave nueva.",
+        : "Si el email existe, Direcci?n o soporte podr?n revisar la solicitud y generar una clave nueva.",
       { variant: "success" }
     );
   });
@@ -12225,7 +12253,7 @@ function setupLogin() {
     }
     if (!identity.password) {
       showProfileLoginError(identity.email
-        ? "Este perfil existe, pero no tiene clave local. Si se creo en backend, entra con su email directamente."
+        ? "Este perfil existe, pero debe entrar con su email directamente."
         : "Este perfil no tiene email ni contraseña propia configurada.", form.elements.password);
       return;
     }
@@ -12384,6 +12412,7 @@ function setupLogin() {
       });
       account.backendToken = backendSession.access_token || "";
       account.backendClinicId = backendSession.clinic_id || "";
+      account.key = backendClinicStorageKey(account.backendClinicId) || account.key;
       account.subscriptionStatus = backendSession.subscription_status || account.subscriptionStatus;
       account.billingStatus = backendSession.subscription_status || account.billingStatus;
       account.checkoutUrl = backendSession.checkout_url || account.checkoutUrl;
@@ -12450,7 +12479,7 @@ function setupLogin() {
 
       registerCreatedAccount = createdAccount;
       setRegisterStep("success");
-      showToast("Clínica creada. Ya puedes iniciar sesión.");
+      showToast("Tu clínica se ha creado correctamente. Ya puedes iniciar sesión.", "success");
 
       loadActiveClinicData(account.key).catch((error) => {
         console.warn("No se pudo hidratar la clínica recién creada", error);
@@ -12465,8 +12494,7 @@ function setupLogin() {
       console.error("La clínica se creó, pero falló la preparación local", localError);
       registerCreatedAccount = account;
       setRegisterStep("success");
-      $("#register-error").textContent = "La clínica se ha creado correctamente. Si algún dato local tarda en aparecer, entra desde Login para cargarla desde backend.";
-      $("#register-error").classList.add("visible");
+      showToast("Tu clínica se ha creado correctamente. Ya puedes iniciar sesión.", "success");
     } finally {
       delete form.dataset.registerSubmitting;
       setRegisterSubmitting(false);
@@ -12825,10 +12853,10 @@ async function finishAppointmentCreation(newAppointments, dialog = $("#appointme
         ? `Paciente "${form.dataset.quickPatientCreated}" creado. `
         : "";
       if (errorBox) {
-        errorBox.textContent = `${quickPatientMessage}No se pudo guardar la cita en backend: ${error.message}`;
+        errorBox.textContent = `${quickPatientMessage}No se pudo guardar la cita: ${error.message}`;
         errorBox.classList.add("visible");
       } else {
-        showToast(`${quickPatientMessage}No se pudo guardar la cita en backend: ${error.message}`, "error");
+        showToast(`${quickPatientMessage}No se pudo guardar la cita: ${error.message}`, "error");
       }
       return;
     }
@@ -13564,7 +13592,7 @@ function setupAppointmentDetail() {
         }
       } catch (error) {
         if (detailError) {
-          detailError.textContent = `No se pudo actualizar la cita en backend: ${error.message}`;
+          detailError.textContent = `No se pudo actualizar la cita: ${error.message}`;
           detailError.classList.add("visible");
         }
         form.dataset.saving = "";
@@ -13632,7 +13660,7 @@ async function deletePatientById(patientId) {
   try {
     await deletePatientFromBackend(patientId);
   } catch (error) {
-    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    showToast(`No se pudo eliminar: ${error.message}`, "error");
     return;
   }
   patients = patients.filter((item) => item.id !== patientId);
@@ -13758,7 +13786,7 @@ function setupPatientDialog() {
       } catch (error) {
         const errorBox = $("#patient-form-error");
         if (errorBox) {
-          errorBox.textContent = `No se pudo guardar en backend: ${error.message}`;
+          errorBox.textContent = `No se pudo guardar: ${error.message}`;
           errorBox.classList.add("visible");
         }
       }
@@ -13840,7 +13868,7 @@ async function deleteServiceById(serviceId) {
   try {
     await deleteServiceFromBackend(serviceId);
   } catch (error) {
-    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    showToast(`No se pudo eliminar: ${error.message}`, "error");
     return;
   }
   services = services.filter((item) => item.id !== serviceId);
@@ -13904,7 +13932,7 @@ function setupServiceDialog() {
         const savedService = await saveServiceToBackend(localService, editingServiceId);
         finish(savedService);
       } catch (error) {
-        showToast(`No se pudo guardar el servicio en backend: ${error.message}`, "error");
+        showToast(`No se pudo guardar el servicio: ${error.message}`, "error");
       }
       return;
     }
@@ -14408,7 +14436,7 @@ async function clockPractitioner(practitionerId, action) {
       showToast(action === "in" ? "Entrada registrada." : "Salida registrada.");
       return;
     } catch (error) {
-      showToast(`No se pudo registrar fichaje en backend: ${error.message}`, "error");
+      showToast(`No se pudo registrar el fichaje: ${error.message}`, "error");
       return;
     }
   }
@@ -14520,7 +14548,7 @@ async function deletePractitionerById(practitionerId) {
       await deletePractitionerFromBackend(practitionerId);
     }
   } catch (error) {
-    showToast(`No se pudo ${shouldArchive ? "archivar" : "eliminar"} en backend: ${error.message}`, "error");
+    showToast(`No se pudo ${shouldArchive ? "archivar" : "eliminar"}: ${error.message}`, "error");
     return;
   }
   practitioners = shouldArchive
@@ -14573,7 +14601,7 @@ async function deleteRoomById(roomId) {
   try {
     await deleteRoomFromBackend(roomId);
   } catch (error) {
-    showToast(`No se pudo eliminar en backend: ${error.message}`, "error");
+    showToast(`No se pudo eliminar: ${error.message}`, "error");
     return;
   }
   rooms = rooms.filter((item) => item.id !== roomId);
@@ -14968,7 +14996,7 @@ function setupConfiguration() {
       try {
         savedPractitioner = await savePractitionerToBackend(practitioner, form.dataset.editingPractitionerId || "");
       } catch (error) {
-        $("#practitioner-key-status").textContent = `No se pudo guardar el trabajador en backend: ${error.message}`;
+        $("#practitioner-key-status").textContent = `No se pudo guardar el trabajador: ${error.message}`;
         form.dataset.saving = "false";
         form.querySelector('button[type="submit"]').disabled = false;
         return;
@@ -14990,7 +15018,7 @@ function setupConfiguration() {
         }
       } catch (error) {
         $("#practitioner-key-status").textContent = backendTokenForAccount(currentClinicAccount())
-          ? `Trabajador guardado. No se pudo sincronizar el acceso backend: ${error.message}`
+          ? `Trabajador guardado. No se pudo preparar el acceso: ${error.message}`
           : "Trabajador guardado localmente. Inicia sesion backend para crear el usuario real.";
       }
     }
@@ -15043,7 +15071,7 @@ function setupConfiguration() {
       try {
         savedRoom = await saveRoomToBackend(room, editingRoomId);
       } catch (error) {
-        showToast(`No se pudo guardar la sala en backend: ${error.message}`, "error");
+        showToast(`No se pudo guardar la sala: ${error.message}`, "error");
         return;
       }
     }
@@ -15863,7 +15891,11 @@ function setupCalendarControls() {
 }
 
 function setupPerformance() {
-  $("#worker-profile-select").addEventListener("change", renderPerformance);
+  $("#worker-profile-select").addEventListener("change", (event) => {
+    selectedPerformancePractitionerId = event.target.value || "";
+    saveState("selected-performance-practitioner-id", selectedPerformancePractitionerId);
+    renderPerformance();
+  });
   $("#performance-service-filter")?.addEventListener("change", renderPerformance);
   $("#performance-range-mode")?.addEventListener("change", () => {
     ensurePerformanceFilterDefaults();
@@ -15957,7 +15989,7 @@ function setupBillingControls() {
       movement = await saveManualBillingMovementToBackend(movement, editingMovementId);
     } catch (error) {
       if (errorBox) {
-        errorBox.textContent = `No se pudo guardar en backend: ${error.message}`;
+        errorBox.textContent = `No se pudo guardar: ${error.message}`;
         errorBox.classList.add("visible");
       }
       form.dataset.saving = "";
@@ -15984,7 +16016,7 @@ function setupBillingControls() {
         await refreshManualBillingMovementsFromBackend();
       } catch (error) {
         console.warn("Klinia manual billing refresh failed after save.", error);
-        showToast("Cobro guardado. No se pudo refrescar desde backend; actualiza la vista si no aparece.", "warning");
+        showToast("Cobro guardado. No se pudo actualizar la vista; recarga si no aparece.", "warning");
       }
     }
     renderBilling();
