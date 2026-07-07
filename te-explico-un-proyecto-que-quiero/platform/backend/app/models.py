@@ -117,6 +117,18 @@ class Patient(TimestampMixin, Base):
     metadata_json: Mapped[str | None] = mapped_column(Text)
 
 
+class ClinicalTemplate(TimestampMixin, Base):
+    __tablename__ = "clinical_templates"
+    __table_args__ = (UniqueConstraint("clinic_id", "name", name="uq_clinical_template_clinic_name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(180), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(120))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+
 class Room(TimestampMixin, Base):
     __tablename__ = "rooms"
 

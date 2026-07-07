@@ -871,6 +871,10 @@
                       <input name="attachment" type="file" />
                     </label>
                   </div>
+                  <label class="clinical-template-picker">
+                    Usar plantilla
+                    <select id="clinical-note-template-select" aria-label="Usar plantilla clinica"></select>
+                  </label>
                   <textarea name="content" rows="4" placeholder="Evolucion, tratamiento realizado, observaciones..." required></textarea>
                   <button class="primary-button" type="submit">Guardar nota</button>
                 </form>
@@ -1464,6 +1468,22 @@
               <div class="compact-list" id="settings-services"></div>
             </article>
 
+
+            <article class="settings-panel settings-panel-wide clinical-templates-settings-panel">
+              <div class="section-header">
+                <div>
+                  <h2>Plantillas</h2>
+                  <p>Crea textos reutilizables para el historial clinico de esta clinica.</p>
+                </div>
+                <button class="secondary-button" type="button" id="new-clinical-template">Nueva plantilla</button>
+              </div>
+              <label>
+                Buscar plantilla
+                <input id="template-search" type="search" placeholder="Primera visita, evolucion, alta..." />
+              </label>
+              <div class="compact-list" id="settings-clinical-templates"></div>
+            </article>
+
             <article class="settings-panel settings-panel-wide data-safety-panel">
               <div class="section-header">
                 <div>
@@ -1824,6 +1844,10 @@
             <input name="reason" type="text" placeholder="Motivo principal" />
           </label>
         </div>
+        <label class="clinical-template-picker">
+          Usar plantilla
+          <select id="clinical-note-dialog-template-select" aria-label="Usar plantilla clinica"></select>
+        </label>
         <label>
           Evolucion y observaciones
           <textarea name="content" rows="8" required></textarea>
@@ -1842,6 +1866,40 @@
           <button class="danger-button" type="button" id="delete-clinical-note">Borrar nota</button>
           <button class="secondary-button dialog-close" type="button" data-dialog-id="clinical-note-dialog">Cancelar</button>
           <button class="primary-button" type="submit">Guardar nota</button>
+        </div>
+      </form>
+    </dialog>
+
+
+    <dialog id="clinical-template-dialog">
+      <form method="dialog" class="modal-form" id="clinical-template-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Plantillas clinicas</p>
+            <h2 id="clinical-template-dialog-title">Nueva plantilla</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="clinical-template-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Nombre de plantilla
+          <input name="name" type="text" maxlength="180" required placeholder="Primera visita fisioterapia" />
+        </label>
+        <label>
+          Categoria
+          <input name="category" type="text" maxlength="120" placeholder="Fisioterapia, alta, revision..." />
+        </label>
+        <label>
+          Texto/contenido
+          <textarea name="content" rows="8" required placeholder="Escribe aqui el texto que se insertara en el historial."></textarea>
+        </label>
+        <label class="check-row">
+          <input name="active" type="checkbox" checked />
+          Plantilla activa
+        </label>
+        <p class="form-error" id="clinical-template-form-error" role="alert"></p>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="clinical-template-dialog">Cancelar</button>
+          <button class="primary-button" type="submit">Guardar plantilla</button>
         </div>
       </form>
     </dialog>
@@ -2838,7 +2896,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260707-clinic-isolation-login-performance"></script>
+    <script src="./app.js?v=20260707-clinical-templates"></script>
   </body>
 </html>
 

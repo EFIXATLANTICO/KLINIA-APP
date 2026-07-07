@@ -7173,3 +7173,21 @@ body.superadmin-mode .public-view.active.superadmin-view {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+.clinical-template-picker {
+  margin: 8px 0;
+}
+
+.clinical-template-card.is-inactive {
+  opacity: 0.68;
+}
+
+.clinical-template-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.clinical-templates-settings-panel label {
+  margin-bottom: 12px;
+}

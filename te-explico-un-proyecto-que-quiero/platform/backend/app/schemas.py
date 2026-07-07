@@ -476,6 +476,32 @@ class PatientOut(PatientBase):
     model_config = {"from_attributes": True}
 
 
+class ClinicalTemplateBase(BaseModel):
+    name: str = Field(min_length=1, max_length=180)
+    category: str | None = Field(default=None, max_length=120)
+    content: str = Field(min_length=1)
+    active: bool = True
+
+
+class ClinicalTemplateCreate(ClinicalTemplateBase):
+    pass
+
+
+class ClinicalTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=180)
+    category: str | None = Field(default=None, max_length=120)
+    content: str | None = Field(default=None, min_length=1)
+    active: bool | None = None
+
+
+class ClinicalTemplateOut(ClinicalTemplateBase):
+    id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class PractitionerBase(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     specialty: str | None = None

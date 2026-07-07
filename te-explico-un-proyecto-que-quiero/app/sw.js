@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260707-clinic-isolation-login-performance";
+const KLINIA_CACHE = "klinia-20260707-clinical-templates";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260706-reminder-statuses-backend",
+  "./app.js?v=20260707-clinical-templates",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

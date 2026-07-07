@@ -102,6 +102,7 @@ const clinicScopedCollectionKeys = new Set([
   "patients",
   "appointments",
   "clinical-notes",
+  "clinical-templates",
   "services",
   "practitioners",
   "rooms",
@@ -760,6 +761,8 @@ function defaultReminderSettings() {
 let patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
 let appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
 let clinicalNotes = loadClinicState("clinical-notes", isDemoClinic() ? defaultClinicalNotes : []);
+let clinicalTemplates = loadClinicState("clinical-templates", []);
+let selectedClinicalTemplateId = null;
 let services = normalizeServices(loadClinicState("services", isDemoClinic() ? defaultServices : []));
 let practitioners = normalizePractitioners(loadClinicState("practitioners", isDemoClinic() ? defaultPractitioners : []));
 let rooms = loadClinicState("rooms", isDemoClinic() ? defaultRooms : []);
@@ -1036,6 +1039,7 @@ function loadActiveClinicData(clinicKey = demoClinicKey) {
   patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
   appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
   clinicalNotes = loadClinicState("clinical-notes", isDemoClinic() ? defaultClinicalNotes : []);
+  clinicalTemplates = loadClinicState("clinical-templates", []);
   services = normalizeServices(loadClinicState("services", isDemoClinic() ? defaultServices : []));
   practitioners = normalizePractitioners(loadClinicState("practitioners", isDemoClinic() ? defaultPractitioners : []));
   rooms = loadClinicState("rooms", isDemoClinic() ? defaultRooms : []);
@@ -1078,6 +1082,7 @@ function persistActiveClinicScope() {
   saveClinicState("patients", patients);
   saveClinicState("appointments", appointments);
   saveClinicState("clinical-notes", clinicalNotes);
+  saveClinicState("clinical-templates", clinicalTemplates);
   saveClinicState("services", services);
   saveClinicState("practitioners", practitioners);
   saveClinicState("rooms", rooms);
@@ -1098,7 +1103,7 @@ function persistActiveClinicScope() {
 }
 
 function clinicDataIsEmpty(clinicKey) {
-  return ["patients", "appointments", "clinical-notes", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions"]
+  return ["patients", "appointments", "clinical-notes", "clinical-templates", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions"]
     .every((key) => !localStorage.getItem(`klinia:${clinicStateKeyFor(clinicKey, key)}`));
 }
 
@@ -1207,7 +1212,7 @@ function showProfileLoginStep(clinicKey) {
 }
 
 function deleteClinicStorage(clinicKey) {
-  ["clinic", "patients", "appointments", "clinical-notes", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions", "reminder-actions", "reminder-settings", "patient-consents", "patient-packs", "manual-billing-movements", "attendance-records", "consent-templates", "session-packs", "clinic-logo"].forEach((key) => {
+  ["clinic", "patients", "appointments", "clinical-notes", "clinical-templates", "services", "practitioners", "rooms", "groups", "availability-blocks", "group-dropins", "group-completions", "group-session-overrides", "permissions", "reminder-actions", "reminder-settings", "patient-consents", "patient-packs", "manual-billing-movements", "attendance-records", "consent-templates", "session-packs", "clinic-logo"].forEach((key) => {
     localStorage.removeItem(`klinia:${clinicStateKeyFor(clinicKey, key)}`);
   });
 }
@@ -4020,6 +4025,51 @@ function uiRoomToApi(input) {
   };
 }
 
+
+function apiClinicalTemplateToUi(item) {
+  return {
+    id: item.id,
+    name: item.name || "",
+    category: item.category || "",
+    content: item.content || "",
+    active: item.active !== false,
+    createdAt: item.created_at || "",
+    updatedAt: item.updated_at || ""
+  };
+}
+
+function uiClinicalTemplateToApi(item) {
+  return {
+    name: String(item.name || "").trim(),
+    category: String(item.category || "").trim() || null,
+    content: String(item.content || "").trim(),
+    active: item.active !== false
+  };
+}
+
+function normalizeClinicalTemplates(value) {
+  return Array.isArray(value)
+    ? value
+      .filter((item) => item && typeof item === "object" && String(item.name || "").trim() && String(item.content || "").trim())
+      .map((item) => ({
+        ...item,
+        id: item.id || `template-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name: String(item.name || "").trim(),
+        category: String(item.category || "").trim(),
+        content: String(item.content || "").trim(),
+        active: item.active !== false
+      }))
+    : [];
+}
+
+function activeClinicalTemplates() {
+  return normalizeClinicalTemplates(clinicalTemplates).filter((item) => item.active !== false);
+}
+
+function clinicalTemplateById(templateId) {
+  return normalizeClinicalTemplates(clinicalTemplates).find((item) => String(item.id) === String(templateId)) || null;
+}
+
 function apiAppointmentToUi(appointment, previous = {}) {
   const meta = parseBackendMetadata(appointment.metadata_json);
   return {
@@ -4147,6 +4197,43 @@ function isoTimeLabel(value) {
     return String(value).slice(11, 16);
   }
   return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+}
+
+
+async function refreshClinicalTemplatesFromBackend() {
+  if (!backendDataEnabled()) {
+    return clinicalTemplates;
+  }
+  const items = await backendOptionalCollection("/clinical-templates");
+  clinicalTemplates = normalizeClinicalTemplates(items.map(apiClinicalTemplateToUi));
+  saveClinicState("clinical-templates", clinicalTemplates);
+  return clinicalTemplates;
+}
+
+async function saveClinicalTemplateToBackend(template, previousId = "") {
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para guardar plantillas.");
+    }
+    return template;
+  }
+  const { method, path } = backendWriteTarget("/clinical-templates", previousId);
+  const saved = await backendRequest(path, {
+    method,
+    body: JSON.stringify(uiClinicalTemplateToApi(template))
+  });
+  return apiClinicalTemplateToUi(saved);
+}
+
+async function deleteClinicalTemplateFromBackend(templateId) {
+  if (!backendDataEnabled()) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesion backend no esta activa. Vuelve a iniciar sesion para eliminar plantillas.");
+    }
+    return;
+  }
+  if (!looksLikeBackendId(templateId)) return;
+  await backendRequest(`/clinical-templates/${encodeURIComponent(templateId)}`, { method: "DELETE" });
 }
 
 async function savePatientToBackend(patient, previousId = "") {
@@ -7502,6 +7589,7 @@ function renderPatientDetail() {
 
   detail.classList.remove("hidden");
   document.body.classList.add("patient-profile-open");
+  populateClinicalTemplateSelectors();
   $("#patient-detail-name").textContent = patient.name;
   $("#patient-detail-data").innerHTML = `
     <dt>Nombre</dt>
@@ -7839,6 +7927,47 @@ function renderTeam() {
   $$("[data-team-delete-room]").forEach((button) => button.addEventListener("click", () => deleteRoomById(button.dataset.teamDeleteRoom)));
 }
 
+
+function canManageClinicalTemplates() {
+  return isOwner();
+}
+
+function renderClinicalTemplatesSettings() {
+  const list = $("#settings-clinical-templates");
+  if (!list) return;
+  clinicalTemplates = normalizeClinicalTemplates(clinicalTemplates);
+  const query = String($("#template-search")?.value || "").trim().toLowerCase();
+  const filtered = clinicalTemplates
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"))
+    .filter((template) => {
+      if (!query) return true;
+      return [template.name, template.category, template.content].some((value) => String(value || "").toLowerCase().includes(query));
+    });
+  list.innerHTML = filtered.length ? filtered.map((template) => `
+    <article class="compact-item clinical-template-card ${template.active === false ? "is-inactive" : ""}">
+      <div>
+        <strong>${escapeHtml(template.name)}</strong>
+        <span>${escapeHtml(template.category || "Sin categoria")} - ${template.active === false ? "Inactiva" : "Activa"}</span>
+        <p>${escapeHtml(String(template.content || "").slice(0, 180))}${String(template.content || "").length > 180 ? "..." : ""}</p>
+      </div>
+      ${canManageClinicalTemplates() ? `
+        <details class="item-menu">
+          <summary aria-label="Opciones de ${escapeHtml(template.name)}">...</summary>
+          <div class="item-menu-popover">
+            <button type="button" data-edit-template="${template.id}">Editar</button>
+            <button type="button" data-toggle-template="${template.id}">${template.active === false ? "Activar" : "Desactivar"}</button>
+            <button class="danger-menu-action" type="button" data-delete-template="${template.id}">Eliminar</button>
+          </div>
+        </details>
+      ` : ""}
+    </article>
+  `).join("") : `<article class="compact-item"><span>Sin plantillas creadas.</span></article>`;
+  $$("[data-edit-template]").forEach((button) => button.addEventListener("click", () => openClinicalTemplateEditor(button.dataset.editTemplate)));
+  $$("[data-toggle-template]").forEach((button) => button.addEventListener("click", () => toggleClinicalTemplate(button.dataset.toggleTemplate)));
+  $$("[data-delete-template]").forEach((button) => button.addEventListener("click", () => deleteClinicalTemplateById(button.dataset.deleteTemplate)));
+}
+
 function renderSettings() {
   document.body.classList.toggle("availability-only-settings", isAvailabilityOnlySettingsSession());
   $("#new-unavailability-settings").disabled = !canManageAvailability();
@@ -7860,6 +7989,7 @@ function renderSettings() {
     clinicForm.elements.reminderMessageTemplate.value = reminderSettings.reminderMessageTemplate || defaultReminderSettings().reminderMessageTemplate;
   }
   renderAccessRecoveryRequests();
+  renderClinicalTemplatesSettings();
 
   $("#settings-practitioners").innerHTML = practitioners.length ? practitioners
     .map((practitioner) => `
@@ -11087,6 +11217,109 @@ function renderPermissions() {
   });
 }
 
+
+function openClinicalTemplateEditor(templateId = "") {
+  if (!canManageClinicalTemplates()) return;
+  const form = $("#clinical-template-form");
+  const template = templateId ? clinicalTemplateById(templateId) : null;
+  if (!form) return;
+  selectedClinicalTemplateId = template?.id || "";
+  form.reset();
+  form.dataset.editingTemplateId = selectedClinicalTemplateId;
+  form.elements.name.value = template?.name || "";
+  form.elements.category.value = template?.category || "";
+  form.elements.content.value = template?.content || "";
+  form.elements.active.checked = template?.active !== false;
+  $("#clinical-template-dialog-title").textContent = template ? "Editar plantilla" : "Nueva plantilla";
+  $("#clinical-template-form-error").textContent = "";
+  $("#clinical-template-form-error").classList.remove("visible");
+  $("#clinical-template-dialog").showModal();
+}
+
+async function toggleClinicalTemplate(templateId) {
+  const template = clinicalTemplateById(templateId);
+  if (!template || !canManageClinicalTemplates()) return;
+  const next = { ...template, active: template.active === false };
+  let saved = next;
+  try {
+    saved = await saveClinicalTemplateToBackend(next, template.id);
+  } catch (error) {
+    showToast(`No se pudo actualizar la plantilla: ${error.message}`, "error");
+    return;
+  }
+  clinicalTemplates = clinicalTemplates.map((item) => String(item.id) === String(template.id) ? saved : item);
+  saveClinicState("clinical-templates", clinicalTemplates);
+  populateClinicalTemplateSelectors();
+  renderClinicalTemplatesSettings();
+}
+
+async function deleteClinicalTemplateById(templateId) {
+  const template = clinicalTemplateById(templateId);
+  if (!template || !canManageClinicalTemplates()) return;
+  const confirmed = await confirmAction("Eliminar plantilla", `Vas a eliminar la plantilla ${template.name}. Esta accion no borra historiales ya guardados.`);
+  if (!confirmed) return;
+  try {
+    await deleteClinicalTemplateFromBackend(template.id);
+  } catch (error) {
+    showToast(`No se pudo eliminar la plantilla: ${error.message}`, "error");
+    return;
+  }
+  clinicalTemplates = clinicalTemplates.filter((item) => String(item.id) !== String(template.id));
+  saveClinicState("clinical-templates", clinicalTemplates);
+  populateClinicalTemplateSelectors();
+  renderClinicalTemplatesSettings();
+}
+
+function setupClinicalTemplates() {
+  $("#new-clinical-template")?.addEventListener("click", () => openClinicalTemplateEditor());
+  $("#template-search")?.addEventListener("input", renderClinicalTemplatesSettings);
+  $("#clinical-template-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!canManageClinicalTemplates()) return;
+    const template = {
+      id: form.dataset.editingTemplateId || `template-${Date.now()}`,
+      name: form.elements.name.value.trim(),
+      category: form.elements.category.value.trim(),
+      content: form.elements.content.value.trim(),
+      active: form.elements.active.checked
+    };
+    if (!template.name || !template.content) {
+      $("#clinical-template-form-error").textContent = "Indica nombre y contenido de la plantilla.";
+      $("#clinical-template-form-error").classList.add("visible");
+      return;
+    }
+    const duplicate = clinicalTemplates.find((item) => String(item.id) !== String(form.dataset.editingTemplateId || "") && String(item.name || "").trim().toLowerCase() === template.name.toLowerCase());
+    if (duplicate) {
+      $("#clinical-template-form-error").textContent = "Ya existe una plantilla con ese nombre.";
+      $("#clinical-template-form-error").classList.add("visible");
+      return;
+    }
+    const submit = form.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    let saved = template;
+    try {
+      saved = await saveClinicalTemplateToBackend(template, form.dataset.editingTemplateId || "");
+    } catch (error) {
+      $("#clinical-template-form-error").textContent = `No se pudo guardar la plantilla: ${error.message}`;
+      $("#clinical-template-form-error").classList.add("visible");
+      submit.disabled = false;
+      return;
+    }
+    clinicalTemplates = form.dataset.editingTemplateId
+      ? clinicalTemplates.map((item) => String(item.id) === String(form.dataset.editingTemplateId) ? saved : item)
+      : [...clinicalTemplates, saved];
+    clinicalTemplates = normalizeClinicalTemplates(clinicalTemplates);
+    saveClinicState("clinical-templates", clinicalTemplates);
+    $("#clinical-template-dialog").close();
+    form.dataset.editingTemplateId = "";
+    submit.disabled = false;
+    populateClinicalTemplateSelectors();
+    renderClinicalTemplatesSettings();
+    showToast("Plantilla guardada.");
+  });
+}
+
 function setupAccessManagement() {
   const sendFromOpenPractitioner = async (purpose) => {
     const form = $("#practitioner-form");
@@ -11121,12 +11354,13 @@ async function hydrateFromApi(options = {}) {
   }
 
   try {
-    let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
+    let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiClinicalTemplates, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
       backendRequest("/me"),
       backendRequest("/patients"),
       backendRequest("/practitioners"),
       backendRequest("/rooms"),
       backendRequest("/services"),
+      backendOptionalCollection("/clinical-templates"),
       backendRequest("/appointments"),
       backendOptionalCollection("/manual-billing-movements"),
       backendOptionalCollection("/attendance-records")
@@ -11146,6 +11380,7 @@ async function hydrateFromApi(options = {}) {
     practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
     rooms = apiRooms.map((room) => apiRoomToUi(room));
     services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
+    clinicalTemplates = normalizeClinicalTemplates(apiClinicalTemplates.map(apiClinicalTemplateToUi));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
     manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
     attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
@@ -11185,6 +11420,7 @@ async function hydrateFromApi(options = {}) {
     saveClinicState("services", services);
     saveClinicState("appointments", appointments);
     saveClinicState("clinical-notes", clinicalNotes);
+    saveClinicState("clinical-templates", clinicalTemplates);
     saveClinicState("manual-billing-movements", manualBillingMovements);
     saveClinicState("attendance-records", attendanceRecords);
     saveClinicState("groups", groups);
@@ -12002,6 +12238,7 @@ function resetDemoClinicData() {
   saveClinicState("patients", defaultPatients);
   saveClinicState("appointments", randomizedAppointments);
   saveClinicState("clinical-notes", defaultClinicalNotes);
+  saveClinicState("clinical-templates", []);
   saveClinicState("services", defaultServices);
   saveClinicState("practitioners", defaultPractitioners);
   saveClinicState("rooms", defaultRooms);
@@ -12464,6 +12701,7 @@ function setupLogin() {
       saveClinicState("patients", []);
       saveClinicState("appointments", []);
       saveClinicState("clinical-notes", []);
+      saveClinicState("clinical-templates", []);
       saveClinicState("services", []);
       saveClinicState("practitioners", []);
       saveClinicState("rooms", []);
@@ -14899,6 +15137,7 @@ function setupConfiguration() {
       saveClinicState("patients", []);
       saveClinicState("appointments", []);
       saveClinicState("clinical-notes", []);
+      saveClinicState("clinical-templates", []);
       saveClinicState("services", []);
       saveClinicState("practitioners", []);
       saveClinicState("rooms", []);
@@ -15682,6 +15921,73 @@ function generateInvoiceForPatientPack(packId) {
   renderBilling();
 }
 
+
+function templateSelectOptionsHtml() {
+  const items = activeClinicalTemplates();
+  return `<option value="">Usar plantilla...</option>${items.map((template) => `<option value="${template.id}">${escapeHtml(template.name)}${template.category ? ` - ${escapeHtml(template.category)}` : ""}</option>`).join("")}`;
+}
+
+function populateClinicalTemplateSelectors() {
+  const html = templateSelectOptionsHtml();
+  ["#clinical-note-template-select", "#clinical-note-dialog-template-select"].forEach((selector) => {
+    const select = $(selector);
+    if (select) select.innerHTML = html;
+  });
+}
+
+function showTemplateInsertChoice() {
+  const dialog = document.createElement("dialog");
+  dialog.innerHTML = `
+    <form method="dialog" class="modal-form">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Plantilla clinica</p>
+          <h2>Ya hay texto escrito</h2>
+        </div>
+      </div>
+      <p>Quieres sustituir la descripcion actual o anadir la plantilla al final?</p>
+      <div class="modal-actions">
+        <button class="secondary-button" value="cancel" type="submit">Cancelar</button>
+        <button class="secondary-button" value="append" type="submit">Anadir al final</button>
+        <button class="primary-button" value="replace" type="submit">Sustituir</button>
+      </div>
+    </form>
+  `;
+  document.body.append(dialog);
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      const value = dialog.returnValue || "cancel";
+      dialog.remove();
+      resolve(value);
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+
+async function applyClinicalTemplateToTextarea(textarea, template) {
+  if (!textarea || !template?.content) return;
+  const current = String(textarea.value || "");
+  if (!current.trim()) {
+    textarea.value = template.content;
+    textarea.focus();
+    return;
+  }
+  const option = await showTemplateInsertChoice();
+  if (option === "replace") {
+    textarea.value = template.content;
+  } else if (option === "append") {
+    textarea.value = `${current.trimEnd()}\n\n${template.content}`;
+  }
+  textarea.focus();
+}
+
+async function handleClinicalTemplateSelection(select, textarea) {
+  const template = clinicalTemplateById(select?.value || "");
+  if (!template) return;
+  await applyClinicalTemplateToTextarea(textarea, template);
+  select.value = "";
+}
+
 function clinicalNoteById(noteId) {
   return clinicalNotes.find((note) => String(note.id) === String(noteId));
 }
@@ -15721,6 +16027,7 @@ function openClinicalNoteDialog(noteId) {
   $("#clinical-note-dialog-title").textContent = `${note.date || ""} - ${note.reason || note.diagnosis || "Nota clinica"}`;
   $("#clinical-note-dialog-error").classList.remove("visible");
   $("#clinical-note-dialog-error").textContent = "";
+  populateClinicalTemplateSelectors();
   renderClinicalNoteAttachmentPanel(note);
   $("#clinical-note-dialog").showModal();
 }
@@ -15734,6 +16041,13 @@ function deleteClinicalNoteById(noteId) {
 }
 
 function setupPatientDetail() {
+  populateClinicalTemplateSelectors();
+  $("#clinical-note-template-select")?.addEventListener("change", (event) => {
+    handleClinicalTemplateSelection(event.currentTarget, $("#clinical-note-form")?.elements?.content);
+  });
+  $("#clinical-note-dialog-template-select")?.addEventListener("change", (event) => {
+    handleClinicalTemplateSelection(event.currentTarget, $("#clinical-note-dialog-form")?.elements?.content);
+  });
   $("#edit-patient-from-detail")?.addEventListener("click", () => {
     if (selectedPatientId) {
       openPatientEditor(selectedPatientId);
@@ -16094,6 +16408,7 @@ setupConfiguration();
 setupDataSafety();
 setupSaasSettings();
 handleBillingReturnFromStripe();
+setupClinicalTemplates();
 setupAccessManagement();
 setupCommercialSettings();
 setupPatientDetail();

@@ -29,6 +29,7 @@ from .models import (
     AuditLog,
     Clinic,
     ClinicDataBlob,
+    ClinicalTemplate,
     DemoAccessSession,
     ManualBillingMovement,
     Patient,
@@ -59,6 +60,9 @@ from .schemas import (
     CheckoutSessionCreate,
     ClinicDataBlobIn,
     ClinicDataBlobOut,
+    ClinicalTemplateCreate,
+    ClinicalTemplateOut,
+    ClinicalTemplateUpdate,
     ClinicOut,
     ClinicRegisterIn,
     ClinicSettingsUpdate,
@@ -2752,6 +2756,7 @@ def superadmin_delete_clinic_permanently(
         "services": db.scalar(select(func.count()).select_from(Service).where(Service.clinic_id == clinic.id)) or 0,
         "manual_billing_movements": db.scalar(select(func.count()).select_from(ManualBillingMovement).where(ManualBillingMovement.clinic_id == clinic.id)) or 0,
         "reminder_statuses": db.scalar(select(func.count()).select_from(ReminderStatus).where(ReminderStatus.clinic_id == clinic.id)) or 0,
+        "clinical_templates": db.scalar(select(func.count()).select_from(ClinicalTemplate).where(ClinicalTemplate.clinic_id == clinic.id)) or 0,
         "support_tickets": db.scalar(select(func.count()).select_from(SupportTicket).where(SupportTicket.clinic_id == clinic.id)) or 0,
     }
     audit_action(
@@ -2769,6 +2774,7 @@ def superadmin_delete_clinic_permanently(
     db.query(Appointment).filter(Appointment.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(ManualBillingMovement).filter(ManualBillingMovement.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(ReminderStatus).filter(ReminderStatus.clinic_id == clinic.id).delete(synchronize_session=False)
+    db.query(ClinicalTemplate).filter(ClinicalTemplate.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(ClinicDataBlob).filter(ClinicDataBlob.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(AuditLog).filter(AuditLog.clinic_id == clinic.id).delete(synchronize_session=False)
     db.query(Practitioner).filter(Practitioner.clinic_id == clinic.id).delete(synchronize_session=False)
@@ -3284,6 +3290,100 @@ def start_demo_session(payload: DemoAccessCreate, request: Request, db: Session 
         sessions_used=item.sessions_started,
         max_sessions_per_day=max_sessions,
     )
+
+
+@app.get("/clinical-templates", response_model=list[ClinicalTemplateOut])
+def list_clinical_templates(
+    active_only: bool = Query(False),
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[ClinicalTemplate]:
+    query = select(ClinicalTemplate).where(ClinicalTemplate.clinic_id == user.clinic_id)
+    if active_only:
+        query = query.where(ClinicalTemplate.active.is_(True))
+    return list(db.scalars(query.order_by(ClinicalTemplate.name)))
+
+
+@app.post("/clinical-templates", response_model=ClinicalTemplateOut, status_code=status.HTTP_201_CREATED)
+def create_clinical_template(
+    payload: ClinicalTemplateCreate,
+    request: Request,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> ClinicalTemplate:
+    name = payload.name.strip()
+    existing = db.scalar(
+        select(ClinicalTemplate).where(
+            ClinicalTemplate.clinic_id == user.clinic_id,
+            func.lower(ClinicalTemplate.name) == name.lower(),
+        )
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Clinical template already exists in this clinic")
+    item = ClinicalTemplate(
+        clinic_id=user.clinic_id,
+        name=name,
+        category=(payload.category or "").strip() or None,
+        content=payload.content.strip(),
+        active=payload.active,
+    )
+    db.add(item)
+    db.flush()
+    audit_action(db, user, "create-clinical-template", "clinical-template", item.id, {"name": item.name}, request=request)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.patch("/clinical-templates/{template_id}", response_model=ClinicalTemplateOut)
+def update_clinical_template(
+    template_id: str,
+    payload: ClinicalTemplateUpdate,
+    request: Request,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> ClinicalTemplate:
+    item = clinic_item_or_404(db, ClinicalTemplate, template_id, user.clinic_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] is not None:
+        next_name = data["name"].strip()
+        existing = db.scalar(
+            select(ClinicalTemplate).where(
+                ClinicalTemplate.clinic_id == user.clinic_id,
+                ClinicalTemplate.id != template_id,
+                func.lower(ClinicalTemplate.name) == next_name.lower(),
+            )
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="Clinical template already exists in this clinic")
+        item.name = next_name
+        data.pop("name", None)
+    if "category" in data:
+        item.category = (data["category"] or "").strip() or None
+        data.pop("category", None)
+    if "content" in data and data["content"] is not None:
+        item.content = data["content"].strip()
+        data.pop("content", None)
+    if "active" in data:
+        item.active = bool(data["active"])
+        data.pop("active", None)
+    audit_action(db, user, "update-clinical-template", "clinical-template", item.id, {"fields": sorted(payload.model_dump(exclude_unset=True).keys())}, request=request)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.delete("/clinical-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_clinical_template(
+    template_id: str,
+    request: Request,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> None:
+    item = clinic_item_or_404(db, ClinicalTemplate, template_id, user.clinic_id)
+    audit_action(db, user, "delete-clinical-template", "clinical-template", item.id, {"name": item.name}, request=request)
+    db.delete(item)
+    db.commit()
 
 
 @app.get("/patients", response_model=list[PatientOut])
