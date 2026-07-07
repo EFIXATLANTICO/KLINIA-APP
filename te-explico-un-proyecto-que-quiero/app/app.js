@@ -295,10 +295,13 @@ function isBackendPermissionError(error) {
 }
 
 function canWriteSyncedClinicDataKey(key) {
-  return !isSuperadminSession()
-    && backendSyncedClinicDataKeys.has(key)
-    && backendDataEnabled()
-    && isOwner();
+  if (isSuperadminSession() || !backendSyncedClinicDataKeys.has(key) || !backendDataEnabled()) {
+    return false;
+  }
+  if (key === "clinical-notes") {
+    return isOwner() || currentSession?.profile === "staff" || isPractitionerSession();
+  }
+  return isOwner();
 }
 
 function saveSyncedClinicState(key, value) {
@@ -315,6 +318,47 @@ function saveSyncedClinicState(key, value) {
       showToast("No se pudieron guardar algunos datos en la nube. Int�ntalo de nuevo.", "warning");
     }
   });
+}
+
+
+function clinicalNotesSaveErrorMessage(error) {
+  if (error?.status === 403) {
+    return "Tu usuario no tiene permiso para guardar el historial de este paciente.";
+  }
+  if (error?.status === 404) {
+    return "El servidor no tiene activado el guardado de historial clinico. Despliega la ultima version del backend.";
+  }
+  if (error?.status === 413) {
+    return "La nota o el archivo adjunto es demasiado grande para guardarse en la nube.";
+  }
+  if (error?.status === 422) {
+    return "El historial contiene datos con un formato no valido.";
+  }
+  return error?.message || "No se pudo guardar el historial clinico.";
+}
+
+async function persistClinicalNotesState(options = {}) {
+  if (isSuperadminSession()) {
+    return true;
+  }
+  saveClinicState("clinical-notes", clinicalNotes);
+  if (!canWriteSyncedClinicDataKey("clinical-notes")) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("Tu usuario no tiene permiso para guardar el historial clinico.");
+    }
+    return true;
+  }
+  try {
+    await saveClinicDataToBackend("clinical-notes", clinicalNotes);
+    return true;
+  } catch (error) {
+    console.warn("Klinia clinical notes sync failed", error);
+    const message = clinicalNotesSaveErrorMessage(error);
+    if (options.toast !== false) {
+      showToast(message, "error");
+    }
+    throw new Error(message);
+  }
 }
 
 function appendAuditLog(action, detail = {}) {
@@ -16032,9 +16076,16 @@ function openClinicalNoteDialog(noteId) {
   $("#clinical-note-dialog").showModal();
 }
 
-function deleteClinicalNoteById(noteId) {
+async function deleteClinicalNoteById(noteId) {
+  const previousNotes = clinicalNotes.slice();
   clinicalNotes = clinicalNotes.filter((note) => String(note.id) !== String(noteId));
-  saveSyncedClinicState("clinical-notes", clinicalNotes);
+  try {
+    await persistClinicalNotesState();
+  } catch {
+    clinicalNotes = previousNotes;
+    renderPatientDetail();
+    return;
+  }
   selectedClinicalNoteId = null;
   $("#clinical-note-dialog")?.close();
   renderPatientDetail();
@@ -16073,6 +16124,7 @@ function setupPatientDetail() {
     }
     const attachment = form.elements.attachment?.files?.[0];
 
+    const previousNotes = clinicalNotes.slice();
     clinicalNotes = [
       {
         id: Date.now(),
@@ -16086,7 +16138,12 @@ function setupPatientDetail() {
       },
       ...clinicalNotes
     ];
-    saveSyncedClinicState("clinical-notes", clinicalNotes);
+    try {
+      await persistClinicalNotesState();
+    } catch {
+      clinicalNotes = previousNotes;
+      return;
+    }
     form.reset();
     renderPatientDetail();
   });
@@ -16108,6 +16165,7 @@ function setupPatientDetail() {
       : form.elements.removeAttachment.checked
         ? ""
         : note.attachmentData || "";
+    const previousNotes = clinicalNotes.slice();
     clinicalNotes = clinicalNotes.map((item) => String(item.id) === String(note.id)
       ? {
           ...item,
@@ -16121,7 +16179,14 @@ function setupPatientDetail() {
         }
       : item
     );
-    saveSyncedClinicState("clinical-notes", clinicalNotes);
+    try {
+      await persistClinicalNotesState({ toast: false });
+    } catch (error) {
+      clinicalNotes = previousNotes;
+      $("#clinical-note-dialog-error").textContent = error.message;
+      $("#clinical-note-dialog-error").classList.add("visible");
+      return;
+    }
     $("#clinical-note-dialog").close();
     renderPatientDetail();
   });

@@ -951,6 +951,7 @@ def apply_appointment_payment(
 
 
 CLINIC_DATA_DEFAULTS = {
+    "clinical-notes": "[]",
     "groups": "[]",
     "group-dropins": "[]",
     "group-completions": "[]",
@@ -964,7 +965,7 @@ CLINIC_DATA_DEFAULTS = {
     "availability-blocks": "[]",
     "permissions": "{}",
 }
-PRACTITIONER_WRITABLE_CLINIC_DATA_KEYS = {"group-completions", "group-dropins", "reminder-actions"}
+PRACTITIONER_WRITABLE_CLINIC_DATA_KEYS = {"clinical-notes", "group-completions", "group-dropins", "reminder-actions"}
 
 
 def clinic_data_default(key: str) -> str:
