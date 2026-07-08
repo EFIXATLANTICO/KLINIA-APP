@@ -3070,7 +3070,7 @@ function backendLoginMessage(error) {
     return "Usuario o contraseña incorrectos.";
   }
   if (error?.status === 409) {
-    return "Ese email existe en mas de una clinica. Entra usando el email de la clinica o selecciona la clinica guardada.";
+    return "Ese email existe en mas de una clinica. Elige la clinica para continuar.";
   }
   if (error?.status === 422) {
     return "Faltan usuario o contraseña, o la app esta usando una version antigua. Actualiza la página y vuelve a intentarlo.";
@@ -3355,6 +3355,13 @@ async function tryBackendLogin(identifier, password, options = {}) {
         clinic_email: backendClinicEmail || undefined
       })
     }, 3);
+    if (session?.requires_clinic_selection) {
+      const selectedClinicId = await chooseGoogleClinic(session.choices || [], "Elige la clinica");
+      if (selectedClinicId) {
+        return tryBackendLogin(cleanIdentifier, password, { ...options, clinicId: selectedClinicId });
+      }
+      return { handled: false, error: null };
+    }
     const me = await backendRequestWithNetworkRetry("/me", { token: session.access_token, auth: false, timeoutMs: 30000 }, 3);
     return applyBackendSession(session, me, { ...options, identifier: cleanIdentifier, currentPassword: password });
   } catch (error) {
@@ -12143,7 +12150,7 @@ async function recoverRegisterSessionAfterDuplicate(form, account) {
       body: JSON.stringify({
         email: ownerEmail,
         password,
-        clinic_email: form.elements.clinicEmail?.value.trim() || account.email || ownerEmail
+        clinic_email: form.elements.clinicEmail?.value.trim() || account.email || ""
       })
     });
     const me = await backendRequest("/me", { token: session.access_token, auth: false });
@@ -12151,9 +12158,10 @@ async function recoverRegisterSessionAfterDuplicate(form, account) {
       return null;
     }
     const backendClinicId = session.clinic_id || me.clinic.id || "";
+    const clinicEmail = form.elements.clinicEmail?.value.trim().toLowerCase() || "";
     const existingLocal = clinicAccounts.find((item) => (
       (backendClinicId && item.backendClinicId === backendClinicId)
-      || (ownerEmail && String(item.ownerEmail || item.email || "").trim().toLowerCase() === ownerEmail.toLowerCase())
+      || (clinicEmail && String(item.email || item.billingProfile?.billingEmail || "").trim().toLowerCase() === clinicEmail)
     ));
     const key = existingLocal?.key || account.key || slugifyClinicName(me.clinic.name || backendClinicId || account.name);
     return {
@@ -12677,6 +12685,7 @@ function setupLogin() {
         body: JSON.stringify({
           clinic_name: name,
           email: form.elements.email?.value.trim() || clinicEmail,
+          clinic_email: clinicEmail,
           password: form.elements.password.value,
           phone: clinicPhone,
           owner_name: account.ownerName,

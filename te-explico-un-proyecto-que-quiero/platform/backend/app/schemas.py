@@ -5,18 +5,32 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from .models import AppointmentStatus, UserRole
 
 
+class AuthClinicChoiceOut(BaseModel):
+    clinic_id: str | None = None
+    clinic_name: str | None = None
+    user_id: str
+    email: str
+    name: str
+    role: UserRole
+
+
 class TokenOut(BaseModel):
-    access_token: str
+    access_token: str | None = None
     token_type: str = "bearer"
     clinic_id: str | None = None
     subscription_status: str | None = None
     checkout_url: str | None = None
     force_password_change: bool = False
+    requires_clinic_selection: bool = False
+    choices: list[AuthClinicChoiceOut] = Field(default_factory=list)
+    email: str | None = None
+    name: str | None = None
 
 
 class ClinicRegisterIn(BaseModel):
     clinic_name: str = Field(min_length=2, max_length=180)
     email: EmailStr
+    clinic_email: EmailStr | None = None
     password: str = Field(min_length=8, max_length=160)
     phone: str | None = None
     owner_name: str = Field(min_length=2, max_length=160)

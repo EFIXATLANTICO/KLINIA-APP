@@ -1636,23 +1636,24 @@ def admin_test_brevo(
 
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
-    email = str(payload.email).lower()
+    owner_email = str(payload.email).lower()
+    clinic_email = str(payload.clinic_email or payload.billing_email or payload.email).lower()
     password = validate_new_password(payload.password)
     google_claims = verify_google_id_token(payload.google_id_token) if payload.google_id_token else None
     google_sub = str(google_claims.get("sub")) if google_claims else None
-    if google_claims and str(google_claims.get("email") or "").lower() != email:
+    if google_claims and str(google_claims.get("email") or "").lower() != owner_email:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Google email does not match registration email")
     existing = db.scalar(
         select(Clinic).where(
-            (func.lower(Clinic.email) == email)
-            | ((func.lower(Clinic.tax_id) == payload.tax_id.strip().lower()) if payload.tax_id else (func.lower(Clinic.email) == email))
+            (func.lower(Clinic.email) == clinic_email)
+            | ((func.lower(Clinic.tax_id) == payload.tax_id.strip().lower()) if payload.tax_id else (func.lower(Clinic.email) == clinic_email))
         )
     )
     if existing:
         owner = db.scalar(
             select(User).where(
                 User.clinic_id == existing.id,
-                func.lower(User.email) == email,
+                func.lower(User.email) == owner_email,
                 User.role == UserRole.owner,
             )
         )
@@ -1684,10 +1685,10 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
     opening_start, opening_end = validate_opening_range(payload.opening_start, payload.opening_end)
     clinic = Clinic(
         name=payload.clinic_name,
-        email=email,
+        email=clinic_email,
         phone=payload.phone,
         billing_name=payload.billing_name or payload.clinic_name,
-        billing_email=str(payload.billing_email or payload.email).lower(),
+        billing_email=str(payload.billing_email or payload.clinic_email or payload.email).lower(),
         tax_id=payload.tax_id,
         billing_address=payload.billing_address,
         subscription_plan=plan["id"],
@@ -1703,7 +1704,7 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
     user = User(
         clinic_id=clinic.id,
         name=payload.owner_name,
-        email=email,
+        email=owner_email,
         password_hash=hash_password(password),
         google_sub=google_sub,
         role=UserRole.owner,
@@ -1810,21 +1811,26 @@ def login(payload: LoginIn, request: Request, db: Session = Depends(get_db)) -> 
             query = query.where(User.clinic_id == "__missing_clinic__")
 
     users = list(db.scalars(query))
-    if len(users) > 1:
+    matching_users = [candidate for candidate in users if verify_login_password(payload.password, candidate.password_hash)]
+    if len(matching_users) > 1 and not resolved_clinic_id:
         audit_action(
             db,
             None,
-            "login-failed",
+            "login-clinic-selection-required",
             "auth",
-            metadata={"email": email, "reason": "clinic_identifier_required"},
+            metadata={"email": email, "reason": "multiple_clinics"},
             clinic_id=resolved_clinic_id,
-            result="failure",
+            result="pending",
             request=request,
         )
         db.commit()
-        raise HTTPException(status_code=409, detail="Clinic identifier required for this email")
-    user = users[0] if users else None
-    if not user or not verify_login_password(payload.password, user.password_hash):
+        return TokenOut(
+            requires_clinic_selection=True,
+            choices=[google_choice_for_user(user).model_dump() for user in matching_users],
+            email=email,
+        )
+    user = matching_users[0] if matching_users else None
+    if not user:
         record_login_failure(request, identifier)
         audit_action(
             db,
