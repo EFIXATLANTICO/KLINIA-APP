@@ -30,7 +30,7 @@ class TokenOut(BaseModel):
 class ClinicRegisterIn(BaseModel):
     clinic_name: str = Field(min_length=2, max_length=180)
     email: EmailStr
-    clinic_email: EmailStr | None = None
+    clinic_email: EmailStr
     password: str = Field(min_length=8, max_length=160)
     phone: str | None = None
     owner_name: str = Field(min_length=2, max_length=160)

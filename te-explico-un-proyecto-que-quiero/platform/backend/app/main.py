@@ -1637,7 +1637,7 @@ def admin_test_brevo(
 @app.post("/auth/register-clinic", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = Depends(get_db)) -> TokenOut:
     owner_email = str(payload.email).lower()
-    clinic_email = str(payload.clinic_email or payload.billing_email or payload.email).lower()
+    clinic_email = str(payload.clinic_email).lower()
     password = validate_new_password(payload.password)
     google_claims = verify_google_id_token(payload.google_id_token) if payload.google_id_token else None
     google_sub = str(google_claims.get("sub")) if google_claims else None
@@ -1650,34 +1650,17 @@ def register_clinic(payload: ClinicRegisterIn, request: Request, db: Session = D
         )
     )
     if existing:
-        owner = db.scalar(
-            select(User).where(
-                User.clinic_id == existing.id,
-                func.lower(User.email) == owner_email,
-                User.role == UserRole.owner,
-            )
+        audit_action(
+            db,
+            None,
+            "register-clinic-duplicate",
+            "clinic",
+            existing.id,
+            {"clinic_email": clinic_email, "tax_id": payload.tax_id, "owner_email": owner_email},
+            result="failure",
+            request=request,
         )
-        if owner and verify_login_password(password, owner.password_hash):
-            if google_sub:
-                ensure_google_link_for_user(db, owner, google_sub, request)
-            audit_action(
-                db,
-                owner,
-                "register-clinic-recovered",
-                "clinic",
-                existing.id,
-                {"reason": "idempotent-register-retry"},
-                request=request,
-            )
-            db.commit()
-            token = create_access_token(subject=owner.id, clinic_id=owner.clinic_id, role=owner.role.value)
-            return TokenOut(
-                access_token=token,
-                clinic_id=existing.id,
-                subscription_status=existing.subscription_status,
-                checkout_url=None,
-                force_password_change=owner.force_password_change,
-            )
+        db.commit()
         raise HTTPException(status_code=409, detail="Clinic tax id or email already exists")
 
     plan = plan_by_id(payload.plan)

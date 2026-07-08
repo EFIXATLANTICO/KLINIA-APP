@@ -12702,12 +12702,15 @@ function setupLogin() {
       });
       account.backendToken = backendSession.access_token || "";
       account.backendClinicId = backendSession.clinic_id || "";
+      if (backendRequiredForProduction() && (!account.backendToken || !account.backendClinicId)) {
+        throw new Error("El backend no devolvio una clinica creada valida.");
+      }
       account.key = backendClinicStorageKey(account.backendClinicId) || account.key;
       account.subscriptionStatus = backendSession.subscription_status || account.subscriptionStatus;
       account.billingStatus = backendSession.subscription_status || account.billingStatus;
       account.checkoutUrl = backendSession.checkout_url || account.checkoutUrl;
     } catch (error) {
-      const recovered = (error.status === 409 || error.network || error.timeout)
+      const recovered = (!backendRequiredForProduction() && (error.status === 409 || error.network || error.timeout))
         ? await recoverRegisterSessionAfterDuplicate(form, account)
         : null;
       if (recovered?.account) {

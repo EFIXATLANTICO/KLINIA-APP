@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260708-multiclinic-email-isolation";
+const KLINIA_CACHE = "klinia-20260708-register-backend-authoritative";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260708-multiclinic-email-isolation",
+  "./app.js?v=20260708-register-backend-authoritative",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
