@@ -8693,7 +8693,12 @@ function renderBilling() {
         <th></th>
       `;
   }
-  $("#billing-table").innerHTML = pageRows
+  const billingTable = $("#billing-table");
+  const billingPagination = $("#billing-pagination");
+  if (!billingTable || !billingPagination) {
+    return;
+  }
+  billingTable.innerHTML = pageRows
     .map((row) => {
       const rowKey = billingRowKey(row);
       const actions = `
@@ -8738,7 +8743,7 @@ function renderBilling() {
     })
     .join("") || `<tr><td colspan="${simplified ? 6 : 10}">No hay movimientos con estos filtros.</td></tr>`;
 
-  $("#billing-págination").innerHTML = `
+  billingPagination.innerHTML = `
     <span>${sortedRows.length} movimientos · página ${billingFilterState.page} de ${totalPages}</span>
     <button class="secondary-button" type="button" data-billing-page="prev" ${billingFilterState.page <= 1 ? "disabled" : ""}>Anterior</button>
     <button class="secondary-button" type="button" data-billing-page="next" ${billingFilterState.page >= totalPages ? "disabled" : ""}>Siguiente</button>
