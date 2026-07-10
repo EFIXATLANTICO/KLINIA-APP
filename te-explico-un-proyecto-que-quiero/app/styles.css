@@ -7232,6 +7232,34 @@ body.superadmin-mode .public-view.active.superadmin-view {
     min-height: 44px;
   }
 
+  body:not(.login-mode):not(.superadmin-mode) input:not([type="checkbox"]):not([type="radio"]),
+  body:not(.login-mode):not(.superadmin-mode) select,
+  body:not(.login-mode):not(.superadmin-mode) textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .settings-grid,
+  .settings-form,
+  .form-row,
+  .form-grid,
+  .register-confirm-grid,
+  .service-commission-grid {
+    grid-template-columns: 1fr !important;
+    min-width: 0;
+  }
+
+  .settings-panel,
+  .settings-panel-wide,
+  .clinic-settings-panel,
+  .worker-settings-panel,
+  .compact-list,
+  .compact-item {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   .mobile-menu-toggle {
     display: inline-flex;
     align-items: center;
