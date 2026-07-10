@@ -1616,6 +1616,12 @@ body.login-mode .public-access {
   color: #fff;
 }
 
+
+.mobile-menu-toggle,
+.mobile-nav-overlay {
+  display: none;
+}
+
 .main {
   min-width: 0;
   padding: 24px;
@@ -7190,4 +7196,340 @@ body.superadmin-mode .public-view.active.superadmin-view {
 
 .clinical-templates-settings-panel label {
   margin-bottom: 12px;
+}
+
+
+/* PWA mobile usability layer */
+@media (max-width: 760px) {
+  html,
+  body {
+    width: 100%;
+    min-height: 100%;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-x: none;
+  }
+
+  body.mobile-nav-open {
+    overflow: hidden;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  summary {
+    font-size: 16px;
+  }
+
+  button,
+  .primary-button,
+  .secondary-button,
+  .ghost-button,
+  .link-button,
+  .nav-item,
+  select,
+  input:not([type="checkbox"]):not([type="radio"]) {
+    min-height: 44px;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 92px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--accent-dark);
+    font-weight: 800;
+    padding: 0 12px;
+  }
+
+  .mobile-menu-toggle span,
+  .mobile-menu-toggle span::before,
+  .mobile-menu-toggle span::after {
+    display: block;
+    width: 18px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    content: "";
+  }
+
+  .mobile-menu-toggle span {
+    position: relative;
+  }
+
+  .mobile-menu-toggle span::before,
+  .mobile-menu-toggle span::after {
+    position: absolute;
+    left: 0;
+  }
+
+  .mobile-menu-toggle span::before {
+    top: -6px;
+  }
+
+  .mobile-menu-toggle span::after {
+    top: 6px;
+  }
+
+  .mobile-nav-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: none;
+    border: 0;
+    background: rgba(16, 35, 31, 0.42);
+    padding: 0;
+  }
+
+  body.mobile-nav-open .mobile-nav-overlay {
+    display: block;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .app-shell {
+    display: block;
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 90;
+    width: min(84vw, 312px);
+    height: 100dvh;
+    min-height: 100dvh;
+    padding: calc(18px + env(safe-area-inset-top, 0px)) 14px calc(18px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto;
+    transform: translateX(-105%);
+    transition: transform 0.18s ease;
+    box-shadow: 22px 0 46px rgba(16, 35, 31, 0.22);
+  }
+
+  body.mobile-nav-open:not(.login-mode):not(.superadmin-mode) .sidebar {
+    transform: translateX(0);
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .sidebar .brand {
+    margin-bottom: 22px;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .sidebar .nav {
+    display: grid;
+    gap: 8px;
+    overflow: visible;
+    padding: 0;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .nav-item {
+    width: 100%;
+    min-height: 48px;
+    flex: none;
+    white-space: normal;
+  }
+
+  body:not(.login-mode):not(.superadmin-mode) .main {
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 12px calc(18px + env(safe-area-inset-bottom, 0px));
+    overflow: visible;
+  }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .topbar > div:first-of-type {
+    min-width: 0;
+  }
+
+  .topbar h1,
+  .section-header h1 {
+    overflow-wrap: anywhere;
+  }
+
+  .topbar-actions {
+    grid-column: 1 / -1;
+    gap: 8px;
+  }
+
+  .metrics-grid,
+  .billing-board,
+  .cards-grid,
+  .settings-grid,
+  .profile-summary,
+  .owner-summary,
+  .detail-grid,
+  .reminders-layout,
+  .automation-summary-grid,
+  .subscription-grid,
+  .subscription-overview-card,
+  .subscription-plan-options,
+  .superadmin-metrics,
+  .superadmin-grid {
+    grid-template-columns: 1fr !important;
+    min-width: 0;
+  }
+
+  .section-header,
+  .toolbar,
+  .filters,
+  .automation-header-actions,
+  .automation-controls,
+  .billing-advanced-actions,
+  .patient-detail-actions,
+  .compact-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar button,
+  .filters button,
+  .filters select,
+  .filters input,
+  .automation-controls button,
+  .patient-detail-actions button,
+  .compact-actions button {
+    width: 100%;
+  }
+
+  .schedule-layout,
+  .table-wrap,
+  .billing-table-wrap,
+  .superadmin-table-wrap,
+  .subscription-history-panel .table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body[data-active-section="agenda"] .schedule:not(.two-month-schedule) {
+    min-width: 720px;
+  }
+
+  .schedule.two-month-schedule {
+    min-width: 0;
+  }
+
+  .week-appointment,
+  .appointment {
+    line-height: 1.18;
+  }
+
+  .appointment.timed-block,
+  .week-appointment.timed-block {
+    min-height: 42px;
+  }
+
+  .week-appointment time,
+  .week-appointment strong,
+  .week-appointment span,
+  .appointment time,
+  .appointment strong,
+  .appointment span {
+    line-height: 1.2;
+  }
+
+  table {
+    min-width: 680px;
+  }
+
+  .item-menu-popover {
+    right: 0;
+    left: auto;
+    min-width: min(240px, calc(100vw - 32px));
+  }
+
+  dialog,
+  .modal-panel {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    margin: auto;
+  }
+
+  .modal-form,
+  dialog form,
+  .modal-body {
+    max-height: calc(100dvh - 16px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .modal-form {
+    padding: 14px;
+  }
+
+  .modal-head,
+  .modal-header {
+    gap: 10px;
+  }
+
+  .modal-actions {
+    position: sticky;
+    bottom: -14px;
+    z-index: 6;
+    margin: 12px -14px -14px;
+    border-top: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.96);
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+    backdrop-filter: blur(10px);
+  }
+
+  .patient-detail {
+    position: fixed;
+    inset: calc(8px + env(safe-area-inset-top, 0px)) 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    max-height: none;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .patient-tabs,
+  .segmented,
+  .billing-toggle,
+  .register-progress {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .patient-tabs::-webkit-scrollbar,
+  .segmented::-webkit-scrollbar,
+  .billing-toggle::-webkit-scrollbar,
+  .register-progress::-webkit-scrollbar {
+    display: none;
+  }
+
+  .login-screen,
+  .activation-screen {
+    min-height: 100dvh;
+    padding: calc(14px + env(safe-area-inset-top, 0px)) 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .public-shell {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-menu-toggle {
+    width: 100%;
+  }
+
+  body[data-active-section="agenda"] .schedule:not(.two-month-schedule) {
+    min-width: 660px;
+  }
+
+  table {
+    min-width: 620px;
+  }
 }

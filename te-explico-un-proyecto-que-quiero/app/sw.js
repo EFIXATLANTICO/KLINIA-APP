@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260708-register-backend-authoritative";
+const KLINIA_CACHE = "klinia-20260710-pwa-mobile";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260629-regression-fixes",
-  "./app.js?v=20260708-register-backend-authoritative",
+  "./styles.css?v=20260710-pwa-mobile",
+  "./app.js?v=20260710-pwa-mobile",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

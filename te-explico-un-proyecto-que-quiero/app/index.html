@@ -16,7 +16,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260622-help-redesign" />
+    <link rel="stylesheet" href="./styles.css?v=20260710-pwa-mobile" />
   </head>
   <body class="login-mode">
     <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
@@ -715,7 +715,7 @@
           </div>
         </div>
 
-        <nav class="nav">
+        <nav class="nav" id="main-navigation">
           <button class="nav-item active" data-section="agenda" type="button">Agenda</button>
           <button class="nav-item" data-section="pacientes" type="button">Pacientes</button>
           <button class="nav-item" data-section="automatizaciones" type="button">Recordatorios</button>
@@ -726,9 +726,14 @@
           <button class="nav-item" data-section="permisos" type="button">Permisos</button>
         </nav>
       </aside>
+      <button class="mobile-nav-overlay" id="mobile-nav-overlay" type="button" aria-label="Cerrar men?"></button>
 
       <main class="main">
         <header class="topbar">
+          <button class="mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-controls="main-navigation" aria-expanded="false">
+            <span aria-hidden="true"></span>
+            Men?
+          </button>
           <div>
             <p class="eyebrow" id="current-date-label">Agenda</p>
             <h1 id="section-title">Agenda</h1>

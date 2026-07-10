@@ -16418,6 +16418,36 @@ function setupBillingControls() {
 }
 
 
+function setupMobileNavigation() {
+  const toggle = $("#mobile-menu-toggle");
+  const overlay = $("#mobile-nav-overlay");
+  const mobileQuery = window.matchMedia("(max-width: 760px)");
+  if (!toggle) return;
+
+  const setOpen = (open) => {
+    document.body.classList.toggle("mobile-nav-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  toggle.addEventListener("click", () => {
+    setOpen(!document.body.classList.contains("mobile-nav-open"));
+  });
+
+  overlay?.addEventListener("click", () => setOpen(false));
+  $$(".sidebar .nav-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      if (mobileQuery.matches) setOpen(false);
+    });
+  });
+
+  window.addEventListener("resize", () => {
+    if (!mobileQuery.matches) setOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setOpen(false);
+  });
+}
+
 function setupPwaInstall() {
   const installButton = $("#install-app");
 
@@ -16455,6 +16485,7 @@ applyLoginState();
 renderSession();
 setupPwaInstall();
 setupNavigation();
+setupMobileNavigation();
 setupLogin();
 setupAccessTokenPasswordDialog();
 setupDialogCloseButtons();
