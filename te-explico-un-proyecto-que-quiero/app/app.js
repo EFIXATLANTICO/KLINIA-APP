@@ -16426,7 +16426,7 @@ function setupBillingControls() {
 function setupMobileNavigation() {
   const toggle = $("#mobile-menu-toggle");
   const overlay = $("#mobile-nav-overlay");
-  const mobileQuery = window.matchMedia("(max-width: 760px)");
+  const mobileQuery = window.matchMedia("(max-width: 900px)");
   if (!toggle) return;
 
   const setOpen = (open) => {

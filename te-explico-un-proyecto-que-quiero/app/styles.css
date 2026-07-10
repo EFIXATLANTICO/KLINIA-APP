@@ -7200,7 +7200,7 @@ body.superadmin-mode .public-view.active.superadmin-view {
 
 
 /* PWA mobile usability layer */
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   html,
   body {
     width: 100%;

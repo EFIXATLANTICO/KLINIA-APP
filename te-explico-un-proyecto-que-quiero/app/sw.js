@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260710-pwa-mobile";
+const KLINIA_CACHE = "klinia-20260710-pwa-mobile-2";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260710-pwa-mobile",
-  "./app.js?v=20260710-pwa-mobile",
+  "./styles.css?v=20260710-pwa-mobile-2",
+  "./app.js?v=20260710-pwa-mobile-2",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
