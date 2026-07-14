@@ -8,25 +8,25 @@ const defaultRooms = [
   { id: "sala-1", name: "Sala 1", type: "Camilla" },
   { id: "sala-2", name: "Sala 2", type: "Camilla" },
   { id: "gimnasio", name: "Gimnasio", type: "Ejercicio terapeutico" },
-  { id: "sala-grupal", name: "Sala grupal", type: "Sesión grupal" }
+  { id: "sala-grupal", name: "Sala grupal", type: "SesiÃ³n grupal" }
 ];
 
 const defaultServices = [
   { id: "fisio", name: "Fisioterapia general", description: "Tratamiento individual", duration: 60, price: 45, active: true },
   { id: "deportiva", name: "Fisioterapia deportiva", description: "Lesiones y sobrecargas deportivas", duration: 60, price: 55, active: true },
   { id: "readaptacion", name: "Readaptacion", description: "Trabajo funcional y fuerza", duration: 75, price: 65, active: true },
-  { id: "sesion-grupal", name: "Sesión grupal", description: "Actividad grupal", duration: 50, price: 12, active: true, type: "group", capacity: 6, monthlyPrice: 45, dropInPrice: 12, commissionPerPatient: 35 }
+  { id: "sesion-grupal", name: "SesiÃ³n grupal", description: "Actividad grupal", duration: 50, price: 12, active: true, type: "group", capacity: 6, monthlyPrice: 45, dropInPrice: 12, commissionPerPatient: 35 }
 ];
 
 const defaultPatients = [
   { id: "p1", name: "Marta Soler", phone: "600 123 456", email: "marta@example.com", last: "23 abr", status: "Activo", alert: "Dolor lumbar recurrente" },
-  { id: "p2", name: "Carlos Ruiz", phone: "611 234 567", email: "carlos@example.com", last: "25 abr", status: "Activo", alert: "Recuperación de rodilla" },
+  { id: "p2", name: "Carlos Ruiz", phone: "611 234 567", email: "carlos@example.com", last: "25 abr", status: "Activo", alert: "RecuperaciÃ³n de rodilla" },
   { id: "p3", name: "Elena Pardo", phone: "622 345 678", email: "elena@example.com", last: "18 abr", status: "Revision", alert: "Revisar evolucion cervical" },
   { id: "p4", name: "Javier Lobo", phone: "633 456 789", email: "javier@example.com", last: "26 abr", status: "Activo", alert: "Sin alertas relevantes" }
 ];
 
 const defaultClinic = {
-  name: "Clínica Demo Klinia",
+  name: "ClÃ­nica Demo Klinia",
   email: "demo@klinia.local",
   phone: "600 000 000",
   openingStart: "09:00",
@@ -37,7 +37,7 @@ const defaultClinic = {
 const saasPlans = [
   { id: "trial", name: "Demo", price: 0, interval: "1 mes gratis", summary: "Demo - 1 mes gratis" },
   { id: "kliniaplan", name: "Plan Profesional mensual", price: 50, interval: "mes", summary: "Profesional - 50 EUR/mes" },
-  { id: "kliniaplan_annual", name: "Plan Profesional anual", price: 500, interval: "año", summary: "Profesional - 500 EUR/año" }
+  { id: "kliniaplan_annual", name: "Plan Profesional anual", price: 500, interval: "aÃ±o", summary: "Profesional - 500 EUR/aÃ±o" }
 ];
 
 function todayIso(offsetDays = 0) {
@@ -50,14 +50,14 @@ const defaultAppointments = [
   { id: 1, date: todayIso(), patientId: "p1", practitionerId: "ana", roomId: "sala-1", serviceId: "deportiva", start: "09:00", status: "confirmed", internalNotes: "" },
   { id: 2, date: todayIso(), patientId: "p2", practitionerId: "luis", roomId: "gimnasio", serviceId: "readaptacion", start: "10:00", status: "confirmed", internalNotes: "" },
   { id: 3, date: todayIso(), patientId: "p3", practitionerId: "clara", roomId: "sala-2", serviceId: "fisio", start: "11:00", status: "pending", internalNotes: "" },
-  { id: 4, date: todayIso(1), patientId: "p4", practitionerId: "ana", roomId: "sala-1", serviceId: "fisio", start: "13:00", status: "completed", internalNotes: "Sesión realizada y cobrada en clinica." },
+  { id: 4, date: todayIso(1), patientId: "p4", practitionerId: "ana", roomId: "sala-1", serviceId: "fisio", start: "13:00", status: "completed", internalNotes: "SesiÃ³n realizada y cobrada en clinica." },
   { id: 5, date: todayIso(7), patientId: "p1", practitionerId: "clara", roomId: "sala-grupal", serviceId: "sesion-grupal", start: "16:00", status: "confirmed", internalNotes: "" }
 ];
 
 const defaultGroups = [
   {
     id: "grp-demo-sesion-grupal",
-    name: "Sesión grupal tarde",
+    name: "SesiÃ³n grupal tarde",
     serviceId: "sesion-grupal",
     practitionerId: "clara",
     roomId: "sala-grupal",
@@ -87,9 +87,9 @@ const permissionLabels = {
   agenda: "Agenda",
   pacientes: "Pacientes",
   automatizaciones: "Recordatorios",
-  facturacion: "Facturación",
+  facturacion: "FacturaciÃ³n",
   rendimiento: "Rendimiento",
-  configuracion: "Configuración completa",
+  configuracion: "ConfiguraciÃ³n completa",
   disponibilidad: "Disponibilidad / vacaciones"
 };
 
@@ -315,7 +315,7 @@ function saveSyncedClinicState(key, value) {
   saveClinicDataToBackend(key, value).catch((error) => {
     console.warn(`Klinia backend sync failed for ${key}`, error);
     if (!isBackendPermissionError(error)) {
-      showToast("No se pudieron guardar algunos datos en la nube. Int�ntalo de nuevo.", "warning");
+      showToast("No se pudieron guardar algunos datos en la nube. Intï¿½ntalo de nuevo.", "warning");
     }
   });
 }
@@ -521,7 +521,7 @@ function loginPrincipalByIdentifier(value) {
         account,
         profile: "owner",
         password: ownerPasswordForAccount(account),
-        label: account.ownerName || "Dirección"
+        label: account.ownerName || "DirecciÃ³n"
       };
     }
     if (String(account.staffEmail || "").trim().toLowerCase() === normalized) {
@@ -633,7 +633,7 @@ function normalizeAppointments(savedAppointments) {
 function normalizeGroups(savedGroups) {
   return (Array.isArray(savedGroups) ? savedGroups : []).map((group) => ({
     id: `grp-${Date.now()}`,
-    name: "Sesión grupal",
+    name: "SesiÃ³n grupal",
     serviceId: services?.[0]?.id || "",
     practitionerId: practitioners?.[0]?.id || "",
     roomId: rooms?.[0]?.id || "",
@@ -798,7 +798,7 @@ function normalizePractitioners(savedPractitioners) {
 
 function defaultReminderSettings() {
   return {
-    reminderMessageTemplate: "Hola {{paciente}}, te recordamos tu cita en {{clinica}} el {{fecha}} a las {{hora}} con {{profesional}}. Si necesitas cambiarla, contacta con la clínica."
+    reminderMessageTemplate: "Hola {{paciente}}, te recordamos tu cita en {{clinica}} el {{fecha}} a las {{hora}} con {{profesional}}. Si necesitas cambiarla, contacta con la clÃ­nica."
   };
 }
 
@@ -839,6 +839,7 @@ let groupSessionOverrides = normalizeGroupSessionOverrides(loadClinicState("grou
 let consentTemplates = loadClinicState("consent-templates", []);
 let googleConfig = { enabled: false, client_id: "" };
 let googleScriptLoading = null;
+let googleAuthInitializing = null;
 let googlePendingContext = "";
 let googleInitializedClientId = "";
 let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
@@ -854,6 +855,7 @@ const googleAuthDebug = (() => {
 let sessionPacks = normalizeSessionPacks(loadClinicState("session-packs", []));
 let clinicLogo = loadClinicState("clinic-logo", "");
 let patientConsents = loadClinicState("patient-consents", []);
+ensurePatientConsentFiles();
 let patientPacks = normalizePatientPacks(loadClinicState("patient-packs", []));
 let manualBillingMovements = loadClinicState("manual-billing-movements", []);
 let attendanceRecords = loadClinicState("attendance-records", []);
@@ -934,10 +936,10 @@ const sectionTitles = {
   agenda: "Agenda",
   pacientes: "Pacientes",
   automatizaciones: "Recordatorios",
-  facturacion: "Facturación",
+  facturacion: "FacturaciÃ³n",
   rendimiento: "Rendimiento",
-  suscripcion: "Mi suscripción",
-  configuracion: "Configuración",
+  suscripcion: "Mi suscripciÃ³n",
+  configuracion: "ConfiguraciÃ³n",
   permisos: "Permisos"
 };
 
@@ -1011,7 +1013,7 @@ function confirmClinicReset(message) {
   if (!dialog || !form) {
     return Promise.resolve(false);
   }
-  $("#clinic-reset-message").textContent = "¿Estás seguro que desea resetear clínica?";
+  $("#clinic-reset-message").textContent = "Â¿EstÃ¡s seguro que desea resetear clÃ­nica?";
   form.reset();
   return new Promise((resolve) => {
     let confirmed = false;
@@ -1177,7 +1179,7 @@ function renderLoginProfiles() {
   const account = clinicAccountByKey(selectedKey);
   const loginPractitioners = normalizePractitioners(loadClinicStateFor(selectedKey, "practitioners", selectedKey === demoClinicKey ? defaultPractitioners : []));
   profileSelect.innerHTML = "";
-  profileSelect.append(new Option("Dirección", "owner"));
+  profileSelect.append(new Option("DirecciÃ³n", "owner"));
   if (account?.staffEmail) {
     profileSelect.append(new Option("Recepcion / empleado", "staff"));
   }
@@ -1326,43 +1328,43 @@ function friendlyBackendDetailMessage(message, status = 0) {
     : String(message || "");
   const lower = text.toLowerCase();
   if (lower.includes("valid email") || lower.includes("value is not a valid email") || lower.includes("email address")) {
-    return "El email introducido no es válido.";
+    return "El email introducido no es vÃ¡lido.";
   }
   if (lower.includes("invalid email or password")) {
-    return "Usuario o contraseña incorrectos.";
+    return "Usuario o contraseÃ±a incorrectos.";
   }
   if (lower.includes("too many login attempts")) {
     return "Se han hecho demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
   }
   if (lower.includes("google login is not configured")) {
-    return "Entrar con Google no está disponible en este momento.";
+    return "Entrar con Google no estÃ¡ disponible en este momento.";
   }
   if (lower.includes("invalid google token") || lower.includes("could not verify google identity")) {
-    return "No se pudo verificar la cuenta de Google. Inténtalo de nuevo.";
+    return "No se pudo verificar la cuenta de Google. IntÃ©ntalo de nuevo.";
   }
   if (lower.includes("google email is not verified")) {
-    return "El correo de Google no está verificado.";
+    return "El correo de Google no estÃ¡ verificado.";
   }
   if (lower.includes("password must have at least 8 characters")) {
-    return "La contraseña debe tener al menos 8 caracteres.";
+    return "La contraseÃ±a debe tener al menos 8 caracteres.";
   }
   if (lower.includes("password must include at least one uppercase")) {
-    return "La contraseña debe incluir al menos una mayúscula.";
+    return "La contraseÃ±a debe incluir al menos una mayÃºscula.";
   }
   if (lower.includes("password must include at least one lowercase")) {
-    return "La contraseña debe incluir al menos una minúscula.";
+    return "La contraseÃ±a debe incluir al menos una minÃºscula.";
   }
   if (lower.includes("password must include at least one number or symbol")) {
-    return "La contraseña debe incluir al menos un número o símbolo.";
+    return "La contraseÃ±a debe incluir al menos un nÃºmero o sÃ­mbolo.";
   }
   if (lower.includes("password is too long")) {
-    return "La contraseña es demasiado larga.";
+    return "La contraseÃ±a es demasiado larga.";
   }
   if (lower.includes("not found") || lower.includes("404_not_found")) {
     return status === 404 ? "No hemos encontrado el recurso solicitado." : text;
   }
   if (lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("connection error")) {
-    return "No hemos podido conectar con el servidor. Inténtalo de nuevo.";
+    return "No hemos podido conectar con el servidor. IntÃ©ntalo de nuevo.";
   }
   return text || `Error ${status || "desconocido"}`;
 }
@@ -1391,8 +1393,8 @@ async function backendRequest(path, options = {}) {
   } catch (fetchError) {
     const aborted = fetchError?.name === "AbortError";
     const error = new Error(aborted
-      ? "Klinia ha tardado demasiado en responder. Inténtalo de nuevo."
-      : "No hemos podido conectar con el servidor. Inténtalo de nuevo.");
+      ? "Klinia ha tardado demasiado en responder. IntÃ©ntalo de nuevo."
+      : "No hemos podido conectar con el servidor. IntÃ©ntalo de nuevo.");
     error.status = 0;
     error.network = true;
     error.timeout = aborted;
@@ -1622,12 +1624,12 @@ const superadminModuleMeta = {
   "clinic-detail": ["Detalle de clinica", "Vista operativa de una clinica: usuarios, suscripcion, actividad y acciones."],
   users: ["Usuarios", "Usuarios globales por clinica, rol, estado y ultimo acceso."],
   subscriptions: ["Planes y suscripciones", "Catalogo y estado de suscripciones conectado a datos reales disponibles."],
-  billing: ["Facturación", "Resumen preparado para ingresos, facturas, impagos y exportacion."],
+  billing: ["FacturaciÃ³n", "Resumen preparado para ingresos, facturas, impagos y exportacion."],
   support: ["Soporte y tickets", "Base para incidencias, prioridad, estado, asignacion e historial."],
   audit: ["Auditoria", "Eventos persistentes de backend con filtros por clinica, usuario, accion y fecha."],
   communications: ["Comunicaciones", "Base para emails, campanas, aperturas e historico."],
   reports: ["Informes", "Metricas clave y exportaciones operativas."],
-  settings: ["Configuración", "Parametros globales, seguridad, branding, API y webhooks."],
+  settings: ["ConfiguraciÃ³n", "Parametros globales, seguridad, branding, API y webhooks."],
   system: ["Integraciones y logs", "Estado tecnico de integraciones, errores, advertencias y eventos del sistema."]
 };
 const superadminActionLabels = {
@@ -1644,7 +1646,7 @@ const superadminActionLabels = {
   "create-practitioner": "Trabajador creado",
   "update-practitioner": "Trabajador actualizado",
   "delete-practitioner": "Trabajador eliminado",
-  "update-clinic-settings": "Configuración actualizada",
+  "update-clinic-settings": "ConfiguraciÃ³n actualizada",
   "superadmin-reset-password": "Clave reseteada",
   "superadmin-repair-access": "Acceso reparado",
   "superadmin-impersonate-clinic": "Impersonacion",
@@ -1855,8 +1857,8 @@ function superadminStatusLabel(value) {
     incomplete: "Incompleta",
     canceled: "Cancelada",
     archived: "Archivada",
-    review_required: "Revisión requerida",
-    local_pending_backend: "Revisión requerida"
+    review_required: "RevisiÃ³n requerida",
+    local_pending_backend: "RevisiÃ³n requerida"
   }[value] || value || "-";
 }
 
@@ -2180,7 +2182,7 @@ function renderSuperadminPreparedPanels() {
     </section>
   `;
   $("#superadmin-communications-grid").innerHTML = `<section class="superadmin-card superadmin-card-wide"><div class="superadmin-card-head"><h2>Comunicaciones</h2><span>Vista informativa</span></div><p>Aun no hay proveedor de email conectado desde superadmin. No se muestran botones de envio para evitar acciones aparentes. Cuando se conecte email transaccional, aqui se centralizaran altas, recuperaciones, avisos de pago y campanas.</p></section>`;
-  $("#superadmin-reports-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Informe operativo</h2><span>Datos backend</span></div><dl class="superadmin-definition-list"><dt>Clinicas activas</dt><dd>${activeClinics.length}</dd><dt>Clinicas de prueba</dt><dd>${trialClinics.length}</dd><dt>Conversion prueba a pago</dt><dd>${conversionRate}%</dd><dt>Usuarios activos</dt><dd>${(superadminData.users || []).filter((user) => user.active).length}</dd><dt>Facturación estimada mensual</dt><dd>${activeClinics.length * 50} EUR</dd></dl></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>Alcance actual</h2><span>Operativo</span></div><p>Los informes actuales usan clinicas, usuarios, estados de suscripcion y auditoria de backend. La facturacion real cobrada por Stripe se ampliara cuando se persista el libro de invoices en backend.</p></section>`;
+  $("#superadmin-reports-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Informe operativo</h2><span>Datos backend</span></div><dl class="superadmin-definition-list"><dt>Clinicas activas</dt><dd>${activeClinics.length}</dd><dt>Clinicas de prueba</dt><dd>${trialClinics.length}</dd><dt>Conversion prueba a pago</dt><dd>${conversionRate}%</dd><dt>Usuarios activos</dt><dd>${(superadminData.users || []).filter((user) => user.active).length}</dd><dt>FacturaciÃ³n estimada mensual</dt><dd>${activeClinics.length * 50} EUR</dd></dl></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>Alcance actual</h2><span>Operativo</span></div><p>Los informes actuales usan clinicas, usuarios, estados de suscripcion y auditoria de backend. La facturacion real cobrada por Stripe se ampliara cuando se persista el libro de invoices en backend.</p></section>`;
   $("#superadmin-settings-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Seguridad</h2><span>Activo</span></div><p>Superadmin protegido por rol backend, claves hasheadas, claves temporales con cambio obligatorio y freno de intentos de login activo. MFA queda como siguiente mejora de seguridad.</p></section><section class="superadmin-card"><div class="superadmin-card-head"><h2>API y webhooks</h2><span>Supervisado</span></div><p>Stripe webhook y API publica se consultan desde backend. No se exponen secretos en UI y los estados se verifican desde Sistema.</p></section>`;
   const loadErrors = superadminData.loadErrors || [];
   $("#superadmin-system-grid").innerHTML = `<section class="superadmin-card"><div class="superadmin-card-head"><h2>Estado del sistema</h2><span>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</span></div><dl class="superadmin-definition-list"><dt>App</dt><dd>${escapeHtml(superadminData.health?.app || "Klinia")}</dd><dt>Entorno</dt><dd>${escapeHtml(superadminData.health?.env || "-")}</dd><dt>Stripe</dt><dd>${superadminData.health?.stripe_configured ? "Configurado" : "No configurado"}</dd><dt>Setup</dt><dd>${escapeHtml(superadminData.health?.backend_setup_status || "-")}</dd><dt>Carga del panel</dt><dd>${loadErrors.length ? escapeHtml(`${loadErrors.length} aviso(s)`) : "Completa"}</dd></dl>${loadErrors.length ? `<p class="superadmin-sync-note">${escapeHtml(loadErrors.join(" | "))}</p>` : ""}</section>`;
@@ -2242,7 +2244,7 @@ function superadminRowsForExport() {
       { metrica: "Clinicas de prueba", valor: trialClinics.length },
       { metrica: "Conversion prueba a pago", valor: `${payingPool ? Math.round((activeClinics.length / payingPool) * 100) : 0}%` },
       { metrica: "Usuarios activos", valor: (superadminData.users || []).filter((user) => user.active).length },
-      { metrica: "Facturación estimada mensual", valor: `${activeClinics.length * 50} EUR` },
+      { metrica: "FacturaciÃ³n estimada mensual", valor: `${activeClinics.length * 50} EUR` },
       { metrica: "Eventos auditoria", valor: superadminData.audit.length },
       { metrica: "Incidencias acceso", valor: (superadminData.accessIssues || []).length }
     ];
@@ -2722,7 +2724,7 @@ async function superadminImpersonateClinic(clinicId) {
       ownerEmail: clinic.email || ""
     });
     enterPlatform("owner", accountKey);
-    showToast(`Sesión temporal abierta en ${clinic.name}.`, "success");
+    showToast(`SesiÃ³n temporal abierta en ${clinic.name}.`, "success");
   } catch (error) {
     showToast(`No se pudo impersonar la clinica: ${error.message}`, "error");
   }
@@ -2974,7 +2976,7 @@ async function syncPractitionerAccessUserIfAvailable(practitioner, previousPract
 
 async function sendPractitionerAccessEmail(practitioner, purpose = "invite") {
   if (!backendDataEnabled()) {
-    throw new Error("Inicia sesión con backend activo para enviar accesos por email.");
+    throw new Error("Inicia sesiÃ³n con backend activo para enviar accesos por email.");
   }
   if (!practitioner?.id || !looksLikeBackendId(practitioner.id)) {
     throw new Error("Guarda primero el trabajador.");
@@ -3004,14 +3006,14 @@ async function notifyPractitionerAccessResult(result, purpose = "invite") {
   if (result?.email_sent) {
     await showNotice(
       purpose === "reset" ? "Restablecimiento enviado" : "Acceso enviado",
-      `Hemos enviado un email a ${result.email} para que cree su contraseña.`,
+      `Hemos enviado un email a ${result.email} para que cree su contraseÃ±a.`,
       { variant: "success" }
     );
     return;
   }
   const detail = result?.brevo_configured
     ? "No se pudo enviar el email por Brevo. Revisa la respuesta de la API o vuelve a intentarlo."
-    : "Brevo API no está configurado todavía. El trabajador está creado y el enlace seguro queda disponible para envío manual.";
+    : "Brevo API no estÃ¡ configurado todavÃ­a. El trabajador estÃ¡ creado y el enlace seguro queda disponible para envÃ­o manual.";
   await showNotice(
     "Acceso preparado",
     result?.activation_url ? `${detail}\n\nEnlace: ${result.activation_url}` : detail,
@@ -3067,24 +3069,24 @@ function backendProfileForUser(user = {}) {
 
 function backendLoginMessage(error) {
   if (error?.status === 401) {
-    return "Usuario o contraseña incorrectos.";
+    return "Usuario o contraseÃ±a incorrectos.";
   }
   if (error?.status === 409) {
     return "Ese email existe en mas de una clinica. Elige la clinica para continuar.";
   }
   if (error?.status === 422) {
-    return "Faltan usuario o contraseña, o la app esta usando una version antigua. Actualiza la página y vuelve a intentarlo.";
+    return "Faltan usuario o contraseÃ±a, o la app esta usando una version antigua. Actualiza la pÃ¡gina y vuelve a intentarlo.";
   }
   if (error?.status === 429) {
     return "Se han hecho demasiados intentos de acceso. Espera unos minutos y vuelve a intentarlo.";
   }
   if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
     if (error?.serverReachable) {
-      return "No hemos podido completar el acceso. Inténtalo de nuevo.";
+      return "No hemos podido completar el acceso. IntÃ©ntalo de nuevo.";
     }
-    return "No hemos podido conectar con el servidor. Inténtalo de nuevo.";
+    return "No hemos podido conectar con el servidor. IntÃ©ntalo de nuevo.";
   }
-  return error?.message || "No hemos podido comprobar el acceso. Inténtalo de nuevo.";
+  return error?.message || "No hemos podido comprobar el acceso. IntÃ©ntalo de nuevo.";
 }
 
 function looksLikeEmail(value) {
@@ -3105,7 +3107,7 @@ function profileLoginIdentity(account, profile, practitioner = null) {
     return {
       email: ownerEmailForAccount(account),
       password: ownerPasswordForAccount(account),
-      label: account.ownerName || "Dirección"
+      label: account.ownerName || "DirecciÃ³n"
     };
   }
   if (profile === "staff") {
@@ -3135,7 +3137,7 @@ function currentSessionAccessIdentity() {
   const account = currentClinicAccount();
   if (isOwner()) {
     return {
-      label: "Dirección",
+      label: "DirecciÃ³n",
       email: ownerEmailForAccount(account),
       localPassword: ownerPasswordForAccount(account),
       backendUserId: null,
@@ -3376,10 +3378,10 @@ async function tryBackendLogin(identifier, password, options = {}) {
 }
 
 function googleAuthErrorMessage(error) {
-  if (error?.status === 404) return "No existe ningún usuario de Klinia asociado a este correo. Contacta con la dirección de tu clínica.";
-  if (error?.status === 403) return "Este usuario está bloqueado, desactivado o el correo Google no está verificado.";
-  if (error?.status === 409) return "Este correo existe en más de una clínica. Elige la clínica para continuar.";
-  if (error?.status === 503) return "Entrar con Google aún no está configurado en Klinia.";
+  if (error?.status === 404) return "No existe ningÃºn usuario de Klinia asociado a este correo. Contacta con la direcciÃ³n de tu clÃ­nica.";
+  if (error?.status === 403) return "Este usuario estÃ¡ bloqueado, desactivado o el correo Google no estÃ¡ verificado.";
+  if (error?.status === 409) return "Este correo existe en mÃ¡s de una clÃ­nica. Elige la clÃ­nica para continuar.";
+  if (error?.status === 503) return "Entrar con Google aÃºn no estÃ¡ configurado en Klinia.";
   if (error?.network) return "No se pudo conectar con Klinia para verificar Google.";
   return error?.message || "No se pudo completar el acceso con Google.";
 }
@@ -3391,6 +3393,18 @@ function googleAuthLog(step, detail = undefined) {
   } else {
     console.info(`[Klinia Google] ${step}`, detail);
   }
+}
+
+function setGoogleAuthStatus(message = "") {
+  $$(".google-auth-status").forEach((item) => {
+    item.textContent = message;
+  });
+}
+
+function clearGoogleAuthSlots() {
+  $$(".google-auth-slot").forEach((slot) => {
+    slot.innerHTML = "";
+  });
 }
 
 function normalizeHelpSearch(value = "") {
@@ -3444,7 +3458,7 @@ async function updateHelpPlatformStatus() {
 async function loadGoogleAuthConfig() {
   try {
     googleConfig = await backendRequest("/auth/google/config", { auth: false, timeoutMs: 10000 });
-    googleAuthLog("config recibida", { enabled: Boolean(googleConfig.enabled), clientId: googleConfig.client_id ? "presente" : "vacío" });
+    googleAuthLog("config recibida", { enabled: Boolean(googleConfig.enabled), clientId: googleConfig.client_id ? "presente" : "vacÃ­o" });
   } catch (error) {
     googleConfig = { enabled: false, client_id: "" };
     googleAuthLog("config no disponible", error);
@@ -3466,7 +3480,7 @@ function waitForGoogleIdentity(timeoutMs = 9000) {
         return;
       }
       if (Date.now() - startedAt > timeoutMs) {
-        reject(new Error("Google Identity Services no terminó de inicializarse. Revisa CSP, bloqueadores o caché PWA."));
+        reject(new Error("Google Identity Services no terminÃ³ de inicializarse. Revisa CSP, bloqueadores o cachÃ© PWA."));
         return;
       }
       window.setTimeout(check, 120);
@@ -3475,25 +3489,38 @@ function waitForGoogleIdentity(timeoutMs = 9000) {
   });
 }
 
-function loadGoogleScript() {
-  if (window.google?.accounts?.id) {
+function loadGoogleScript(options = {}) {
+  const forceReload = Boolean(options.forceReload);
+  if (window.google?.accounts?.id && !forceReload) {
     googleAuthLog("script ya disponible");
     return Promise.resolve();
   }
-  if (googleScriptLoading) {
+  if (googleScriptLoading && !forceReload) {
     return googleScriptLoading;
   }
+  if (forceReload) {
+    googleScriptLoading = null;
+    document.querySelectorAll('script[src^="https://accounts.google.com/gsi/client"]').forEach((script) => script.remove());
+  }
   googleScriptLoading = new Promise((resolve, reject) => {
+    let settled = false;
     let script = document.querySelector('script[src="' + googleScriptSrc + '"]') || document.querySelector('script[src^="https://accounts.google.com/gsi/client"]');
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      callback(value);
+    };
     const complete = () => {
       googleAuthLog("script cargado, esperando window.google");
-      waitForGoogleIdentity().then(resolve).catch((error) => {
-        googleScriptLoading = null;
-        reject(error);
-      });
+      waitForGoogleIdentity(12000)
+        .then(() => finish(resolve))
+        .catch((error) => {
+          googleScriptLoading = null;
+          finish(reject, error);
+        });
     };
     if (!script) {
-      googleAuthLog("inyectando script GIS");
+      googleAuthLog(forceReload ? "reinyectando script GIS" : "inyectando script GIS");
       script = document.createElement("script");
       script.src = googleScriptSrc;
       script.async = true;
@@ -3505,7 +3532,7 @@ function loadGoogleScript() {
     script.addEventListener("load", complete, { once: true });
     script.addEventListener("error", () => {
       googleScriptLoading = null;
-      reject(new Error("No hemos podido cargar el acceso con Google. Int\u00e9ntalo de nuevo o usa email y contrase\u00f1a."));
+      finish(reject, new Error("No hemos podido cargar el acceso con Google. Intentalo de nuevo o usa email y contrasena."));
     }, { once: true });
     complete();
   });
@@ -3513,34 +3540,42 @@ function loadGoogleScript() {
 }
 
 async function initializeGoogleAuth() {
-  await loadGoogleAuthConfig();
+  if (googleAuthInitializing) {
+    return googleAuthInitializing;
+  }
+  googleAuthInitializing = initializeGoogleAuthAttempt(false).finally(() => {
+    googleAuthInitializing = null;
+  });
+  return googleAuthInitializing;
+}
+
+async function initializeGoogleAuthAttempt(retried = false) {
   const slots = $$(".google-auth-slot");
   if (!slots.length) return;
+  setGoogleAuthStatus(retried ? "Reintentando Google..." : "Comprobando Google...");
+  await loadGoogleAuthConfig();
   if (!googleConfig.enabled || !googleConfig.client_id) {
-    $$(".google-auth-status").forEach((item) => {
-      item.textContent = "Google no está disponible en este momento. Puedes entrar con email y contraseña.";
-    });
+    clearGoogleAuthSlots();
+    setGoogleAuthStatus("Google no esta activado para esta clinica. Puedes entrar con email y contrasena.");
     return;
   }
   try {
-    $$(".google-auth-status").forEach((item) => {
-      item.textContent = "Cargando Google...";
-    });
-    await loadGoogleScript();
+    setGoogleAuthStatus(retried ? "Cargando Google de nuevo..." : "Cargando Google...");
+    await loadGoogleScript({ forceReload: retried });
     if (!window.google?.accounts?.id) {
-      throw new Error("Google Identity Services no está disponible en esta página.");
+      throw new Error("Google Identity Services no esta disponible en esta pagina.");
     }
     window.google.accounts.id.disableAutoSelect?.();
     if (googleInitializedClientId !== googleConfig.client_id) {
       window.google.accounts.id.initialize({
-      client_id: googleConfig.client_id,
-      callback: handleGoogleCredential,
-      ux_mode: "popup",
-      auto_select: false,
-      cancel_on_tap_outside: true,
-      use_fedcm_for_button: false,
-      button_auto_select: false,
-      context: "signin"
+        client_id: googleConfig.client_id,
+        callback: handleGoogleCredential,
+        ux_mode: "popup",
+        auto_select: false,
+        cancel_on_tap_outside: true,
+        use_fedcm_for_button: false,
+        button_auto_select: false,
+        context: "signin"
       });
       googleInitializedClientId = googleConfig.client_id;
       googleAuthLog("initialize ejecutado");
@@ -3573,14 +3608,15 @@ async function initializeGoogleAuth() {
       });
       googleAuthLog("renderButton ejecutado", { context });
     });
-    $$(".google-auth-status").forEach((item) => {
-      item.textContent = "";
-    });
+    setGoogleAuthStatus("");
   } catch (error) {
+    if (!retried) {
+      console.warn("[Klinia Google] Primer intento fallido, reintentando Google Identity Services", error);
+      return initializeGoogleAuthAttempt(true);
+    }
     console.warn("[Klinia Google] No se pudo activar Google Identity Services", error);
-    $$(".google-auth-status").forEach((item) => {
-      item.textContent = "Google no está disponible ahora mismo. Puedes entrar con email y contraseña.";
-    });
+    clearGoogleAuthSlots();
+    setGoogleAuthStatus("Google no se ha podido cargar. Revisa el dominio autorizado o usa email y contrasena.");
   }
 }
 
@@ -3589,7 +3625,7 @@ async function handleGoogleCredential(response = {}) {
   const context = response.state || googlePendingContext || "login";
   googlePendingContext = "";
   if (!idToken) {
-    showToast("Google no devolvió una identidad válida.", "warning");
+    showToast("Google no devolviÃ³ una identidad vÃ¡lida.", "warning");
     return;
   }
   if (context === "register") {
@@ -3603,7 +3639,7 @@ async function handleGoogleCredential(response = {}) {
   await continueGoogleLogin(idToken);
 }
 
-async function chooseGoogleClinic(choices = [], title = "Elige clínica") {
+async function chooseGoogleClinic(choices = [], title = "Elige clÃ­nica") {
   const dialog = $("#google-clinic-choice-dialog");
   const list = $("#google-clinic-choice-list");
   if (!dialog || !list || !choices.length) return null;
@@ -3615,7 +3651,7 @@ async function chooseGoogleClinic(choices = [], title = "Elige clínica") {
   list.innerHTML = choices.map((choice) => `
     <button class="google-choice-card" type="button" data-google-clinic-id="${escapeHtml(choice.clinic_id || "")}">
       <strong>${escapeHtml(choice.clinic_name || "Klinia")}</strong>
-      <span>${escapeHtml(choice.name || choice.email || "")} · ${escapeHtml(choice.role || "")}</span>
+      <span>${escapeHtml(choice.name || choice.email || "")} Â· ${escapeHtml(choice.role || "")}</span>
     </button>
   `).join("");
   return new Promise((resolve) => {
@@ -3651,7 +3687,7 @@ async function continueGoogleLogin(idToken, clinicId = "") {
       return;
     }
     if (!result?.access_token) {
-      showLoginError("Google no ha devuelto una sesión válida de Klinia.");
+      showLoginError("Google no ha devuelto una sesiÃ³n vÃ¡lida de Klinia.");
       return;
     }
     const me = await backendRequest("/me", { token: result.access_token, auth: false });
@@ -3676,7 +3712,7 @@ async function prefillRegisterWithGoogle(idToken) {
     form.dataset.googleEmail = profile.email || "";
     if (form.elements.ownerName && profile.name) form.elements.ownerName.value = profile.name;
     if (form.elements.email && profile.email) form.elements.email.value = profile.email;
-    if (status) status.textContent = `Google verificado: ${profile.email}. Continúa completando la clínica.`;
+    if (status) status.textContent = `Google verificado: ${profile.email}. ContinÃºa completando la clÃ­nica.`;
     syncRegisterDraftFromForm();
     updateRegisterConfirmation();
   } catch (error) {
@@ -3717,7 +3753,7 @@ async function verifyGoogleRecovery(idToken) {
     const select = $("#google-recovery-clinic");
     const field = $("#google-recovery-clinic-field");
     if (select && field && result.requires_clinic_selection) {
-      select.innerHTML = `<option value="">Selecciona clínica</option>${(result.choices || []).map((choice) => `<option value="${escapeHtml(choice.clinic_id || "")}">${escapeHtml(choice.clinic_name || "Klinia")} · ${escapeHtml(choice.role || "")}</option>`).join("")}`;
+      select.innerHTML = `<option value="">Selecciona clÃ­nica</option>${(result.choices || []).map((choice) => `<option value="${escapeHtml(choice.clinic_id || "")}">${escapeHtml(choice.clinic_name || "Klinia")} Â· ${escapeHtml(choice.role || "")}</option>`).join("")}`;
       field.classList.remove("hidden");
     } else {
       field?.classList.add("hidden");
@@ -3743,7 +3779,7 @@ async function saveGoogleRecoveredPassword() {
     return;
   }
   if (googleRecoveryState.choices.length > 1 && !selectedClinicId) {
-    setInlineError("#access-recovery-error", "Selecciona la clínica antes de guardar la nueva clave.");
+    setInlineError("#access-recovery-error", "Selecciona la clÃ­nica antes de guardar la nueva clave.");
     return;
   }
   if (policyMessage) {
@@ -3766,7 +3802,7 @@ async function saveGoogleRecoveredPassword() {
     });
     $("#access-recovery-dialog")?.close();
     resetGoogleRecoveryPanel();
-    await showNotice("Clave actualizada", "Ya puedes entrar con tu email y la nueva clave. También podrás usar Google si tu usuario queda vinculado.", { variant: "success" });
+    await showNotice("Clave actualizada", "Ya puedes entrar con tu email y la nueva clave. TambiÃ©n podrÃ¡s usar Google si tu usuario queda vinculado.", { variant: "success" });
   } catch (backendError) {
     if (error) {
       error.textContent = googleAuthErrorMessage(backendError);
@@ -3794,10 +3830,10 @@ function activationAccessErrorMessage(error) {
   if (statusCode === 410 && message.toLowerCase().includes("caduc")) {
     return "Este enlace ha caducado. Solicita uno nuevo.";
   }
-  if (statusCode === 404 || statusCode === 410 || message.toLowerCase().includes("utilizado") || message.toLowerCase().includes("válido")) {
-    return "Este enlace no es válido o ya ha sido utilizado.";
+  if (statusCode === 404 || statusCode === 410 || message.toLowerCase().includes("utilizado") || message.toLowerCase().includes("vÃ¡lido")) {
+    return "Este enlace no es vÃ¡lido o ya ha sido utilizado.";
   }
-  return "No se pudo crear la contraseña. Inténtalo de nuevo o contacta con la clínica.";
+  return "No se pudo crear la contraseÃ±a. IntÃ©ntalo de nuevo o contacta con la clÃ­nica.";
 }
 
 function showActivationAccessScreen() {
@@ -3827,7 +3863,7 @@ function showActivationAccessScreen() {
     submitButton.classList.toggle("hidden", !token);
   }
   if (!token) {
-    setInlineError("#activation-access-error", "Este enlace no es válido o ya ha sido utilizado.");
+    setInlineError("#activation-access-error", "Este enlace no es vÃ¡lido o ya ha sido utilizado.");
   }
 }
 
@@ -3839,7 +3875,7 @@ function clearAccessTokenFromUrl() {
     const nextPath = url.pathname.replace(/\/activar-acceso\/?$/, "/");
     window.history.replaceState({}, "", `${nextPath}${url.search}${url.hash}`);
   } catch (error) {
-    // No bloquea el alta de contraseña si el navegador no permite modificar la URL.
+    // No bloquea el alta de contraseÃ±a si el navegador no permite modificar la URL.
   }
 }
 
@@ -3857,9 +3893,9 @@ function setupAccessTokenPasswordDialog() {
     $("#activation-access-success")?.classList.remove("visible");
     const newPassword = form.elements.newPassword.value || "";
     const confirmPassword = form.elements.confirmPassword.value || "";
-    const policyMessage = registerPasswordPolicyMessage(newPassword).replace("contrasena", "contraseña");
+    const policyMessage = registerPasswordPolicyMessage(newPassword).replace("contrasena", "contraseÃ±a");
     if (!pendingAccessToken) {
-      setInlineError("#activation-access-error", "Este enlace no es válido o ya ha sido utilizado.");
+      setInlineError("#activation-access-error", "Este enlace no es vÃ¡lido o ya ha sido utilizado.");
       return;
     }
     if (policyMessage) {
@@ -3867,7 +3903,7 @@ function setupAccessTokenPasswordDialog() {
       return;
     }
     if (newPassword !== confirmPassword) {
-      setInlineError("#activation-access-error", "Las dos contraseñas no coinciden.");
+      setInlineError("#activation-access-error", "Las dos contraseÃ±as no coinciden.");
       return;
     }
     const submitButton = $("#activation-submit-button") || form.querySelector('button[type="submit"]');
@@ -3887,7 +3923,7 @@ function setupAccessTokenPasswordDialog() {
       clearRealLoginFields();
       const success = $("#activation-access-success");
       if (success) {
-        success.textContent = "Contraseña creada correctamente. Ya puedes iniciar sesión en Klinia.";
+        success.textContent = "ContraseÃ±a creada correctamente. Ya puedes iniciar sesiÃ³n en Klinia.";
         success.classList.add("visible");
       }
       $("#activation-login-button")?.classList.remove("hidden");
@@ -5188,7 +5224,7 @@ function serviceCommissionAmount(appointment, practitioner) {
 }
 
 function serviceKindLabel(service) {
-  return service?.type === "group" ? "Sesión grupal" : "Individual";
+  return service?.type === "group" ? "SesiÃ³n grupal" : "Individual";
 }
 
 function packServiceLabel(pack) {
@@ -5957,7 +5993,7 @@ function appointmentConflictMessage(candidate, appointmentConflict) {
     return `Conflicto: el profesional ${practitioner?.name || "seleccionado"} ya tiene una cita de ${appointmentConflict.start} a ${conflictEnd}.`;
   }
   if (String(appointmentConflict.roomId) === String(candidate.roomId)) {
-    return `Conflicto: la ${room?.name || "sala seleccionada"} ya está ocupada de ${appointmentConflict.start} a ${conflictEnd}.`;
+    return `Conflicto: la ${room?.name || "sala seleccionada"} ya estÃ¡ ocupada de ${appointmentConflict.start} a ${conflictEnd}.`;
   }
   if (String(appointmentConflict.patientId) === String(candidate.patientId)) {
     return `Conflicto: el paciente ${patient?.name || "seleccionado"} ya tiene una cita asignada de ${appointmentConflict.start} a ${conflictEnd}.`;
@@ -5975,15 +6011,15 @@ function groupConflictMessage(candidate, groupConflict) {
         || groupDropInsFor(groupConflict, candidate.date || selectedDate).some((entry) => String(entry.patientId) === String(candidate.patientId))
     );
   if (patientInGroup) {
-    return `Conflicto: el paciente ya está inscrito en la sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+    return `Conflicto: el paciente ya estÃ¡ inscrito en la sesiÃ³n grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
   }
   if (String(groupConflict.practitionerId) === String(candidate.practitionerId)) {
-    return `Conflicto: el profesional ${practitioner?.name || "seleccionado"} ya tiene la sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+    return `Conflicto: el profesional ${practitioner?.name || "seleccionado"} ya tiene la sesiÃ³n grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
   }
   if (String(groupConflict.roomId) === String(candidate.roomId)) {
-    return `Conflicto: la ${room?.name || "sala seleccionada"} ya está ocupada por la sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+    return `Conflicto: la ${room?.name || "sala seleccionada"} ya estÃ¡ ocupada por la sesiÃ³n grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
   }
-  return `Conflicto: sesión grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
+  return `Conflicto: sesiÃ³n grupal ${groupConflict.name} de ${groupConflict.start} a ${groupEndTime}.`;
 }
 
 function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
@@ -5994,7 +6030,7 @@ function appointmentScheduleConflict(candidate, ignoredAppointmentId = "") {
       type: "outside-hours",
       message: clinicWorksOnDate(candidate.date || selectedDate)
         ? `Conflicto: la cita queda fuera del horario laboral de ${practitioner?.name || "este profesional"}. Horario habitual: ${practitionerAvailabilityLabel(practitioner)}.`
-        : "Conflicto: la clínica no tiene atención configurada para ese día.",
+        : "Conflicto: la clÃ­nica no tiene atenciÃ³n configurada para ese dÃ­a.",
       item: practitioner
     };
   }
@@ -6107,12 +6143,32 @@ function fillSelect(select, items, label = "name", allLabel = "") {
   items.forEach((item) => select.append(new Option(item[label], item.id)));
 }
 
-function selectedAgendaPractitioners() {
-  const savedIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => String(item.id) === String(id)));
-  if (selectedPractitionerIds.includes("all") || !savedIds.length) {
-    return practitioners;
+function activePractitioners() {
+  return practitioners.filter((practitioner) => practitioner.active !== false);
+}
+
+function normalizeAgendaPractitionerSelection({ persist = true } = {}) {
+  const previous = [...selectedPractitionerIds];
+  const source = activePractitioners();
+  const validIds = selectedPractitionerIds.filter((id) => source.some((item) => String(item.id) === String(id)));
+  if (!source.length || selectedPractitionerIds.includes("all") || !validIds.length) {
+    selectedPractitionerIds = ["all"];
+  } else {
+    selectedPractitionerIds = validIds;
   }
-  return practitioners.filter((item) => savedIds.some((id) => String(id) === String(item.id)));
+  if (persist && previous.join("|") !== selectedPractitionerIds.join("|")) {
+    saveState("selected-practitioner-ids", selectedPractitionerIds);
+  }
+  return selectedPractitionerIds;
+}
+
+function selectedAgendaPractitioners() {
+  const normalized = normalizeAgendaPractitionerSelection({ persist: false });
+  const source = activePractitioners();
+  if (normalized.includes("all")) {
+    return source;
+  }
+  return source.filter((item) => normalized.some((id) => String(id) === String(item.id)));
 }
 
 function appointmentPassesAgendaFilters(appointment) {
@@ -6130,10 +6186,11 @@ function renderFilters() {
   fillSelect($("#filter-room"), rooms, "name", "Todas las salas");
   const performanceSelect = $("#worker-profile-select");
   const previousPerformanceWorker = selectedPerformancePractitionerId || performanceSelect?.value || "";
-  fillSelect(performanceSelect, practitioners);
-  const nextPerformanceWorker = practitioners.some((item) => String(item.id) === String(previousPerformanceWorker))
+  const reportPractitioners = activePractitioners();
+  fillSelect(performanceSelect, reportPractitioners);
+  const nextPerformanceWorker = reportPractitioners.some((item) => String(item.id) === String(previousPerformanceWorker))
     ? previousPerformanceWorker
-    : practitioners[0]?.id || "";
+    : reportPractitioners[0]?.id || "";
   if (performanceSelect) {
     performanceSelect.value = nextPerformanceWorker;
   }
@@ -6142,22 +6199,19 @@ function renderFilters() {
   fillSelect($("#performance-service-filter"), services, "name", "Todos los servicios");
   const workerFilter = $("#filter-practitioner");
   const workerMenu = workerFilter.querySelector(".worker-filter-menu");
-  const validIds = selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id));
-  if (!selectedPractitionerIds.includes("all") && !validIds.length) {
-    selectedPractitionerIds = ["all"];
-  }
+  normalizeAgendaPractitionerSelection();
   const visibleCount = selectedPractitionerIds.includes("all")
-    ? practitioners.length
-    : selectedPractitionerIds.filter((id) => practitioners.some((item) => item.id === id)).length;
+    ? activePractitioners().length
+    : selectedPractitionerIds.filter((id) => activePractitioners().some((item) => String(item.id) === String(id))).length;
   workerFilter.querySelector("summary").textContent = `Profesionales (${visibleCount || 0})`;
   workerMenu.innerHTML = `
     <label class="filter-chip">
       <input type="checkbox" value="all" ${selectedPractitionerIds.includes("all") ? "checked" : ""} />
       <span>Todos</span>
     </label>
-    ${practitioners.map((practitioner) => `
+    ${activePractitioners().map((practitioner) => `
       <label class="filter-chip">
-        <input type="checkbox" value="${practitioner.id}" ${selectedPractitionerIds.includes("all") || selectedPractitionerIds.includes(practitioner.id) ? "checked" : ""} />
+        <input type="checkbox" value="${practitioner.id}" ${selectedPractitionerIds.includes("all") || selectedPractitionerIds.some((id) => String(id) === String(practitioner.id)) ? "checked" : ""} />
         <span>${practitioner.name}</span>
       </label>
     `).join("")}
@@ -6176,11 +6230,13 @@ function renderWorkerColorLegend() {
   if (!legend) {
     return;
   }
-  legend.innerHTML = practitioners.length
-    ? practitioners.map((practitioner) => `
+  const visiblePractitioners = selectedAgendaPractitioners();
+  const loading = backendInitialLoadPending && backendDataEnabled();
+  legend.innerHTML = visiblePractitioners.length
+    ? visiblePractitioners.map((practitioner) => `
       <button class="worker-color-key" type="button" data-worker-jump="${practitioner.id}" title="${practitioner.name}" aria-label="Ver agenda de ${practitioner.name}" style="--worker-color:${practitioner.color || "#168776"}"></button>
     `).join("")
-    : "";
+    : (loading ? `<span class="worker-color-loading">Cargando profesionales...</span>` : "");
 
   $$("[data-worker-jump]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -6267,7 +6323,7 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
   }
   const exact = findPatientByExactName(value);
   if (exact) {
-    hint.textContent = `Paciente existente: ${exact.name}. Se usará esta ficha.`;
+    hint.textContent = `Paciente existente: ${exact.name}. Se usarÃ¡ esta ficha.`;
     hint.classList.remove("appointment-patient-create-ready");
     form.elements.patient.value = exact.id;
     updateAppointmentPackOptions(form);
@@ -6278,7 +6334,7 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
   updateAppointmentPackOptions(form);
   hint.textContent = value.length < 3
     ? "Escribe al menos 3 caracteres para crear un paciente nuevo."
-    : `Crear paciente: ${value}${similar.length ? ` · Coincidencias parecidas: ${similar.map((patient) => patient.name).join(", ")}` : ""}`;
+    : `Crear paciente: ${value}${similar.length ? ` Â· Coincidencias parecidas: ${similar.map((patient) => patient.name).join(", ")}` : ""}`;
   hint.classList.toggle("appointment-patient-create-ready", value.length >= 3);
 }
 
@@ -6382,7 +6438,7 @@ function appointmentOutsideHoursMessage(form = $("#appointment-form")) {
   }
   const end = addMinutes(start, formDurationMinutes(form, service?.duration || 60));
   return isOutsidePractitionerHours(practitioner, start, end, dateValue)
-    ? `Está creando una cita fuera de horario o fuera de los dias de atencion. Horario habitual: ${practitionerAvailabilityLabel(practitioner)}.`
+    ? `EstÃ¡ creando una cita fuera de horario o fuera de los dias de atencion. Horario habitual: ${practitionerAvailabilityLabel(practitioner)}.`
     : "";
 }
 
@@ -6396,7 +6452,7 @@ function updateAppointmentDurationPreview(form = $("#appointment-form")) {
     return;
   }
   const duration = formDurationMinutes(form, service.duration || 60);
-  preview.textContent = `Duración del servicio: ${duration} min. La cita quedará ${start} - ${addMinutes(start, duration)}.`;
+  preview.textContent = `DuraciÃ³n del servicio: ${duration} min. La cita quedarÃ¡ ${start} - ${addMinutes(start, duration)}.`;
 }
 
 function setAppointmentFormDurationFromService(form = $("#appointment-form")) {
@@ -7056,7 +7112,7 @@ function renderWeekAppointment(appointment, slotStart = slotStartForTime(appoint
     <span class="appointment-service">${service?.name || "Servicio"}</span>
     <span class="appointment-room">${room?.name || "Sala"}</span>
   `;
-  button.title = `${appointment.start} - ${appointmentEnd(appointment)} · ${patient?.name || "Paciente no encontrado"} · ${service?.name || "Servicio"} · ${practitioner?.name || "Profesional"}`;
+  button.title = `${appointment.start} - ${appointmentEnd(appointment)} Â· ${patient?.name || "Paciente no encontrado"} Â· ${service?.name || "Servicio"} Â· ${practitioner?.name || "Profesional"}`;
   if (useTimedBlock) {
     applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart, timedOptions);
   }
@@ -7088,7 +7144,7 @@ function renderAppointment(appointment, slotStart = slotStartForTime(appointment
     <span class="appointment-service">${service?.name || "Servicio"}</span>
     <span class="appointment-room">${room?.name || "Sala"} - ${statusLabel(appointment.status)}</span>
   `;
-  button.title = `${appointment.start} - ${appointmentEnd(appointment)} · ${patient?.name || "Paciente no encontrado"} · ${service?.name || "Servicio"} · ${room?.name || "Sala"} · ${statusLabel(appointment.status)}`;
+  button.title = `${appointment.start} - ${appointmentEnd(appointment)} Â· ${patient?.name || "Paciente no encontrado"} Â· ${service?.name || "Servicio"} Â· ${room?.name || "Sala"} Â· ${statusLabel(appointment.status)}`;
   applyTimedBlockStyle(button, appointment.start, appointmentEnd(appointment), slotStart);
   setupAppointmentDrag(button, appointment);
   button.addEventListener("click", () => {
@@ -7213,7 +7269,7 @@ function renderGroupBlock(group, dateValue = selectedDate, mode = "day", slotSta
     <span class="appointment-room">${room?.name || "Sala"} - ${dateValue}</span>
     ${group.sessionOverride ? `<em class="session-exception-badge">Cambio puntual</em>` : ""}
   `;
-  card.title = `${group.start} - ${groupEnd(group)} · ${group.name} · ${service?.name || "Servicio grupal"} · ${practitioner?.name || "Profesional"}`;
+  card.title = `${group.start} - ${groupEnd(group)} Â· ${group.name} Â· ${service?.name || "Servicio grupal"} Â· ${practitioner?.name || "Profesional"}`;
   if (useTimedBlock) {
     applyTimedBlockStyle(card, group.start, groupEnd(group), slotStart, timedOptions);
   }
@@ -7242,7 +7298,7 @@ function showGroupSummary(group, dateValue = selectedDate) {
     const practitioner = byId(practitioners, group.practitionerId);
     const room = byId(rooms, group.roomId);
     const names = groupFixedPatients(group).map((patient) => patient.name).join(", ") || "Sin pacientes inscritos";
-    showNotice("Sesión grupal", `${group.name}\n${service?.name || "Servicio"}\n${weekDayLabels[dayKeyFor(dateValue)] || dateValue} ${group.start} - ${groupEnd(group)}\n${practitioner?.name || "Profesional"} - ${room?.name || "Sala"}\n${groupEnrollmentLabel(group, dateValue)}\nPacientes fijos: ${names}`);
+    showNotice("SesiÃ³n grupal", `${group.name}\n${service?.name || "Servicio"}\n${weekDayLabels[dayKeyFor(dateValue)] || dateValue} ${group.start} - ${groupEnd(group)}\n${practitioner?.name || "Profesional"} - ${room?.name || "Sala"}\n${groupEnrollmentLabel(group, dateValue)}\nPacientes fijos: ${names}`);
     return;
   }
 
@@ -7282,12 +7338,12 @@ function renderGroupSessionPanel(group, dateValue) {
         </div>
       </article>
     `).join("")
-    : `<article class="compact-item"><span>Sin pacientes fijos inscritos. Gestiona los fijos desde Configuración > Sesiones grupales.</span></article>`;
+    : `<article class="compact-item"><span>Sin pacientes fijos inscritos. Gestiona los fijos desde ConfiguraciÃ³n > Sesiones grupales.</span></article>`;
 
   extrasList.innerHTML = extras.length
     ? extras.map((entry) => {
         const patient = byId(patients, entry.patientId);
-        return `<article class="compact-item dropin-item"><div><strong>${patient?.name || entry.name || "Paciente"}</strong><span>Sesión suelta - ${entry.createdAt || ""}</span></div><button class="secondary-button" type="button" data-dropin-remove="${entry.id}">Quitar</button></article>`;
+        return `<article class="compact-item dropin-item"><div><strong>${patient?.name || entry.name || "Paciente"}</strong><span>SesiÃ³n suelta - ${entry.createdAt || ""}</span></div><button class="secondary-button" type="button" data-dropin-remove="${entry.id}">Quitar</button></article>`;
       }).join("")
     : `<article class="compact-item"><span>Sin sesiones sueltas para este dia.</span></article>`;
 
@@ -7333,16 +7389,16 @@ function renderGroupSessionPanel(group, dateValue) {
   const completedButton = $("#complete-group-session");
   if (completedButton) {
     completedButton.disabled = completed;
-    completedButton.textContent = completed ? "Sesión completada" : "Marcar sesion completada";
+    completedButton.textContent = completed ? "SesiÃ³n completada" : "Marcar sesion completada";
   }
   const completedLabel = $("#group-session-completed-label");
   if (completedLabel) {
     const production = groupSessionProduction(group, dateValue);
     completedLabel.textContent = completed
-      ? `Sesión completada. Base trabajador: ${production.revenue} EUR (${production.fixedSessionRevenue} EUR cuota prorrateada + ${production.dropinRevenue} EUR sueltos). Liquidacion: ${production.payout} EUR.`
+      ? `SesiÃ³n completada. Base trabajador: ${production.revenue} EUR (${production.fixedSessionRevenue} EUR cuota prorrateada + ${production.dropinRevenue} EUR sueltos). Liquidacion: ${production.payout} EUR.`
       : `Pendiente. Al completar se calculara la liquidacion del trabajador con cuota fija prorrateada y sueltos del dia (${production.payout} EUR estimados).`;
   }
-  $("#group-session-warning").textContent = free ? "" : "Sesión completa para este dia.";
+  $("#group-session-warning").textContent = free ? "" : "SesiÃ³n completa para este dia.";
   $("#group-session-capacity").textContent = groupEnrollmentLabel(group, dateValue);
 
   $$('[data-fixed-remove]').forEach((button) => {
@@ -7709,6 +7765,7 @@ function renderPatientDetail() {
     });
   });
 
+  ensurePatientConsentFiles();
   const consents = patientConsents.filter((item) => item.patientId === patient.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   $("#patient-consents").innerHTML = consents.length
     ? consents.map((item) => `
@@ -7716,11 +7773,17 @@ function renderPatientDetail() {
         <div>
           <strong>${escapeHtml(item.templateName || "Consentimiento")}</strong>
           <span>${escapeHtml(item.createdAt)} - ${escapeHtml(patientConsentStatusText(item))}${item.city ? ` - ${escapeHtml(item.city)}` : ""}${item.signatureDate ? ` - ${escapeHtml(formatConsentDate(item.signatureDate))}` : ""}</span>
-          <p>${escapeHtml(excerptText(item.body || "Consentimiento asignado al paciente."))}</p>
-          ${item.signatureData ? `<img class="signature-preview" src="${item.signatureData}" alt="Firma guardada">` : ""}
+          ${item.fileData ? `
+            <div class="signed-consent-file">
+              <strong>${escapeHtml(item.fileName || "consentimiento-firmado.html")}</strong>
+              <span>Archivo firmado guardado en la ficha</span>
+              <button class="secondary-button compact-inline-button" type="button" data-open-patient-consent-file="${item.id}">Abrir</button>
+              <button class="secondary-button compact-inline-button" type="button" data-download-patient-consent-file="${item.id}">Descargar</button>
+            </div>
+          ` : `<p>${escapeHtml(excerptText(item.body || "Consentimiento asignado al paciente."))}</p>`}
         </div>
         <div class="compact-actions">
-          <button class="secondary-button compact-inline-button" type="button" data-review-patient-consent="${item.id}">${item.revoked ? "Revisar" : "Editar"}</button>
+          <button class="secondary-button compact-inline-button" type="button" data-review-patient-consent="${item.id}">Revisar</button>
           <button class="secondary-button compact-inline-button" type="button" data-email-patient-consent="${item.id}">Enviar email</button>
           <button class="secondary-button compact-inline-button" type="button" data-revoke-patient-consent="${item.id}" ${item.revoked ? "disabled" : ""}>Revocar</button>
           <button class="danger-button compact-inline-button" type="button" data-delete-patient-consent="${item.id}">Eliminar</button>
@@ -7728,6 +7791,12 @@ function renderPatientDetail() {
       </article>
     `).join("")
     : `<article class="compact-item"><span>Sin consentimientos asignados.</span></article>`;
+  $$("[data-open-patient-consent-file]").forEach((button) => {
+    button.addEventListener("click", () => openPatientConsentFile(button.dataset.openPatientConsentFile));
+  });
+  $$("[data-download-patient-consent-file]").forEach((button) => {
+    button.addEventListener("click", () => downloadPatientConsentFile(button.dataset.downloadPatientConsentFile));
+  });
   $$("[data-review-patient-consent]").forEach((button) => {
     button.addEventListener("click", () => openPatientConsentDialog(button.dataset.reviewPatientConsent));
   });
@@ -7741,12 +7810,6 @@ function renderPatientDetail() {
     button.addEventListener("click", () => emailPatientConsent(button.dataset.emailPatientConsent));
   });
 
-  const packSelect = $("#patient-pack-template");
-  if (packSelect) {
-    packSelect.innerHTML = "";
-    sessionPacks.forEach((pack) => packSelect.append(new Option(`${pack.name} - ${pack.sessions} sesiones - ${pack.price} EUR - ${packServiceLabel(pack)} - ${pack.expiryMonths ? `${pack.expiryMonths} meses` : "sin caducidad"}`, pack.id)));
-    packSelect.disabled = !sessionPacks.length;
-  }
 
   const packs = patientPacks.filter((item) => item.patientId === patient.id).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   $("#patient-packs").innerHTML = packs.length
@@ -7802,7 +7865,7 @@ function renderPatientDetail() {
         </div>
         <button class="secondary-button" type="button" data-reprint-pack-invoice="${pack.id}">${pack.invoiceGenerated ? "Reimprimir" : "Facturar"}</button>
       </article>
-    `)].join("") || `<article class="compact-item"><span>Sin facturas generadas todavía.</span></article>`;
+    `)].join("") || `<article class="compact-item"><span>Sin facturas generadas todavÃ­a.</span></article>`;
   }
   $$("[data-reprint-invoice]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -7860,7 +7923,7 @@ function renderPatientDetail() {
         `;
         })
         .join("")
-    : `<article class="compact-item"><span>Sin notas clinicas todavía.</span></article>`;
+    : `<article class="compact-item"><span>Sin notas clinicas todavÃ­a.</span></article>`;
 
   $$("[data-open-note], [data-edit-note], [data-delete-note]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -7891,7 +7954,7 @@ function generateGroupWorkerInvoiceForSession(groupId, dateValue) {
   const group = baseGroup ? groupInstanceForDate(baseGroup, dateValue) : null;
   const completion = group ? groupCompletionFor(group, dateValue) : null;
   if (!group || !completion) {
-    showNotice("Sesión no completada", "Marca primero la sesion grupal como completada para generar la liquidacion del trabajador.", { variant: "warning" });
+    showNotice("SesiÃ³n no completada", "Marca primero la sesion grupal como completada para generar la liquidacion del trabajador.", { variant: "warning" });
     return;
   }
 
@@ -7970,7 +8033,7 @@ function renderTeam() {
   `);
 
   $("#team-grid").innerHTML = [...professionalCards, ...roomCards].join("")
-    || `<article class="team-card"><span class="tag">Configuración</span><h2>Clinica sin equipo todavía</h2><p>Crea trabajadores y salas para empezar a construir esta clinica.</p></article>`;
+    || `<article class="team-card"><span class="tag">ConfiguraciÃ³n</span><h2>Clinica sin equipo todavÃ­a</h2><p>Crea trabajadores y salas para empezar a construir esta clinica.</p></article>`;
 
   $$("[data-team-edit-practitioner]").forEach((button) => button.addEventListener("click", () => openPractitionerEditor(button.dataset.teamEditPractitioner)));
   $$("[data-team-delete-practitioner]").forEach((button) => button.addEventListener("click", () => deletePractitionerById(button.dataset.teamDeletePractitioner)));
@@ -8051,9 +8114,9 @@ function renderSettings() {
         </label>
         <div>
           <strong>${practitioner.name}</strong>
-          <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "Autónomo"}</span>
+          <span>${practitioner.specialty} - ${practitionerAvailabilityLabel(practitioner)} - ${practitioner.workerType === "asalariado" ? "Empleado asalariado" : "AutÃ³nomo"}</span>
           <span>${practitioner.accessRole === "staff" ? "Acceso recepcion / administracion" : "Acceso trabajador sanitario"}</span>
-          <span>${Object.values(normalizeServiceCommissions(practitioner.serviceCommissions)).filter((item) => item?.enabled).length || "Sin"} servicios con comisión configurada</span>
+          <span>${Object.values(normalizeServiceCommissions(practitioner.serviceCommissions)).filter((item) => item?.enabled).length || "Sin"} servicios con comisiÃ³n configurada</span>
           <span>${practitioner.email || "Sin email de acceso"} - ${practitioner.backendUserId || practitioner.userId ? "Usuario backend vinculado" : "Acceso pendiente"}</span>
           ${practitioner.workerType === "asalariado" ? `
             <div class="attendance-actions">
@@ -8068,7 +8131,7 @@ function renderSettings() {
           <div class="item-menu-popover">
             <button type="button" data-edit-practitioner="${practitioner.id}">Editar</button>
             <button type="button" data-send-practitioner-access="${practitioner.id}">Reenviar acceso</button>
-            <button type="button" data-send-practitioner-reset="${practitioner.id}">Restablecer contraseña</button>
+            <button type="button" data-send-practitioner-reset="${practitioner.id}">Restablecer contraseÃ±a</button>
             <button class="danger-menu-action" type="button" data-delete-practitioner="${practitioner.id}">Eliminar</button>
           </div>
         </details>
@@ -8150,7 +8213,7 @@ function renderSettings() {
           <strong>${service.name}</strong>
           <span>${serviceKindLabel(service)} - ${service.duration} min - ${service.active ? "Activo" : "Inactivo"}</span>
           ${service.type === "group" ? `
-            <span>Mensual ${service.monthlyPrice || 0} EUR - Sesión suelta ${service.dropInPrice || service.price || 0} EUR - Comision por trabajador</span>
+            <span>Mensual ${service.monthlyPrice || 0} EUR - SesiÃ³n suelta ${service.dropInPrice || service.price || 0} EUR - Comision por trabajador</span>
           ` : `
             <span>Precio ${service.price || 0} EUR</span>
           `}
@@ -8265,7 +8328,7 @@ function renderServices() {
         <td>${service.duration} min</td>
         <td>
           ${service.type === "group"
-            ? `Sesión grupal - ${service.dropInPrice || service.price || 0} EUR/sesion - ${service.monthlyPrice || 0} EUR/mes - comision por trabajador`
+            ? `SesiÃ³n grupal - ${service.dropInPrice || service.price || 0} EUR/sesion - ${service.monthlyPrice || 0} EUR/mes - comision por trabajador`
             : `${service.price || 0} EUR`}
         </td>
         <td><span class="status-pill ${service.active ? "confirmed" : "cancelled"}">${service.active ? "Activo" : "Inactivo"}</span></td>
@@ -8465,8 +8528,8 @@ function sortBillingRows(rows) {
 function billingSourceLabel(row) {
   return {
     appointment: "Cita individual",
-    "group-monthly": "Sesión grupal",
-    "group-dropin": "Sesión grupal",
+    "group-monthly": "SesiÃ³n grupal",
+    "group-dropin": "SesiÃ³n grupal",
     pack: "Bono",
     manual: Number(row.amount || 0) < 0 ? "Gasto" : "Ingreso manual"
   }[row.sourceType] || "Movimiento";
@@ -8481,7 +8544,7 @@ function billingCleanConcept(row) {
   const raw = String(row?.concept || "Movimiento").trim();
   return raw
     .replace(/\s*[0-9a-f]{8}(?:-[0-9a-f]{4,}){2,}[0-9a-f-]*$/i, "")
-    .replace(/([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])([0-9a-f]{8,}(?:-[0-9a-f]{4,})*)$/i, "$1")
+    .replace(/([A-Za-zÃÃ‰ÃÃ“ÃšÃœÃ‘Ã¡Ã©Ã­Ã³ÃºÃ¼Ã±])([0-9a-f]{8,}(?:-[0-9a-f]{4,})*)$/i, "$1")
     .trim() || "Movimiento";
 }
 
@@ -8533,7 +8596,7 @@ async function openBillingRowDetail(rowKey) {
 function billingDateTimeLabel(row) {
   const date = row.date || billingRowDate(row);
   const time = row.time || String(row.sortKey || "").slice(11, 16) || "";
-  return `${formatShortDate(date)}${time ? ` · ${time}` : ""}`;
+  return `${formatShortDate(date)}${time ? ` Â· ${time}` : ""}`;
 }
 
 function renderBilling() {
@@ -8744,7 +8807,7 @@ function renderBilling() {
     .join("") || `<tr><td colspan="${simplified ? 6 : 10}">No hay movimientos con estos filtros.</td></tr>`;
 
   billingPagination.innerHTML = `
-    <span>${sortedRows.length} movimientos · página ${billingFilterState.page} de ${totalPages}</span>
+    <span>${sortedRows.length} movimientos Â· pÃ¡gina ${billingFilterState.page} de ${totalPages}</span>
     <button class="secondary-button" type="button" data-billing-page="prev" ${billingFilterState.page <= 1 ? "disabled" : ""}>Anterior</button>
     <button class="secondary-button" type="button" data-billing-page="next" ${billingFilterState.page >= totalPages ? "disabled" : ""}>Siguiente</button>
   `;
@@ -8862,7 +8925,7 @@ function downloadBillingPdfReport() {
     `Clinica: ${clinic.name || "Clinica"}`,
     `Periodo: ${billingReportRangeLabel(report)}`,
     `Generado: ${new Date().toLocaleString("es-ES")}`,
-    `Orden: ${report.sort === "asc" ? "Más antiguos" : "Más recientes"}`,
+    `Orden: ${report.sort === "asc" ? "MÃ¡s antiguos" : "MÃ¡s recientes"}`,
     "",
     `Cobrado: ${Number(totals.paid || 0)} EUR`,
     `Pendiente: ${Number(totals.pending || 0)} EUR`,
@@ -8905,7 +8968,7 @@ function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
         patientId: patient.id,
         practitioner,
         practitionerId: group.practitionerId || "",
-        service: group.name || "Sesión grupal",
+        service: group.name || "SesiÃ³n grupal",
         serviceId: group.serviceId || "",
         status: movement ? "completed" : "pending",
         statusText: movement ? "Cobrada" : "Cuota mensual",
@@ -8938,7 +9001,7 @@ function groupBillingRows(currentMonth = selectedDate.slice(0, 7)) {
         patientId: "",
         practitioner: byId(practitioners, entry.practitionerId)?.name || "Profesional",
         practitionerId: entry.practitionerId || "",
-        service: group?.name || "Sesión grupal",
+        service: group?.name || "SesiÃ³n grupal",
         serviceId: group?.serviceId || "",
         status: "completed",
         statusText: "Completada",
@@ -8958,7 +9021,7 @@ function openGroupMonthlyPaymentDialog(groupMonthlyKey) {
   const row = groupBillingRows(/^\d{4}-\d{2}$/.test(month) ? month : billingFilterRange().start.slice(0, 7))
     .find((item) => item.groupMonthlyKey === groupMonthlyKey);
   if (!row || row.collected) {
-    showToast("La cuota ya está cobrada o no se ha encontrado.", "warning");
+    showToast("La cuota ya estÃ¡ cobrada o no se ha encontrado.", "warning");
     return;
   }
   const form = $("#manual-billing-form");
@@ -8993,7 +9056,7 @@ function openManualBillingDialog(movementId = "") {
   form.elements.date.value = movement?.date || todayIso();
   form.elements.amount.value = movement ? Number(movement.amount || 0) : "";
   form.elements.concept.value = movement?.concept || "";
-  $("#manual-billing-title").textContent = movement ? "Editar pago o cobro" : "Añadir pago o cobro";
+  $("#manual-billing-title").textContent = movement ? "Editar pago o cobro" : "AÃ±adir pago o cobro";
   $("#manual-billing-submit").textContent = movement ? "Guardar cambios" : "Guardar movimiento";
   $("#manual-billing-error").classList.remove("visible");
   $("#manual-billing-error").textContent = "";
@@ -9006,7 +9069,7 @@ async function deleteManualBillingMovement(movementId) {
   const confirmed = await showConfirm({
     title: "Eliminar movimiento",
     message: `Eliminar "${movement.concept}"?`,
-    detail: "Se quitará de facturación y no se podrá recuperar.",
+    detail: "Se quitarÃ¡ de facturaciÃ³n y no se podrÃ¡ recuperar.",
     confirmLabel: "Eliminar"
   });
   if (!confirmed) return;
@@ -9023,14 +9086,14 @@ async function deleteManualBillingMovement(movementId) {
 }
 
 function billableAppointments() {
-  return appointments.filter(appointmentIsCharged);
+  return appointments.filter(appointmentCountsForPerformance);
 }
 
 function performanceFilterRange() {
   const mode = $("#performance-range-mode")?.value || "month";
   if (mode === "day") {
     const day = $("#performance-day")?.value || selectedDate || todayIso();
-    return { mode, start: day, end: day, label: `Día ${formatShortDate(day)}` };
+    return { mode, start: day, end: day, label: `DÃ­a ${formatShortDate(day)}` };
   }
   if (mode === "range") {
     const start = $("#performance-date-from")?.value || monthStartIso(selectedDate || todayIso());
@@ -9094,7 +9157,7 @@ function groupCompletedSessionsForPractitioner(practitioner, range = performance
       return {
         ...entry,
         ...(production || {}),
-        groupName: group?.name || "Sesión grupal",
+        groupName: group?.name || "SesiÃ³n grupal",
         serviceName: service?.name || "Servicio grupal",
         roomName: room?.name || "Sala",
         duration: service?.duration || 60,
@@ -9103,8 +9166,18 @@ function groupCompletedSessionsForPractitioner(practitioner, range = performance
     });
 }
 
+function appointmentCountsForPerformance(appointment) {
+  if (normalizeAppointmentStatus(appointment?.status) !== "confirmed") {
+    return false;
+  }
+  if (appointment?.patientPackId || appointment?.plannedPatientPackId) {
+    return true;
+  }
+  return appointmentIsCharged(appointment);
+}
+
 function appointmentOperationUnits(appointment) {
-  return appointmentIsCharged(appointment) ? 1 : 0;
+  return appointmentCountsForPerformance(appointment) ? 1 : 0;
 }
 
 function groupSessionOperationUnits(session) {
@@ -9147,7 +9220,7 @@ function performanceLinesForPractitioner(practitioner, appointmentsForWorker, gr
     const service = byId(services, session.serviceId);
     const rate = practitionerCommissionRateForService(practitioner, service);
     addPerformanceServiceLine(lines, session.serviceId, {
-      serviceName: session.serviceName || service?.name || "Sesión grupal",
+      serviceName: session.serviceName || service?.name || "SesiÃ³n grupal",
       revenue: Number(session.revenue || 0),
       operations: groupSessionOperationUnits(session),
       sessions: 1,
@@ -9229,32 +9302,34 @@ function renderPerformance() {
   const serviceFilterId = performanceSelectedServiceId();
   const serviceFilter = serviceFilterId ? byId(services, serviceFilterId) : null;
   const selectedWorkerId = selectedPerformancePractitionerId || $("#worker-profile-select")?.value || "";
+  const reportPractitioners = activePractitioners();
   const selectedWorker = isOwner()
-    ? byId(practitioners, selectedWorkerId) || null
+    ? reportPractitioners.find((practitioner) => String(practitioner.id) === String(selectedWorkerId)) || null
     : currentPractitioner();
   if (!selectedWorker) {
+    const loadingWorkers = backendInitialLoadPending && backendDataEnabled();
     $$("#worker-performance .permission-note").forEach((note) => note.remove());
     workerSummary.innerHTML = `
       <div>
         <span>Rendimiento</span>
-        <strong>Sin trabajadores</strong>
-        <p>Crea trabajadores en esta clínica para calcular rendimiento propio.</p>
+        <strong>${loadingWorkers ? "Cargando trabajadores..." : "Sin trabajadores"}</strong>
+        <p>${loadingWorkers ? "Estamos cargando los trabajadores de la clinica." : "Crea trabajadores en esta clinica para calcular rendimiento propio."}</p>
       </div>
     `;
-    workerBilling.innerHTML = `<article><span>Sin datos de rendimiento para esta clínica.</span></article>`;
-    workerActivity.innerHTML = `<article class="compact-item"><span>No hay sesiones facturables asociadas a trabajadores de esta clínica.</span></article>`;
+    workerBilling.innerHTML = `<article><span>${loadingWorkers ? "Cargando datos de rendimiento." : "Sin datos de rendimiento para esta clinica."}</span></article>`;
+    workerActivity.innerHTML = `<article class="compact-item"><span>${loadingWorkers ? "Espera un momento mientras se sincroniza la clinica." : "No hay sesiones asociadas a trabajadores de esta clinica."}</span></article>`;
     ownerSummary.innerHTML = `
-      <div><span>Facturación equipo</span><strong>0 EUR</strong></div>
+      <div><span>Facturacion equipo</span><strong>0 EUR</strong></div>
       <div><span>Operaciones</span><strong>0</strong></div>
-      <div><span>Comisión estimada</span><strong>0 EUR</strong></div>
-      <div><span>Mayor facturación</span><strong>-</strong></div>
+      <div><span>Comision estimada</span><strong>0 EUR</strong></div>
+      <div><span>Mayor facturacion</span><strong>-</strong></div>
     `;
-    ownerReportTable.innerHTML = `<tr><td colspan="5">Sin trabajadores en esta clínica.</td></tr>`;
+    ownerReportTable.innerHTML = `<tr><td colspan="5">${loadingWorkers ? "Cargando trabajadores..." : "Sin trabajadores en esta clinica."}</td></tr>`;
     return;
   }
 
   const workerReport = practitionerReport(selectedWorker, range, serviceFilterId);
-  const allReports = practitioners.map((practitioner) => practitionerReport(practitioner, range, serviceFilterId)).sort((a, b) => b.revenue - a.revenue);
+  const allReports = reportPractitioners.map((practitioner) => practitionerReport(practitioner, range, serviceFilterId)).sort((a, b) => b.revenue - a.revenue);
   const totalRevenue = roundMoney(allReports.reduce((total, report) => total + report.revenue, 0));
   const totalOperations = allReports.reduce((total, report) => total + Number(report.operationCount || 0), 0);
   const totalPayout = roundMoney(allReports.reduce((total, report) => total + Number(report.payout || 0), 0));
@@ -9263,7 +9338,7 @@ function renderPerformance() {
   if (!isOwner()) {
     performanceRoot.insertAdjacentHTML(
       "afterbegin",
-      `<p class="permission-note">Vista limitada al perfil del trabajador. El informe completo queda reservado para Dirección.</p>`
+      `<p class="permission-note">Vista limitada al perfil del trabajador. El informe completo queda reservado para DirecciÃ³n.</p>`
     );
   }
 
@@ -9271,14 +9346,14 @@ function renderPerformance() {
     <div>
       <span>Perfil de trabajador</span>
       <strong>${escapeHtml(selectedWorker.name)}</strong>
-      <p>${escapeHtml(selectedWorker.specialty || "Sin especialidad")} · ${escapeHtml(range.label)}${serviceFilter ? ` · ${escapeHtml(serviceFilter.name)}` : ""}</p>
+      <p>${escapeHtml(selectedWorker.specialty || "Sin especialidad")} Â· ${escapeHtml(range.label)}${serviceFilter ? ` Â· ${escapeHtml(serviceFilter.name)}` : ""}</p>
     </div>
     <div>
-      <span>Facturación</span>
+      <span>FacturaciÃ³n</span>
       <strong>${workerReport.revenue} EUR</strong>
     </div>
     <div>
-      <span>Comisión estimada</span>
+      <span>ComisiÃ³n estimada</span>
       <strong>${workerReport.payout} EUR</strong>
     </div>
     <div>
@@ -9299,28 +9374,28 @@ function renderPerformance() {
     <article><span>Sesiones grupales</span><strong>${workerReport.groupSessions.length}</strong><small>${groupRevenue} EUR</small></article>
     <article><span>Asistentes</span><strong>${groupAttendees}</strong><small>en sesiones grupales</small></article>
     <article><span>Registros</span><strong>${recordCount}</strong><small>citas + grupos</small></article>
-    <article><span>Producción generada</span><strong>${workerReport.revenue} EUR</strong><small>base de comisión</small></article>
-    <article><span>Comisión estimada</span><strong>${workerReport.payout} EUR</strong><small>según servicio</small></article>
+    <article><span>ProducciÃ³n generada</span><strong>${workerReport.revenue} EUR</strong><small>base de comisiÃ³n</small></article>
+    <article><span>ComisiÃ³n estimada</span><strong>${workerReport.payout} EUR</strong><small>segÃºn servicio</small></article>
     <article><span>Operaciones</span><strong>${workerReport.operationCount}</strong><small>cobros + asistentes</small></article>
-    <article><span>Servicios con comisión</span><strong>${commissionServices}</strong><small>configurados</small></article>
+    <article><span>Servicios con comisiÃ³n</span><strong>${commissionServices}</strong><small>configurados</small></article>
   `;
 
   const serviceLineItems = workerReport.serviceLines.length
     ? workerReport.serviceLines.map((line) => `
       <article class="compact-item">
         <strong>${escapeHtml(line.serviceName)}</strong>
-        <span>${line.sessions} registro(s) · ${line.operations} operaciones · ${line.revenue} EUR × ${Math.round(line.rate * 10000) / 100}% = ${line.payout} EUR</span>
+        <span>${line.sessions} registro(s) Â· ${line.operations} operaciones Â· ${line.revenue} EUR Ã— ${Math.round(line.rate * 10000) / 100}% = ${line.payout} EUR</span>
       </article>
     `).join("")
-    : `<article class="compact-item"><span>No hay servicios con producción en este filtro.</span></article>`;
+    : `<article class="compact-item"><span>No hay servicios con producciÃ³n en este filtro.</span></article>`;
   const appointmentItems = workerReport.appointments.length
     ? workerReport.appointments
         .slice()
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || minutes(a.start) - minutes(b.start))
         .map((appointment) => `
           <article class="compact-item">
-            <strong>${escapeHtml(appointment.date || selectedDate)} · ${escapeHtml(appointment.start || "")} · ${escapeHtml(byId(patients, appointment.patientId)?.name || "Paciente")}</strong>
-            <span>${escapeHtml(byId(services, appointment.serviceId)?.name || "Servicio")} · ${escapeHtml(byId(rooms, appointment.roomId)?.name || "Sala")} · ${appointmentRevenueAmount(appointment)} EUR</span>
+            <strong>${escapeHtml(appointment.date || selectedDate)} Â· ${escapeHtml(appointment.start || "")} Â· ${escapeHtml(byId(patients, appointment.patientId)?.name || "Paciente")}</strong>
+            <span>${escapeHtml(byId(services, appointment.serviceId)?.name || "Servicio")} Â· ${escapeHtml(byId(rooms, appointment.roomId)?.name || "Sala")} Â· ${appointmentRevenueAmount(appointment)} EUR</span>
           </article>
         `).join("")
     : `<article class="compact-item"><span>Sin citas individuales facturables en este filtro.</span></article>`;
@@ -9330,15 +9405,15 @@ function renderPerformance() {
         .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || minutes(a.start) - minutes(b.start))
         .map((session) => `
           <article class="compact-item">
-            <strong>${escapeHtml(session.date || selectedDate)} · ${escapeHtml(session.start || "")} · ${escapeHtml(session.groupName)}</strong>
-            <span>${escapeHtml(session.serviceName)} · ${escapeHtml(session.roomName)} · ${session.attendees || 0} asistentes · ${session.revenue || 0} EUR</span>
+            <strong>${escapeHtml(session.date || selectedDate)} Â· ${escapeHtml(session.start || "")} Â· ${escapeHtml(session.groupName)}</strong>
+            <span>${escapeHtml(session.serviceName)} Â· ${escapeHtml(session.roomName)} Â· ${session.attendees || 0} asistentes Â· ${session.revenue || 0} EUR</span>
           </article>
         `).join("")
     : `<article class="compact-item"><span>Sin sesiones grupales completadas en este filtro.</span></article>`;
 
   workerActivity.innerHTML = `
     <div class="performance-breakdown">
-      <h3>Comisión por servicio</h3>
+      <h3>ComisiÃ³n por servicio</h3>
       ${serviceLineItems}
       <h3>Citas individuales</h3>
       ${appointmentItems}
@@ -9348,10 +9423,10 @@ function renderPerformance() {
   `;
 
   ownerSummary.innerHTML = `
-    <div><span>Facturación equipo</span><strong>${totalRevenue} EUR</strong></div>
+    <div><span>FacturaciÃ³n equipo</span><strong>${totalRevenue} EUR</strong></div>
     <div><span>Operaciones</span><strong>${totalOperations}</strong></div>
-    <div><span>Comisión estimada</span><strong>${totalPayout} EUR</strong></div>
-    <div><span>Mayor facturación</span><strong>${topReport ? escapeHtml(topReport.practitioner.name) : "-"}</strong></div>
+    <div><span>ComisiÃ³n estimada</span><strong>${totalPayout} EUR</strong></div>
+    <div><span>Mayor facturaciÃ³n</span><strong>${topReport ? escapeHtml(topReport.practitioner.name) : "-"}</strong></div>
   `;
 
   ownerReportTable.innerHTML = allReports.length
@@ -9365,7 +9440,7 @@ function renderPerformance() {
       </tr>
     `)
     .join("")
-    : `<tr><td colspan="5">Sin trabajadores en esta clínica.</td></tr>`;
+    : `<tr><td colspan="5">Sin trabajadores en esta clÃ­nica.</td></tr>`;
 }
 
 function appointmentDateTime(appointment) {
@@ -9413,7 +9488,7 @@ function reminderMessage(reminder) {
     .replaceAll("{{nombre_paciente}}", patient?.name || "paciente")
     .replaceAll("{{fecha}}", reminder.date || "")
     .replaceAll("{{hora}}", reminder.start || "")
-    .replaceAll("{{clinica}}", clinic?.name || "la clínica")
+    .replaceAll("{{clinica}}", clinic?.name || "la clÃ­nica")
     .replaceAll("{{profesional}}", practitioner?.name || "tu profesional")
     .replaceAll("{{servicio}}", service?.name || "servicio");
 }
@@ -10028,7 +10103,7 @@ function renderAutomations() {
   historyList.innerHTML = "";
   history.forEach((reminder) => historyList.append(renderReminderCard(reminder, "history")));
   if (!history.length) {
-    historyList.innerHTML = `<article class="compact-item"><span>Sin historial de recordatorios todavía.</span></article>`;
+    historyList.innerHTML = `<article class="compact-item"><span>Sin historial de recordatorios todavÃ­a.</span></article>`;
   }
 
 }
@@ -10125,20 +10200,20 @@ function renderSaasSettings() {
   const demoSelectable = isTrial && remainingDays > 0 && !account.stripeCustomerId;
 
   $("#subscription-trial-badge").textContent = isTrial
-    ? `Quedan ${remainingDays} días de prueba`
+    ? `Quedan ${remainingDays} dÃ­as de prueba`
     : subscriptionStatusLabel(status);
   $("#subscription-plan-title").textContent = displayPlanName;
   $("#subscription-plan-state").textContent = subscriptionStatusLabel(status);
   $("#subscription-plan-copy").textContent = isTrial
-    ? "Estás en periodo de prueba gratuita con acceso completo a Klinia."
-    : "Tu clínica usa el plan profesional conectado al estado comercial guardado.";
-  $("#subscription-days-left").textContent = isTrial ? `${remainingDays} días` : "-";
-  $("#subscription-renewal-date").textContent = isTrial ? `Renovación ${nextChargeDate}` : `Próximo cobro ${nextChargeDate}`;
+    ? "EstÃ¡s en periodo de prueba gratuita con acceso completo a Klinia."
+    : "Tu clÃ­nica usa el plan profesional conectado al estado comercial guardado.";
+  $("#subscription-days-left").textContent = isTrial ? `${remainingDays} dÃ­as` : "-";
+  $("#subscription-renewal-date").textContent = isTrial ? `RenovaciÃ³n ${nextChargeDate}` : `PrÃ³ximo cobro ${nextChargeDate}`;
   $("#subscription-after-price").textContent = `${displayedPaidPlan.price} EUR / ${displayedPaidPlan.interval}`;
 
   statusCard.innerHTML = isTrial
-    ? `<strong>Al finalizar tu prueba gratuita</strong><span>Completa el método de pago para activar el Plan Profesional al terminar la prueba.</span>`
-    : `<strong>${subscriptionStatusLabel(status)}</strong><span>${account.stripeCustomerId ? "Método de pago conectado." : "Configura el método de pago para mantener la suscripción activa."}</span>`;
+    ? `<strong>Al finalizar tu prueba gratuita</strong><span>Completa el mÃ©todo de pago para activar el Plan Profesional al terminar la prueba.</span>`
+    : `<strong>${subscriptionStatusLabel(status)}</strong><span>${account.stripeCustomerId ? "MÃ©todo de pago conectado." : "Configura el mÃ©todo de pago para mantener la suscripciÃ³n activa."}</span>`;
 
   const currentPlan = $("#subscription-current-plan");
   if (currentPlan) {
@@ -10146,7 +10221,7 @@ function renderSaasSettings() {
       <div>
         <span>Plan actual</span>
         <strong>${escapeHtml(displayPlanName)}</strong>
-        <small>${escapeHtml(currentPriceText)} · ${escapeHtml(subscriptionStatusLabel(status))}</small>
+        <small>${escapeHtml(currentPriceText)} Â· ${escapeHtml(subscriptionStatusLabel(status))}</small>
       </div>
       <div>
         <span>Frecuencia</span>
@@ -10183,7 +10258,7 @@ function renderSaasSettings() {
         id: "kliniaplan_annual",
         title: "Plan Profesional anual",
         badge: "Ahorra 2 meses",
-        price: `${annualPlan.price} EUR/año`,
+        price: `${annualPlan.price} EUR/aÃ±o`,
         detail: `Equivale a ${annualEquivalent} EUR/mes.`,
         note: "Todas las funciones con ahorro anual.",
         disabled: account.paymentPlan === "kliniaplan_annual",
@@ -10198,7 +10273,7 @@ function renderSaasSettings() {
         <p>${escapeHtml(item.detail)}</p>
         <ul>
           <li>Citas, pacientes y agenda</li>
-          <li>Facturación y rendimiento</li>
+          <li>FacturaciÃ³n y rendimiento</li>
           <li>Recordatorios y permisos</li>
         </ul>
         <small>${escapeHtml(item.note)}</small>
@@ -10215,11 +10290,11 @@ function renderSaasSettings() {
     const amount = account.paymentPlan === "trial" ? "0,00 EUR durante la prueba" : `${plan.price},00 EUR + IVA`;
     billingSummary.innerHTML = `
       <div class="subscription-billing-row">
-        <span>Método de pago</span>
-        <strong>${account.stripeCustomerId ? "Método conectado" : "Configurar método de pago"}</strong>
+        <span>MÃ©todo de pago</span>
+        <strong>${account.stripeCustomerId ? "MÃ©todo conectado" : "Configurar mÃ©todo de pago"}</strong>
       </div>
       <div class="subscription-billing-row">
-        <span>Próximo cobro</span>
+        <span>PrÃ³ximo cobro</span>
         <strong>${nextChargeDate}</strong>
       </div>
       <div class="subscription-billing-row">
@@ -10245,7 +10320,7 @@ function renderSaasSettings() {
           <td><span class="status-pill ${escapeHtml(item.status || "pending")}">${escapeHtml(item.statusLabel || item.status || "Pendiente")}</span></td>
         </tr>
       `).join("")
-      : `<tr><td colspan="4">Todavía no hay facturas SaaS asociadas a esta clínica.</td></tr>`;
+      : `<tr><td colspan="4">TodavÃ­a no hay facturas SaaS asociadas a esta clÃ­nica.</td></tr>`;
   }
 
   billingForm.elements.billingName.value = account.billingProfile?.billingName || clinic.name || "";
@@ -10259,7 +10334,7 @@ function openPaymentPopup(statusSelector = "#saas-save-status") {
   if (!opened) {
     const statusEl = $(statusSelector);
     if (statusEl) {
-      statusEl.textContent = "El navegador bloqueó la ventana de Stripe. Permite ventanas emergentes para Klinia e inténtalo de nuevo.";
+      statusEl.textContent = "El navegador bloqueÃ³ la ventana de Stripe. Permite ventanas emergentes para Klinia e intÃ©ntalo de nuevo.";
     }
     return null;
   }
@@ -10270,7 +10345,7 @@ function openPaymentPopup(statusSelector = "#saas-save-status") {
 async function openSubscriptionPaymentUrl(endpoint, payload, fallbackStatusSelector = "#saas-save-status", popupWindow = null) {
   const account = currentClinicAccount();
   if (!backendTokenForAccount(account)) {
-    throw new Error("Esta clínica no tiene sesión backend activa. Inicia sesión con Dirección para gestionar pagos.");
+    throw new Error("Esta clÃ­nica no tiene sesiÃ³n backend activa. Inicia sesiÃ³n con DirecciÃ³n para gestionar pagos.");
   }
   const session = await backendRequest(endpoint, {
     method: "POST",
@@ -10285,7 +10360,7 @@ async function openSubscriptionPaymentUrl(endpoint, payload, fallbackStatusSelec
       if (!opened) {
         const statusEl = $(fallbackStatusSelector);
         if (statusEl) {
-          statusEl.textContent = "El navegador bloqueó la ventana de Stripe. Permite ventanas emergentes para Klinia e inténtalo de nuevo.";
+          statusEl.textContent = "El navegador bloqueÃ³ la ventana de Stripe. Permite ventanas emergentes para Klinia e intÃ©ntalo de nuevo.";
         }
         throw new Error("Ventana de Stripe bloqueada por el navegador.");
       }
@@ -10293,21 +10368,21 @@ async function openSubscriptionPaymentUrl(endpoint, payload, fallbackStatusSelec
     }
     return session;
   }
-  throw new Error("Stripe no devolvió una URL de pago disponible.");
+  throw new Error("Stripe no devolviÃ³ una URL de pago disponible.");
 }
 
 async function handleSubscriptionPlanSelection(planId, button = null) {
   const normalizedPlanId = normalizeSaasPlanId(planId);
   const selectedPlan = saasPlanById(normalizedPlanId);
   if (normalizedPlanId === "trial") {
-    showNotice("Demo no seleccionable", "La demo gratuita está disponible solo para nuevos clientes durante el primer mes.", { variant: "info" });
+    showNotice("Demo no seleccionable", "La demo gratuita estÃ¡ disponible solo para nuevos clientes durante el primer mes.", { variant: "info" });
     return;
   }
   const confirmed = await showConfirm({
     eyebrow: "Cambio de plan",
-    title: `¿Estás seguro que deseas cambiar al plan ${selectedPlan.name}?`,
-    message: "El cambio se aplicará solo cuando Stripe confirme el pago o el cambio de suscripción.",
-    detail: "Continuarás al pago en Stripe en una pestaña nueva. Klinia permanecerá abierta y el plan actual no cambiará mientras no completes el proceso.",
+    title: `Â¿EstÃ¡s seguro que deseas cambiar al plan ${selectedPlan.name}?`,
+    message: "El cambio se aplicarÃ¡ solo cuando Stripe confirme el pago o el cambio de suscripciÃ³n.",
+    detail: "ContinuarÃ¡s al pago en Stripe en una pestaÃ±a nueva. Klinia permanecerÃ¡ abierta y el plan actual no cambiarÃ¡ mientras no completes el proceso.",
     confirmLabel: "Continuar al pago",
     variant: "primary"
   });
@@ -10325,7 +10400,7 @@ async function handleSubscriptionPlanSelection(planId, button = null) {
   }
   try {
     await openSubscriptionPaymentUrl("/billing/checkout-session", { plan: normalizedPlanId }, "#saas-save-status", checkoutWindow);
-    $("#saas-save-status").textContent = "Stripe se ha abierto en una pestaña nueva. El plan cambiará solo cuando el pago quede confirmado.";
+    $("#saas-save-status").textContent = "Stripe se ha abierto en una pestaÃ±a nueva. El plan cambiarÃ¡ solo cuando el pago quede confirmado.";
   } catch (error) {
     if (checkoutWindow && !checkoutWindow.closed) {
       checkoutWindow.close();
@@ -10394,7 +10469,7 @@ function setupSaasSettings() {
     }
     try {
       await openSubscriptionPaymentUrl("/billing/portal-session", {}, "#saas-save-status", portalWindow);
-      $("#saas-save-status").textContent = "El portal de pagos se ha abierto en una pestaña nueva.";
+      $("#saas-save-status").textContent = "El portal de pagos se ha abierto en una pestaÃ±a nueva.";
     } catch (error) {
       if (portalWindow && !portalWindow.closed) {
         portalWindow.close();
@@ -10410,12 +10485,12 @@ function setupSaasSettings() {
   $("#cancel-subscription")?.addEventListener("click", async () => {
     const account = currentClinicAccount();
     const confirmed = await showConfirm({
-      title: "¿Estás seguro que deseas cancelar tu suscripción?",
+      title: "Â¿EstÃ¡s seguro que deseas cancelar tu suscripciÃ³n?",
       message: account.stripeCustomerId
-        ? "Abriremos el portal de pagos para completar la cancelación de forma segura."
-        : "Se marcará esta prueba o suscripción local como cancelada.",
-      detail: "Podrás seguir usando Klinia hasta el final del periodo activo si Stripe lo permite.",
-      confirmLabel: "Cancelar suscripción"
+        ? "Abriremos el portal de pagos para completar la cancelaciÃ³n de forma segura."
+        : "Se marcarÃ¡ esta prueba o suscripciÃ³n local como cancelada.",
+      detail: "PodrÃ¡s seguir usando Klinia hasta el final del periodo activo si Stripe lo permite.",
+      confirmLabel: "Cancelar suscripciÃ³n"
     });
     if (!confirmed) return;
     if (backendTokenForAccount(account) && account.stripeCustomerId) {
@@ -10425,7 +10500,7 @@ function setupSaasSettings() {
       }
       try {
         await openSubscriptionPaymentUrl("/billing/portal-session", {}, "#saas-save-status", cancelWindow);
-        $("#saas-save-status").textContent = "El portal de pagos se ha abierto en una pestaña nueva para cancelar la suscripción.";
+        $("#saas-save-status").textContent = "El portal de pagos se ha abierto en una pestaÃ±a nueva para cancelar la suscripciÃ³n.";
         return;
       } catch (error) {
         if (cancelWindow && !cancelWindow.closed) {
@@ -10441,7 +10516,7 @@ function setupSaasSettings() {
         : item
     )));
     saveClinicAccounts();
-    $("#saas-save-status").textContent = "Suscripción marcada como cancelada en esta instalación local.";
+    $("#saas-save-status").textContent = "SuscripciÃ³n marcada como cancelada en esta instalaciÃ³n local.";
     renderSaasSettings();
   });
 
@@ -10475,7 +10550,7 @@ function handleBillingReturnFromStripe() {
     return;
   }
   if (billing === "stripe-demo" || billing === "portal-demo") {
-    showToast("Stripe no esta configurado todavía con claves reales.", "warning");
+    showToast("Stripe no esta configurado todavÃ­a con claves reales.", "warning");
   }
 }
 
@@ -10854,8 +10929,8 @@ async function commitImportSnapshot() {
     await showNotice(
       "Copia importada",
       syncedBackendBlobs.synced
-        ? `La importación se ha completado y ${syncedBackendBlobs.synced} colecciones compartidas se han sincronizado con backend. La aplicación se recargará ahora.`
-        : "La importación se ha completado con trazabilidad. Si la clínica usa backend y hay datos maestros importados, revisa la sincronización desde soporte antes de usarla en otro dispositivo.",
+        ? `La importaciÃ³n se ha completado y ${syncedBackendBlobs.synced} colecciones compartidas se han sincronizado con backend. La aplicaciÃ³n se recargarÃ¡ ahora.`
+        : "La importaciÃ³n se ha completado con trazabilidad. Si la clÃ­nica usa backend y hay datos maestros importados, revisa la sincronizaciÃ³n desde soporte antes de usarla en otro dispositivo.",
       { variant: "success" }
     );
     window.location.reload();
@@ -10970,7 +11045,7 @@ function saveAccessRecoveryRequests() {
 
 function accessRecoveryLabel(request) {
   return {
-    owner: "Dirección",
+    owner: "DirecciÃ³n",
     staff: "Recepcion"
   }[request.profile] || request.label || "Trabajador";
 }
@@ -11031,7 +11106,7 @@ function renderAccessRecoveryRequests() {
     ? requests.map((request) => `
       <article class="compact-item action-card access-recovery-card">
         <div>
-          <strong>${escapeHtml(accessRecoveryLabel(request))}${request.source === "backend" ? " · backend" : ""}</strong>
+          <strong>${escapeHtml(accessRecoveryLabel(request))}${request.source === "backend" ? " Â· backend" : ""}</strong>
           <span>${escapeHtml(request.email)} - solicitado ${new Date(request.requestedAt).toLocaleString("es-ES")}</span>
         </div>
         <div class="compact-actions">
@@ -11090,7 +11165,7 @@ async function resolveAccessRecoveryRequest(requestId) {
   renderPermissions();
   await showNotice(
     "Clave generada",
-    `Nueva clave para ${accessRecoveryLabel(request)}: ${nextKey}. Entrégala de forma segura y pide que la cambien cuando sea posible.`,
+    `Nueva clave para ${accessRecoveryLabel(request)}: ${nextKey}. EntrÃ©gala de forma segura y pide que la cambien cuando sea posible.`,
     { variant: "success" }
   );
 }
@@ -11099,7 +11174,7 @@ async function resolveBackendAccessRecoveryRequest(requestId) {
   const request = backendAccessRecoveryRequests.find((item) => item.id === requestId);
   if (!request) return;
   const confirmed = await showConfirm({
-    eyebrow: "Recuperación de acceso",
+    eyebrow: "RecuperaciÃ³n de acceso",
     title: "Generar clave temporal",
     message: `Vas a generar una clave temporal para ${request.user_email}.`,
     detail: "La clave actual dejara de funcionar, el usuario debera cambiarla al entrar y la accion quedara auditada.",
@@ -11119,7 +11194,7 @@ async function resolveBackendAccessRecoveryRequest(requestId) {
     renderAccessRecoveryRequests();
     await showNotice(
       "Clave temporal generada",
-      `Nueva clave para ${request.user_email}: ${result.temporary_password}. Entrégala por un canal seguro.`,
+      `Nueva clave para ${request.user_email}: ${result.temporary_password}. EntrÃ©gala por un canal seguro.`,
       { variant: "success" }
     );
   } catch (error) {
@@ -11150,7 +11225,7 @@ async function resetPractitionerAccessKey(practitionerId) {
         renderSettings();
         await showNotice(
           "Clave generada",
-          `Nueva clave temporal para ${practitioner.name}: ${result.temporary_password}. Entrégala de forma segura.`,
+          `Nueva clave temporal para ${practitioner.name}: ${result.temporary_password}. EntrÃ©gala de forma segura.`,
           { variant: "success" }
         );
         return;
@@ -11186,7 +11261,7 @@ async function resetPractitionerAccessKey(practitionerId) {
   renderSettings();
   await showNotice(
     "Clave generada",
-    `Nueva clave para ${practitioner.name}: ${nextKey}.${practitioner.email ? "" : " Añade un email de acceso para que pueda iniciar sesion."}${backendNotice}`,
+    `Nueva clave para ${practitioner.name}: ${nextKey}.${practitioner.email ? "" : " AÃ±ade un email de acceso para que pueda iniciar sesion."}${backendNotice}`,
     { variant: practitioner.email ? "success" : "warning" }
   );
 }
@@ -11195,7 +11270,7 @@ async function sendPractitionerAccessFromSettings(practitionerId, purpose = "inv
   const practitioner = byId(practitioners, practitionerId);
   if (!practitioner || !canManageClinic()) return;
   if (!practitioner.email) {
-    await showNotice("Email necesario", "Añade un email al trabajador antes de enviar el acceso.", { variant: "warning" });
+    await showNotice("Email necesario", "AÃ±ade un email al trabajador antes de enviar el acceso.", { variant: "warning" });
     return;
   }
   try {
@@ -11386,7 +11461,7 @@ function setupAccessManagement() {
     }
     const practitioner = byId(practitioners, practitionerId);
     if (!practitioner?.email) {
-      $("#practitioner-key-status").textContent = "Añade un email al trabajador antes de enviar el acceso.";
+      $("#practitioner-key-status").textContent = "AÃ±ade un email al trabajador antes de enviar el acceso.";
       return;
     }
     try {
@@ -11394,7 +11469,7 @@ function setupAccessManagement() {
       const result = await sendPractitionerAccessEmail(practitioner, purpose);
       $("#practitioner-key-status").textContent = result.email_sent
         ? "Email enviado correctamente."
-        : "Acceso preparado. Revisa la configuración de Brevo API para envío automático.";
+        : "Acceso preparado. Revisa la configuraciÃ³n de Brevo API para envÃ­o automÃ¡tico.";
       await notifyPractitionerAccessResult(result, purpose);
     } catch (error) {
       $("#practitioner-key-status").textContent = `No se pudo enviar: ${error.message}`;
@@ -11449,6 +11524,7 @@ async function hydrateFromApi(options = {}) {
     patientPacks = normalizePatientPacks(await syncClinicDataCollection("patient-packs", patientPacks, [], normalizePatientPacks));
     consentTemplates = await syncClinicDataCollection("consent-templates", consentTemplates, [], (value) => Array.isArray(value) ? value : []);
     patientConsents = await syncClinicDataCollection("patient-consents", patientConsents, [], (value) => Array.isArray(value) ? value : []);
+    ensurePatientConsentFiles();
     const localReminderActions = loadClinicState("reminder-actions", []);
     const syncedReminderActions = await syncClinicDataCollection("reminder-actions", reminderActions, [], (value) => Array.isArray(value) ? value : []);
     reminderActions = mergeReminderActions(syncedReminderActions, localReminderActions);
@@ -11493,8 +11569,10 @@ async function hydrateFromApi(options = {}) {
     saveSyncedClinicState("availability-blocks", availabilityBlocks);
     saveClinicState("clinic-logo", clinicLogo);
     backendLastSyncAt = Date.now();
+    renderFilters();
+    renderAppointmentFormOptions();
+    renderSession();
     if (options.render !== false) {
-      renderAppointmentFormOptions();
       renderLoginProfiles();
       renderAll();
     }
@@ -11502,7 +11580,7 @@ async function hydrateFromApi(options = {}) {
   } catch (error) {
     console.warn("Klinia backend data unavailable, keeping local cache.", error);
     if (!options.silent && !isBackendPermissionError(error)) {
-      showToast("No se pudieron actualizar algunos datos. Inténtalo de nuevo en unos segundos.", "warning");
+      showToast("No se pudieron actualizar algunos datos. IntÃ©ntalo de nuevo en unos segundos.", "warning");
     }
     return false;
   }
@@ -11535,6 +11613,7 @@ async function syncCurrentClinicFromBackend(options = {}) {
     return await hydrateFromApi({ silent: true });
   } finally {
     backendAutoSyncInProgress = false;
+    backendInitialLoadPending = false;
   }
 }
 
@@ -11559,7 +11638,7 @@ async function refreshRealtimeClinicData(reason = "manual") {
   } catch (error) {
     console.warn(`Klinia realtime refresh failed (${reason}).`, error);
     if (!isBackendPermissionError(error)) {
-      showToast("No se pudieron actualizar algunos datos. Inténtalo de nuevo en unos segundos.", "warning");
+      showToast("No se pudieron actualizar algunos datos. IntÃ©ntalo de nuevo en unos segundos.", "warning");
     }
     return false;
   } finally {
@@ -11735,7 +11814,7 @@ function applyRolePermissions() {
 
 function currentSessionName() {
   if (isOwner()) {
-    return "Dirección";
+    return "DirecciÃ³n";
   }
   if (isStaff()) {
     return "Recepcion";
@@ -11884,16 +11963,16 @@ function registerFieldLabel(field) {
 function registerPasswordPolicyMessage(password) {
   const value = String(password || "");
   if (value.length < 8) {
-    return "La contraseña debe tener al menos 8 caracteres.";
+    return "La contraseÃ±a debe tener al menos 8 caracteres.";
   }
-  if (!/[A-ZÁÉÍÓÚÜÑ]/.test(value)) {
-    return "La contraseña debe incluir al menos una mayúscula.";
+  if (!/[A-ZÃÃ‰ÃÃ“ÃšÃœÃ‘]/.test(value)) {
+    return "La contraseÃ±a debe incluir al menos una mayÃºscula.";
   }
-  if (!/[a-záéíóúüñ]/.test(value)) {
-    return "La contraseña debe incluir al menos una minúscula.";
+  if (!/[a-zÃ¡Ã©Ã­Ã³ÃºÃ¼Ã±]/.test(value)) {
+    return "La contraseÃ±a debe incluir al menos una minÃºscula.";
   }
   if (!/[0-9\W_]/.test(value)) {
-    return "La contraseña debe incluir al menos un número o símbolo.";
+    return "La contraseÃ±a debe incluir al menos un nÃºmero o sÃ­mbolo.";
   }
   return "";
 }
@@ -11901,15 +11980,15 @@ function registerPasswordPolicyMessage(password) {
 function registerBackendErrorMessage(error) {
   const detail = String(error?.message || "").toLowerCase();
   if (error?.status === 409) {
-    return "Ya existe una clínica con ese email o NIF/CIF. Si acabas de crearla, entra con el email y la contraseña que has elegido.";
+    return "Ya existe una clÃ­nica con ese email o NIF/CIF. Si acabas de crearla, entra con el email y la contraseÃ±a que has elegido.";
   }
   if (detail.includes("password")) {
-    return "La contraseña debe tener al menos 8 caracteres e incluir mayúscula, minúscula y un número o símbolo.";
+    return "La contraseÃ±a debe tener al menos 8 caracteres e incluir mayÃºscula, minÃºscula y un nÃºmero o sÃ­mbolo.";
   }
   if (error?.network || String(error?.message || "").toLowerCase().includes("failed to fetch")) {
-    return "No se ha podido crear la clínica. Revisa la conexión y vuelve a intentarlo.";
+    return "No se ha podido crear la clÃ­nica. Revisa la conexiÃ³n y vuelve a intentarlo.";
   }
-  return "No se ha podido crear la clínica. Inténtalo de nuevo o contacta con soporte.";
+  return "No se ha podido crear la clÃ­nica. IntÃ©ntalo de nuevo o contacta con soporte.";
 }
 
 function clearRegisterError() {
@@ -11993,7 +12072,7 @@ function updateRegisterPlanChoice() {
 }
 
 function updateRegisterPreview() {
-  const name = registerFieldValue("name", "Clínica Fisio Salud");
+  const name = registerFieldValue("name", "ClÃ­nica Fisio Salud");
   const address = registerFieldValue("billingAddress", "Calle Mayor, 10");
   const postalCode = registerFieldValue("postalCode", "28001");
   const city = registerFieldValue("city", "Madrid");
@@ -12071,7 +12150,7 @@ function resetRegisterFlow(planId = "trial") {
   setRegisterSubmitting(false);
   form.dataset.registerFlow = normalizeSaasPlanId(planId);
   form.elements.ownerName.value = "";
-  form.elements.ownerRole.value = "Dirección";
+  form.elements.ownerRole.value = "DirecciÃ³n";
   form.elements.password.value = "";
   form.elements.confirmPassword.value = "";
   form.elements.paymentPlan.value = form.dataset.registerFlow;
@@ -12110,11 +12189,11 @@ function validateRegisterStep(step = registerCurrentStep()) {
     }
   }
   if (step === "account" && form.elements.password.value !== form.elements.confirmPassword.value) {
-    showRegisterError("Las contraseñas no coinciden.", form.elements.confirmPassword);
+    showRegisterError("Las contraseÃ±as no coinciden.", form.elements.confirmPassword);
     return false;
   }
   if (step === "operations" && !$$("#register-form input[name='days']:checked").length) {
-    showRegisterError("Selecciona al menos un día de atención.");
+    showRegisterError("Selecciona al menos un dÃ­a de atenciÃ³n.");
     return false;
   }
   if (step === "operations") {
@@ -12135,7 +12214,7 @@ function setRegisterSubmitting(isSubmitting) {
   const backButton = $("#register-back-button");
   if (submitButton) {
     submitButton.disabled = isSubmitting;
-    submitButton.textContent = isSubmitting ? "Creando clínica..." : "Confirmar y crear clínica";
+    submitButton.textContent = isSubmitting ? "Creando clÃ­nica..." : "Confirmar y crear clÃ­nica";
   }
   if (backButton) {
     backButton.disabled = isSubmitting;
@@ -12264,11 +12343,11 @@ function updatePublicBillingCycle(cycle = "monthly") {
   const annual = cycle === "annual";
   $$("[data-billing-cycle]").forEach((button) => button.classList.toggle("selected", button.dataset.billingCycle === cycle));
   $("#professional-price-main").textContent = annual ? "500 EUR" : "50 EUR";
-  $("#professional-price-period").textContent = annual ? "/año" : "/mes";
+  $("#professional-price-period").textContent = annual ? "/aÃ±o" : "/mes";
   $("#professional-price-note").textContent = annual
-    ? "1 mes gratis, luego 500 EUR/año"
+    ? "1 mes gratis, luego 500 EUR/aÃ±o"
     : "1 mes gratis, luego 50 EUR/mes";
-  $("#billing-cycle-note").textContent = annual ? "Ahorra 2 meses al año" : "Puedes cambiar a anual cuando quieras";
+  $("#billing-cycle-note").textContent = annual ? "Ahorra 2 meses al aÃ±o" : "Puedes cambiar a anual cuando quieras";
 }
 
 function openDemoAccess() {
@@ -12420,7 +12499,7 @@ function setupPublicAccessNavigation() {
     await showNotice(
       "Solicitud enviada",
       localQueued
-        ? "Si el email existe en una clinica, direccion vera la solicitud en Configuración > Trabajadores y podra generar una clave nueva."
+        ? "Si el email existe en una clinica, direccion vera la solicitud en ConfiguraciÃ³n > Trabajadores y podra generar una clave nueva."
         : "Si el email existe, Direcci?n o soporte podr?n revisar la solicitud y generar una clave nueva.",
       { variant: "success" }
     );
@@ -12470,7 +12549,7 @@ function setupLogin() {
     const identifier = form.elements.center.value.trim();
     const password = form.elements.password.value.trim();
     if (!identifier || !password) {
-      showLoginError("Escribe usuario y contraseña para entrar.", !identifier ? form.elements.center : form.elements.password);
+      showLoginError("Escribe usuario y contraseÃ±a para entrar.", !identifier ? form.elements.center : form.elements.password);
       return;
     }
     const backendFirst = await tryBackendLogin(identifier, password);
@@ -12486,11 +12565,11 @@ function setupLogin() {
     const principal = loginPrincipalByIdentifier(form.elements.center.value);
     if (principal) {
       if (!principal.password) {
-        showLoginError("Este usuario todavía no tiene una contraseña configurada.", form.elements.password);
+        showLoginError("Este usuario todavÃ­a no tiene una contraseÃ±a configurada.", form.elements.password);
         return;
       }
       if (password !== principal.password) {
-        showLoginError("Contraseña incorrecta para este usuario.", form.elements.password);
+        showLoginError("ContraseÃ±a incorrecta para este usuario.", form.elements.password);
         return;
       }
       persistLoginCredentials(form, identifier, password);
@@ -12508,11 +12587,11 @@ function setupLogin() {
       return;
     }
     if (account.key === demoClinicKey) {
-      showLoginError("La clínica demo se abre desde Demo visual, no desde el acceso real.", form.elements.center);
+      showLoginError("La clÃ­nica demo se abre desde Demo visual, no desde el acceso real.", form.elements.center);
       return;
     }
     if (password !== clinicAccessPasswordForAccount(account)) {
-      showLoginError("Contraseña incorrecta para esta clínica.", form.elements.password);
+      showLoginError("ContraseÃ±a incorrecta para esta clÃ­nica.", form.elements.password);
       return;
     }
     persistLoginCredentials(form, identifier, password);
@@ -12542,17 +12621,17 @@ function setupLogin() {
       }
     }
     if (backendAuthoritativeMode(account)) {
-      showProfileLoginError("Este perfil debe entrar con un usuario backend valido. Revisa el acceso desde Dirección o Superadmin.", form.elements.password);
+      showProfileLoginError("Este perfil debe entrar con un usuario backend valido. Revisa el acceso desde DirecciÃ³n o Superadmin.", form.elements.password);
       return;
     }
     if (!identity.password) {
       showProfileLoginError(identity.email
         ? "Este perfil existe, pero debe entrar con su email directamente."
-        : "Este perfil no tiene email ni contraseña propia configurada.", form.elements.password);
+        : "Este perfil no tiene email ni contraseÃ±a propia configurada.", form.elements.password);
       return;
     }
     if (typedPassword !== identity.password) {
-      showProfileLoginError("Contraseña incorrecta para este perfil.", form.elements.password);
+      showProfileLoginError("ContraseÃ±a incorrecta para este perfil.", form.elements.password);
       return;
     }
     enterPlatform(profile, account.key);
@@ -12633,9 +12712,9 @@ function setupLogin() {
       const sameTaxId = taxId && String(duplicateAccount.billingProfile?.taxId || duplicateAccount.taxId || "").trim().toLowerCase() === taxId.toLowerCase();
       const sameEmail = clinicEmail && String(duplicateAccount.email || duplicateAccount.billingProfile?.billingEmail || "").trim().toLowerCase() === clinicEmail.toLowerCase();
       $("#register-error").textContent = sameTaxId
-        ? "Ya existe una clínica con ese NIF/CIF. Revisa el dato o entra desde el selector de clínicas."
+        ? "Ya existe una clÃ­nica con ese NIF/CIF. Revisa el dato o entra desde el selector de clÃ­nicas."
         : sameEmail
-          ? "Ya existe una clínica con ese email. Revisa el dato o entra desde Login."
+          ? "Ya existe una clÃ­nica con ese email. Revisa el dato o entra desde Login."
           : "Ya existe un usuario con ese email. Usa otro email o entra desde Login.";
       $("#register-error").classList.add("visible");
       delete form.dataset.registerSubmitting;
@@ -12665,7 +12744,7 @@ function setupLogin() {
       email: form.elements.email?.value.trim() || "",
       phone: clinicPhone || "No indicado",
       ownerPhone: form.elements.phone?.value.trim() || "",
-      ownerRole: form.elements.ownerRole?.value || "Dirección",
+      ownerRole: form.elements.ownerRole?.value || "DirecciÃ³n",
       password: form.elements.password.value,
       ownerEmail: form.elements.email?.value.trim() || "",
       ownerPassword: form.elements.password.value,
@@ -12745,7 +12824,7 @@ function setupLogin() {
         billingAddress: billingProfile.billingAddress,
         postalCode: form.elements.postalCode?.value.trim() || "",
         city: form.elements.city?.value.trim() || "",
-        country: form.elements.country?.value || "España",
+        country: form.elements.country?.value || "EspaÃ±a",
         specialty: form.elements.specialty?.value || "",
         clinicType: form.elements.clinicType?.value || "",
         professionalsCount: form.elements.professionalsCount?.value || "",
@@ -12778,10 +12857,10 @@ function setupLogin() {
 
       registerCreatedAccount = createdAccount;
       setRegisterStep("success");
-      showToast("Tu clínica se ha creado correctamente. Ya puedes iniciar sesión.", "success");
+      showToast("Tu clÃ­nica se ha creado correctamente. Ya puedes iniciar sesiÃ³n.", "success");
 
       loadActiveClinicData(account.key).catch((error) => {
-        console.warn("No se pudo hidratar la clínica recién creada", error);
+        console.warn("No se pudo hidratar la clÃ­nica reciÃ©n creada", error);
       });
       renderLoginClinics();
       $("#login-clinic-select").value = account.name;
@@ -12790,10 +12869,10 @@ function setupLogin() {
       $("#profile-form").elements.password.value = "";
       updateRegisterPlanChoice();
     } catch (localError) {
-      console.error("La clínica se creó, pero falló la preparación local", localError);
+      console.error("La clÃ­nica se creÃ³, pero fallÃ³ la preparaciÃ³n local", localError);
       registerCreatedAccount = account;
       setRegisterStep("success");
-      showToast("Tu clínica se ha creado correctamente. Ya puedes iniciar sesión.", "success");
+      showToast("Tu clÃ­nica se ha creado correctamente. Ya puedes iniciar sesiÃ³n.", "success");
     } finally {
       delete form.dataset.registerSubmitting;
       setRegisterSubmitting(false);
@@ -13003,8 +13082,18 @@ function setupDialogCloseButtons() {
         return;
       }
       if (dialog?.open) {
+        dialog.classList.remove("modal-expanded");
         dialog.close();
       }
+    });
+  });
+  $$("[data-dialog-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const dialog = document.getElementById(button.dataset.dialogToggle);
+      if (!dialog) return;
+      const expanded = dialog.classList.toggle("modal-expanded");
+      button.textContent = expanded ? "][" : "[]";
+      button.title = expanded ? "Restaurar" : "Ampliar";
     });
   });
 }
@@ -13244,7 +13333,7 @@ function openAppointmentDialog(defaults = {}) {
   $("#form-error").textContent = "";
   const missing = appointmentSetupMissing();
   if (missing.length) {
-    $("#form-error").textContent = `Antes de crear citas configura: ${missing.join(", ")}. Puedes hacerlo en Configuración.`;
+    $("#form-error").textContent = `Antes de crear citas configura: ${missing.join(", ")}. Puedes hacerlo en ConfiguraciÃ³n.`;
     $("#form-error").classList.add("visible");
   }
   updateAppointmentOutsideHoursWarning(form);
@@ -13373,7 +13462,7 @@ function setupDialog() {
     const outsideHours = isOutsidePractitionerHours(practitioner, candidate.start, candidateEnd, candidate.date || selectedDate);
     if (outsideHours) {
       candidate.outsideHours = true;
-      candidate.outsideHoursNotice = "Está creando una cita fuera de horario";
+      candidate.outsideHoursNotice = "EstÃ¡ creando una cita fuera de horario";
     }
 
     if ((form.elements.repeatEnabled?.checked || form.elements.repeatWeekly?.checked) && form.elements.repeatEndDate?.value < candidate.date) {
@@ -13436,7 +13525,7 @@ function openAppointmentDetail(appointmentId) {
   form.elements.practitioner.value = appointment.practitionerId || "";
   form.elements.room.value = appointment.roomId || "";
   $("#appointment-detail-data").innerHTML = `
-    <dt>Día</dt>
+    <dt>DÃ­a</dt>
     <dd>${appointment.date || selectedDate}</dd>
     <dt>Hora</dt>
     <dd>${appointment.start || ""}${appointmentEnd(appointment) ? ` - ${appointmentEnd(appointment)}` : ""}</dd>
@@ -13478,7 +13567,7 @@ function openAppointmentDetail(appointmentId) {
   }
   if (productionText) {
     productionText.textContent = appointmentHasPack
-      ? `Esta cita está cubierta por bono. No genera un nuevo cobro ni pendiente de facturación; al guardarla como confirmada cuenta como producción interna (${productionAmount} EUR) para rendimiento.`
+      ? `Esta cita estÃ¡ cubierta por bono. No genera un nuevo cobro ni pendiente de facturaciÃ³n; al guardarla como confirmada cuenta como producciÃ³n interna (${productionAmount} EUR) para rendimiento.`
       : "";
   }
   if (form.elements.cancelledBy) {
@@ -13523,7 +13612,7 @@ function updateAppointmentDetailDuration(form = $("#appointment-detail-form")) {
   const label = $("#appointment-detail-duration");
   if (label) {
     label.textContent = service
-      ? `Duración: ${duration} min. La cita quedará ${start} - ${end}.`
+      ? `DuraciÃ³n: ${duration} min. La cita quedarÃ¡ ${start} - ${end}.`
       : "Selecciona un servicio para calcular la hora final.";
   }
 }
@@ -13729,7 +13818,7 @@ function setupAppointmentDetail() {
     const nextDuration = formDurationMinutes(form, nextService?.duration || appointmentDurationMinutes(existingAppointment));
     if (!nextDate || !isValidTimeValue(nextStart) || !nextServiceId || !nextPractitionerId || !nextRoomId) {
       if (detailError) {
-        detailError.textContent = "Revisa día, hora, servicio, profesional y sala antes de guardar.";
+        detailError.textContent = "Revisa dÃ­a, hora, servicio, profesional y sala antes de guardar.";
         detailError.classList.add("visible");
       }
       return;
@@ -13855,7 +13944,7 @@ function setupAppointmentDetail() {
       patientPackUsedAt: nextPatientPackId ? (nextPatientPackUsedAt || consumedPatientPackAt || new Date().toISOString()) : "",
       outsideHours: !finalStatusIsCancelled && isOutsidePractitionerHours(byId(practitioners, nextPractitionerId), scheduleCandidate.start, scheduleCandidate.end, scheduleCandidate.date),
       outsideHoursNotice: !finalStatusIsCancelled && isOutsidePractitionerHours(byId(practitioners, nextPractitionerId), scheduleCandidate.start, scheduleCandidate.end, scheduleCandidate.date)
-        ? "Está creando una cita fuera de horario"
+        ? "EstÃ¡ creando una cita fuera de horario"
         : "",
       cancelledBy,
       cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : ""
@@ -14347,7 +14436,7 @@ async function deleteGroupById(groupId) {
   saveSyncedClinicState("group-completions", groupCompletions);
   saveSyncedClinicState("group-session-overrides", groupSessionOverrides);
   renderAll();
-  showToast("Sesión grupal eliminada.");
+  showToast("SesiÃ³n grupal eliminada.");
 }
 
 function refreshGroupFormOptions(form = $("#group-form")) {
@@ -14459,7 +14548,7 @@ function setupGroupDialog() {
     });
     if (outsideDays.length) {
       const confirmedOutside = await showConfirm({
-        title: "Sesión fuera de horario",
+        title: "SesiÃ³n fuera de horario",
         message: `${practitioner?.name || "El trabajador"} no tiene jornada configurada para ${outsideDays.map((day) => weekDayLabels[day] || day).join(", ")} a las ${group.start}.`,
         detail: "Puedes guardar la sesion igualmente, pero revisa la disponibilidad del trabajador.",
         confirmLabel: "Guardar igualmente",
@@ -14531,7 +14620,7 @@ function setupGroupSessionDialog() {
     updateGroupSessionHeader(updatedGroup, dateValue);
     renderGroupSessionPanel(updatedGroup, dateValue);
     renderAll();
-    showToast(updatedGroup.sessionOverride ? "Sesión puntual actualizada." : "Sesión restaurada a la serie.");
+    showToast(updatedGroup.sessionOverride ? "SesiÃ³n puntual actualizada." : "SesiÃ³n restaurada a la serie.");
   });
   $("#clear-group-exception")?.addEventListener("click", () => {
     const baseGroup = groupBaseById(dialog.dataset.groupId);
@@ -14543,7 +14632,7 @@ function setupGroupSessionDialog() {
     updateGroupSessionHeader(updatedGroup, dateValue);
     renderGroupSessionPanel(updatedGroup, dateValue);
     renderAll();
-    showToast("Sesión restaurada.");
+    showToast("SesiÃ³n restaurada.");
   });
   $("#edit-group-from-session")?.addEventListener("click", () => {
     const group = groups.find((item) => item.id === dialog.dataset.groupId);
@@ -14617,7 +14706,7 @@ function setupGroupSessionDialog() {
     const patientId = $("#group-dropin-patient")?.value;
     if (!group || !patientId) return;
     if (!groupHasFreeSpot(group, dateValue)) {
-      $("#group-session-warning").textContent = "Sesión completa para este dia.";
+      $("#group-session-warning").textContent = "SesiÃ³n completa para este dia.";
       return;
     }
     const alreadyAdded = groupDropIns.some((entry) => entry.groupId === group.id && entry.date === dateValue && entry.patientId === patientId);
@@ -14645,7 +14734,7 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
     ? `
       <div class="service-commission-head" aria-hidden="true">
         <span>Servicio</span>
-        <span>Comisión</span>
+        <span>ComisiÃ³n</span>
       </div>
       ${services.map((service) => {
         const item = config[service.id] || {};
@@ -14662,8 +14751,8 @@ function renderPractitionerServiceCommissionControls(form = $("#practitioner-for
               </span>
             </label>
             <label class="service-commission-rate">
-              <span>Comisión</span>
-              <input type="text" inputmode="decimal" data-service-commission="${service.id}" value="${rate}" placeholder="%" aria-label="Comisión de ${escapeHtml(service.name)}" />
+              <span>ComisiÃ³n</span>
+              <input type="text" inputmode="decimal" data-service-commission="${service.id}" value="${rate}" placeholder="%" aria-label="ComisiÃ³n de ${escapeHtml(service.name)}" />
             </label>
           </article>
         `;
@@ -14960,9 +15049,9 @@ function openUnavailabilityDialog(defaults = {}) {
 function brevoTestSummary(result = {}) {
   const labels = [
     ["api_key", "API Key"],
-    ["https", "Conexión HTTPS"],
+    ["https", "ConexiÃ³n HTTPS"],
     ["brevo_response", "Respuesta Brevo"],
-    ["send", "Envío"]
+    ["send", "EnvÃ­o"]
   ];
   const lines = [
     `Endpoint: ${result.brevo?.url || "https://api.brevo.com/v3/smtp/email"}`,
@@ -14981,7 +15070,7 @@ function brevoTestSummary(result = {}) {
   }
   if (result.details) {
     lines.push("");
-    lines.push("Detalle técnico:");
+    lines.push("Detalle tÃ©cnico:");
     lines.push(JSON.stringify(result.details, null, 2));
   }
   return lines.join("\n");
@@ -14989,7 +15078,7 @@ function brevoTestSummary(result = {}) {
 
 async function testBrevoFromSettings() {
   if (!backendDataEnabled()) {
-    await showNotice("Backend no activo", "Inicia sesión de nuevo como Dirección para probar Brevo API con tu token de acceso.", { variant: "warning" });
+    await showNotice("Backend no activo", "Inicia sesiÃ³n de nuevo como DirecciÃ³n para probar Brevo API con tu token de acceso.", { variant: "warning" });
     return;
   }
   const button = $("#test-brevo");
@@ -15111,7 +15200,7 @@ function setupConfiguration() {
       .map((input) => normalizeWorkingDayKey(input.value))
       .filter(Boolean);
     if (!workingDays.length) {
-      $("#clinic-save-status").textContent = "Selecciona al menos un día de atención.";
+      $("#clinic-save-status").textContent = "Selecciona al menos un dÃ­a de atenciÃ³n.";
       return;
     }
     const openingStart = form.elements.openingStart?.value || clinic.openingStart || "09:00";
@@ -15136,12 +15225,12 @@ function setupConfiguration() {
       openingEnd,
       workingDays
     };
-    $("#clinic-save-status").textContent = "Guardando configuración...";
+    $("#clinic-save-status").textContent = "Guardando configuraciÃ³n...";
     $("#clinic-save-status").classList.remove("error");
     try {
       clinic = await saveClinicSettingsToBackend(nextClinic);
     } catch (error) {
-      $("#clinic-save-status").textContent = `No se pudo guardar configuración: ${error.message}`;
+      $("#clinic-save-status").textContent = `No se pudo guardar configuraciÃ³n: ${error.message}`;
       $("#clinic-save-status").classList.add("error");
       return;
     }
@@ -15158,7 +15247,7 @@ function setupConfiguration() {
     )));
     saveClinicAccounts();
     renderLoginClinics();
-    $("#clinic-save-status").textContent = "Configuración guardada. Agenda actualizada.";
+    $("#clinic-save-status").textContent = "ConfiguraciÃ³n guardada. Agenda actualizada.";
     window.setTimeout(() => {
       const status = $("#clinic-save-status");
       if (status && !status.classList.contains("error")) {
@@ -15172,7 +15261,7 @@ function setupConfiguration() {
 
   $("#delete-clinic").addEventListener("click", async () => {
     if (isDemoClinic()) {
-      const confirmed = await confirmClinicReset("Esto limpiará la demo local y la dejará con datos de ejemplo.");
+      const confirmed = await confirmClinicReset("Esto limpiarÃ¡ la demo local y la dejarÃ¡ con datos de ejemplo.");
       if (!confirmed) {
         $("#clinic-save-status").textContent = "Reset cancelado. No se ha cambiado nada.";
         return;
@@ -15183,7 +15272,7 @@ function setupConfiguration() {
       loadActiveClinicData(demoClinicKey);
     } else {
       const account = clinicAccountByKey(activeClinicKey);
-      const confirmed = await confirmClinicReset(`Vas a resetear pacientes, citas, trabajadores, salas y servicios de ${clinic.name}. La clínica seguirá existiendo para poder entrar de nuevo.`);
+      const confirmed = await confirmClinicReset(`Vas a resetear pacientes, citas, trabajadores, salas y servicios de ${clinic.name}. La clÃ­nica seguirÃ¡ existiendo para poder entrar de nuevo.`);
       if (!confirmed) {
         $("#clinic-save-status").textContent = "Reset cancelado. No se ha cambiado nada.";
         return;
@@ -15218,7 +15307,7 @@ function setupConfiguration() {
     renderSession();
     renderAll();
     appendAuditLog("reset-clinic", { clinicKey: activeClinicKey, demo: isDemoClinic() });
-    $("#clinic-save-status").textContent = "Clínica reseteada. La cuenta sigue disponible para entrar.";
+    $("#clinic-save-status").textContent = "ClÃ­nica reseteada. La cuenta sigue disponible para entrar.";
   });
 
   $("#test-brevo")?.addEventListener("click", testBrevoFromSettings);
@@ -15419,6 +15508,96 @@ function patientConsentById(id) {
   return patientConsents.find((item) => item.id === id);
 }
 
+function safeDocumentFileName(value) {
+  return slugifyClinicName(value || "documento").replace(/[^a-z0-9-]/g, "-") || "documento";
+}
+
+function patientConsentFileName(consent, patient = null) {
+  const patientName = patient?.name || consent?.fiscalData?.name || "paciente";
+  const date = consent?.signatureDate || todayIso();
+  return `consentimiento-${safeDocumentFileName(patientName)}-${safeDocumentFileName(consent?.templateName || "firmado")}-${date}.html`;
+}
+
+function buildPatientConsentFile(consent, patient = null) {
+  const patientData = consent?.fiscalData || {};
+  const patientName = patient?.name || patientData.name || "Paciente";
+  const signatureDate = consent?.signatureDateLabel || formatConsentDate(consent?.signatureDate) || "";
+  const revokedInfo = consent?.revoked
+    ? `Revocado el ${consent.revokedAt ? new Date(consent.revokedAt).toLocaleString("es-ES") : ""}${consent.revokedBy ? ` por ${escapeHtml(consent.revokedBy)}` : ""}.`
+    : "Sin revocacion registrada.";
+  const html = `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(consent?.templateName || "Consentimiento firmado")}</title>
+<style>
+  body{margin:0;background:#f4f5f1;color:#202621;font-family:Arial,Helvetica,sans-serif;line-height:1.48}
+  main{width:min(860px,calc(100vw - 32px));margin:24px auto;background:#fff;border:1px solid #d9ded7;border-radius:8px;padding:32px;box-shadow:0 16px 40px rgba(28,39,33,.08)}
+  h1{font-size:24px;margin:0 0 8px} h2{font-size:15px;margin:28px 0 8px}.meta{color:#69746c;font-size:13px;margin-bottom:24px}.grid{display:grid;grid-template-columns:160px 1fr;gap:8px 14px;border:1px solid #d9ded7;border-radius:8px;padding:14px;margin:18px 0}.label{color:#69746c}.document{white-space:pre-wrap;border-top:1px solid #d9ded7;border-bottom:1px solid #d9ded7;padding:18px 0;overflow-wrap:anywhere}.signature{margin-top:22px}.signature img{max-width:280px;max-height:130px;border:1px solid #d9ded7;border-radius:8px;background:#fff}.revocation-line{height:1px;border:0;background:#dfe7e2;margin:8px 0 14px}.muted{color:#69746c;font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>${escapeHtml(consent?.templateName || "Consentimiento firmado")}</h1>
+  <p class="meta">${escapeHtml(clinic.name || "Clinica")} - ${escapeHtml(consent?.createdAt || "")} - ${escapeHtml(consent?.city || "")} - ${escapeHtml(signatureDate)}</p>
+  <section class="grid">
+    <span class="label">Paciente</span><strong>${escapeHtml(patientName)}</strong>
+    <span class="label">DNI/NIE</span><span>${escapeHtml(patient?.dni || patientData.dni || "No indicado")}</span>
+    <span class="label">Email</span><span>${escapeHtml(patient?.email || patientData.email || "No indicado")}</span>
+    <span class="label">Telefono</span><span>${escapeHtml(patient?.phone || patientData.phone || "No indicado")}</span>
+    <span class="label">Direccion</span><span>${escapeHtml(patientLocationLine(patient) || patientData.address || "No indicada")}</span>
+  </section>
+  <section class="document">${escapeHtml(consent?.body || "")}</section>
+  <section class="signature">
+    <h2>Firma del paciente</h2>
+    ${consent?.signatureData ? `<img src="${consent.signatureData}" alt="Firma del paciente">` : `<p class="muted">Sin firma registrada.</p>`}
+  </section>
+  <section class="revocation">
+    <h2>Revocacion de consentimiento</h2>
+    <hr class="revocation-line">
+    <p class="muted">${revokedInfo}</p>
+  </section>
+</main>
+</body>
+</html>`;
+  const fileName = patientConsentFileName(consent, patient);
+  return {
+    fileName,
+    fileMime: "text/html",
+    fileData: `data:text/html;charset=utf-8,${encodeURIComponent(html)}`
+  };
+}
+
+function ensurePatientConsentFile(consent) {
+  if (!consent?.signed) return consent;
+  const patient = byId(patients, consent.patientId);
+  if (consent.fileData && consent.fileName) return consent;
+  return { ...consent, ...buildPatientConsentFile(consent, patient) };
+}
+
+function ensurePatientConsentFiles() {
+  let changed = false;
+  patientConsents = patientConsents.map((consent) => {
+    const next = ensurePatientConsentFile(consent);
+    if (next !== consent) changed = true;
+    return next;
+  });
+  if (changed) {
+    saveClinicState("patient-consents", patientConsents);
+  }
+}
+
+function openPatientConsentFile(consentId) {
+  const consent = ensurePatientConsentFile(patientConsentById(consentId));
+  if (!consent?.fileData) return;
+  openDataUrlDocument(consent.fileData, consent.fileName || "consentimiento-firmado.html");
+}
+
+function downloadPatientConsentFile(consentId) {
+  const consent = ensurePatientConsentFile(patientConsentById(consentId));
+  if (!consent?.fileData) return;
+  downloadDataUrlFile(consent.fileData, consent.fileName || "consentimiento-firmado.html");
+}
 async function revokePatientConsent(consentId) {
   const consent = patientConsentById(consentId);
   if (!consent || consent.revoked) return;
@@ -15430,10 +15609,12 @@ async function revokePatientConsent(consentId) {
     variant: "danger"
   });
   if (!confirmed) return;
-  patientConsents = patientConsents.map((item) => item.id === consent.id
-    ? { ...item, revoked: true, revokedAt: new Date().toISOString(), revokedBy: currentSessionName(), updatedAt: new Date().toISOString() }
-    : item
-  );
+  patientConsents = patientConsents.map((item) => {
+    if (item.id !== consent.id) return item;
+    const patient = byId(patients, item.patientId);
+    const revoked = { ...item, revoked: true, revokedAt: new Date().toISOString(), revokedBy: currentSessionName(), updatedAt: new Date().toISOString() };
+    return { ...revoked, ...buildPatientConsentFile(revoked, patient) };
+  });
   saveClinicState("patient-consents", patientConsents);
   renderPatientDetail();
   showToast("Consentimiento revocado.");
@@ -15463,7 +15644,7 @@ async function emailPatientConsent(consentId) {
     return;
   }
   if (!patient.email) {
-    await showNotice("Email no disponible", "Este paciente no tiene email en su ficha. Añadelo antes de enviar el consentimiento.", { variant: "warning" });
+    await showNotice("Email no disponible", "Este paciente no tiene email en su ficha. AÃ±adelo antes de enviar el consentimiento.", { variant: "warning" });
     return;
   }
   const subject = `Consentimiento informado - ${consent.templateName || "Klinia"}`;
@@ -15601,7 +15782,7 @@ function renderPatientConsentTemplateList(selectedTemplateId = "", locked = fals
   if (!list || !form) return;
   const choices = patientConsentTemplateChoices(selectedTemplateId, existing);
   if (!choices.length) {
-    list.innerHTML = `<article class="compact-item consent-template-empty"><span>Crea primero una plantilla en Configuración para poder firmarla con el paciente.</span></article>`;
+    list.innerHTML = `<article class="compact-item consent-template-empty"><span>Crea primero una plantilla en ConfiguraciÃ³n para poder firmarla con el paciente.</span></article>`;
     return;
   }
   list.innerHTML = choices.map((template) => {
@@ -15633,7 +15814,7 @@ function renderPatientConsentDialogData(patient) {
     <dd>${escapeHtml(patient?.email || "No indicado")}</dd>
     <dt>Telefono</dt>
     <dd>${escapeHtml(patient?.phone || "No indicado")}</dd>
-    <dt>Dirección</dt>
+    <dt>DirecciÃ³n</dt>
     <dd>${escapeHtml(patientLocationLine(patient) || "No indicada")}</dd>
   `;
 }
@@ -15655,21 +15836,26 @@ function openPatientConsentDialog(consentId = "") {
   const selectedTemplateId = existing?.templateId || consentTemplates[0]?.id || "";
   form.dataset.editingConsentId = existing?.id || "";
   fillPatientConsentTemplateOptions(form.elements.template, selectedTemplateId, existing);
+  const lockedConsent = Boolean(existing?.signed || existing?.revoked);
   form.elements.template.disabled = Boolean(existing);
   form.elements.city.value = existing?.city || "";
   form.elements.signatureDate.value = existing?.signatureDate || todayIso();
   const selectedTemplate = byId(consentTemplates, selectedTemplateId) || (existing ? { ...existing, id: existing.templateId, name: existing.templateName, body: existing.templateBody || existing.body || "" } : null);
   form.elements.body.value = existing?.body || (selectedTemplate ? consentBodyForPatient(selectedTemplate, patient, form.elements.city.value.trim(), form.elements.signatureDate.value) : "");
   renderPatientConsentDialogData(patient);
-  renderPatientConsentTemplateList(selectedTemplateId, Boolean(existing), existing);
-  $("#patient-consent-dialog-title").textContent = existing?.revoked ? "Consentimiento revocado" : (existing ? "Editar consentimiento" : "Preparar consentimiento");
-  $("#save-patient-consent").textContent = existing?.signed ? "Guardar cambios" : "Guardar consentimiento firmado";
+  renderPatientConsentTemplateList(selectedTemplateId, lockedConsent || Boolean(existing), existing);
+  $("#patient-consent-dialog-title").textContent = existing?.revoked ? "Consentimiento revocado" : (existing?.signed ? "Revisar consentimiento firmado" : (existing ? "Editar consentimiento" : "Preparar consentimiento"));
+  $("#save-patient-consent").textContent = existing?.signed ? "Documento firmado" : "Guardar consentimiento firmado";
   $("#patient-consent-error").classList.remove("visible");
   $("#patient-consent-error").textContent = existing?.revoked
     ? `Revocado ${existing.revokedAt ? new Date(existing.revokedAt).toLocaleString("es-ES") : ""}. Este registro queda solo para revision.`
-    : (consentTemplates.length ? "" : "Crea primero una plantilla de consentimiento en Configuración.");
+    : (consentTemplates.length ? "" : "Crea primero una plantilla de consentimiento en ConfiguraciÃ³n.");
   $("#patient-consent-error").classList.toggle("visible", Boolean(existing?.revoked));
-  $("#save-patient-consent").disabled = Boolean(existing?.revoked) || (!consentTemplates.length && !existing);
+  form.elements.city.readOnly = lockedConsent;
+  form.elements.signatureDate.readOnly = lockedConsent;
+  form.elements.body.readOnly = lockedConsent;
+  $("#clear-patient-consent-signature").disabled = lockedConsent;
+  $("#save-patient-consent").disabled = lockedConsent || (!consentTemplates.length && !existing);
   setupPatientConsentSignatureCanvas();
   loadPatientConsentSignature(existing?.signatureData || "");
   dialog.showModal();
@@ -15714,7 +15900,7 @@ function setupPatientConsentsAndPacks() {
       return;
     }
     const now = new Date().toISOString();
-    const next = {
+    const nextBase = {
       ...(existing || {}),
       id: existing?.id || `patient-consent-${Date.now()}`,
       patientId: patient.id,
@@ -15738,6 +15924,7 @@ function setupPatientConsentsAndPacks() {
         address: patientLocationLine(patient)
       }
     };
+    const next = { ...nextBase, ...buildPatientConsentFile(nextBase, patient) };
     patientConsents = existing
       ? patientConsents.map((item) => item.id === existing.id ? next : item)
       : [...patientConsents, next];
@@ -15764,7 +15951,7 @@ function setupPatientConsentsAndPacks() {
     const patient = byId(patients, selectedPatientId);
     const pack = byId(sessionPacks, $("#patient-pack-template")?.value);
     if (!patient || !pack) {
-      $("#patient-packs").innerHTML = `<article class="compact-item"><span>Crea primero un bono en Configuración.</span></article>`;
+      $("#patient-packs").innerHTML = `<article class="compact-item"><span>Crea primero un bono en ConfiguraciÃ³n.</span></article>`;
       return;
     }
     patientPacks = [...patientPacks, {
@@ -15869,7 +16056,7 @@ async function consumePatientPack(packId) {
     renderBilling();
     return;
   }
-  showToast(`Sesión descontada. Quedan ${result.remaining} sesiones.`);
+  showToast(`SesiÃ³n descontada. Quedan ${result.remaining} sesiones.`);
   renderPatientDetail();
   renderBilling();
 }
@@ -15886,10 +16073,10 @@ async function deletePatientPackAssignment(packId) {
   const confirmed = await showConfirm({
     eyebrow: "Bono asignado",
     title: "Eliminar bono del paciente",
-    message: `¿Quieres eliminar "${pack.name}" de la ficha del paciente?`,
+    message: `Â¿Quieres eliminar "${pack.name}" de la ficha del paciente?`,
     detail: linkedAppointments.length
-      ? `Hay ${linkedAppointments.length} cita(s) vinculada(s). Se quitará la relación con este bono para evitar que siga apareciendo como aplicado.`
-      : "Esta acción solo retira el bono asignado a este paciente.",
+      ? `Hay ${linkedAppointments.length} cita(s) vinculada(s). Se quitarÃ¡ la relaciÃ³n con este bono para evitar que siga apareciendo como aplicado.`
+      : "Esta acciÃ³n solo retira el bono asignado a este paciente.",
     confirmLabel: "Eliminar bono"
   });
   if (!confirmed) {
@@ -15956,7 +16143,7 @@ function generateInvoiceForPatientPack(packId) {
       error.textContent = "Selecciona si el bono se cobra en efectivo o tarjeta antes de facturarlo.";
       error.classList.add("visible");
     } else {
-      showToast("Selecciona método de cobro del bono.", "warning");
+      showToast("Selecciona mÃ©todo de cobro del bono.", "warning");
     }
     return;
   }
@@ -16357,7 +16544,7 @@ function setupBillingControls() {
     const paymentMethod = form.elements.paymentMethod?.value || "";
     if (!form.elements.date.value || !concept || amount <= 0 || !paymentMethod) {
       if (errorBox) {
-        errorBox.textContent = "Indica fecha, concepto, método e importe mayor que cero.";
+        errorBox.textContent = "Indica fecha, concepto, mÃ©todo e importe mayor que cero.";
         errorBox.classList.add("visible");
       }
       return;
@@ -16533,3 +16720,6 @@ setupBillingControls();
 setupPerformance();
 restoreAuthenticatedSessionOnLoad();
 renderAll();
+
+
+

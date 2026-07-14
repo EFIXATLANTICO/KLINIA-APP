@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260710-pwa-mobile-3";
+const KLINIA_CACHE = "klinia-20260714-prod-five-fixes";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260710-pwa-mobile-3",
-  "./app.js?v=20260710-pwa-mobile-3",
+  "./styles.css?v=20260714-prod-five-fixes",
+  "./app.js?v=20260714-prod-five-fixes",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
@@ -69,3 +69,5 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
+

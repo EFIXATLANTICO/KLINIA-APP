@@ -16,37 +16,37 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260710-pwa-mobile-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260714-prod-five-fixes" />
   </head>
   <body class="login-mode">
-    <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
+    <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseÃ±a de acceso">
       <div class="activation-card">
         <img class="activation-logo" src="./assets/klinia-logo.svg" alt="Klinia" />
         <p class="eyebrow">Acceso seguro</p>
-        <h1>Crear contraseña</h1>
-        <p class="activation-copy">Define tu contraseña para acceder a Klinia.</p>
+        <h1>Crear contraseÃ±a</h1>
+        <p class="activation-copy">Define tu contraseÃ±a para acceder a Klinia.</p>
         <form id="activation-access-form" novalidate>
           <label>
-            Nueva contraseña
+            Nueva contraseÃ±a
             <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
-            <span class="field-hint">Mínimo 8 caracteres, con mayúscula, minúscula y un número o símbolo.</span>
+            <span class="field-hint">MÃ­nimo 8 caracteres, con mayÃºscula, minÃºscula y un nÃºmero o sÃ­mbolo.</span>
           </label>
           <label>
-            Repetir contraseña
+            Repetir contraseÃ±a
             <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
           </label>
           <p class="form-error" id="activation-access-error" role="alert"></p>
           <p class="form-success" id="activation-access-success" role="status"></p>
           <div class="activation-actions">
-            <button class="primary-button" id="activation-submit-button" type="submit">Guardar contraseña</button>
-            <button class="secondary-button hidden" id="activation-login-button" type="button">Ir a iniciar sesión</button>
+            <button class="primary-button" id="activation-submit-button" type="submit">Guardar contraseÃ±a</button>
+            <button class="secondary-button hidden" id="activation-login-button" type="button">Ir a iniciar sesiÃ³n</button>
           </div>
         </form>
       </div>
     </section>
     <section class="login-screen public-access" id="login-screen" aria-label="Acceso a Klinia">
       <div class="public-shell">
-        <header class="public-nav" aria-label="Navegación pública">
+        <header class="public-nav" aria-label="NavegaciÃ³n pÃºblica">
           <button class="public-brand" type="button" data-public-view-target="landing" aria-label="Volver a planes de Klinia">
             <img src="./assets/klinia-logo.svg" alt="" />
             <strong>Klinia</strong>
@@ -63,14 +63,14 @@
 
         <section class="public-view active" data-public-screen="landing" aria-label="Planes de Klinia">
           <div class="public-hero">
-            <h1>Elige el plan que mejor se adapta a tu clínica</h1>
-            <p>Gestiona citas, pacientes, equipo, facturación y rendimiento desde una única plataforma.</p>
+            <h1>Elige el plan que mejor se adapta a tu clÃ­nica</h1>
+            <p>Gestiona citas, pacientes, equipo, facturaciÃ³n y rendimiento desde una Ãºnica plataforma.</p>
           </div>
 
-          <div class="billing-toggle" aria-label="Periodo de facturación">
+          <div class="billing-toggle" aria-label="Periodo de facturaciÃ³n">
             <button class="selected" type="button" data-billing-cycle="monthly">Mensual</button>
             <button type="button" data-billing-cycle="annual">Anual</button>
-            <span id="billing-cycle-note">Ahorra 2 meses gratis al año</span>
+            <span id="billing-cycle-note">Ahorra 2 meses gratis al aÃ±o</span>
           </div>
 
           <div class="pricing-grid">
@@ -81,12 +81,12 @@
               <span class="plan-pill">Acceso completo a todas las funciones</span>
               <ul class="feature-list">
                 <li>Citas y agenda diaria y semanal</li>
-                <li>Gestión de pacientes y ficha clínica</li>
+                <li>GestiÃ³n de pacientes y ficha clÃ­nica</li>
                 <li>Equipo y salas</li>
-                <li>Recordatorios automáticos</li>
-                <li>Facturación y control de pagos</li>
-                <li>Estadísticas y rendimiento</li>
-                <li>Configuración y permisos</li>
+                <li>Recordatorios automÃ¡ticos</li>
+                <li>FacturaciÃ³n y control de pagos</li>
+                <li>EstadÃ­sticas y rendimiento</li>
+                <li>ConfiguraciÃ³n y permisos</li>
                 <li>Soporte por email</li>
               </ul>
               <button class="primary-button" type="button" data-open-register-plan="trial">Probar gratis un mes</button>
@@ -96,16 +96,16 @@
 
             <article class="pricing-card featured">
               <h2>Profesional</h2>
-              <p>Para clínicas en crecimiento.</p>
+              <p>Para clÃ­nicas en crecimiento.</p>
               <strong><span id="professional-price-main">50 EUR</span> <small id="professional-price-period">/mes</small></strong>
               <span class="plan-pill" id="professional-price-note">1 mes gratis, luego 50 EUR/mes</span>
               <ul class="feature-list">
                 <li>Citas y agenda diaria y semanal</li>
-                <li>Gestión de pacientes y ficha clínica</li>
+                <li>GestiÃ³n de pacientes y ficha clÃ­nica</li>
                 <li>Equipo y salas</li>
-                <li>Recordatorios automáticos</li>
-                <li>Facturación y control de pagos</li>
-                <li>Estadísticas y rendimiento</li>
+                <li>Recordatorios automÃ¡ticos</li>
+                <li>FacturaciÃ³n y control de pagos</li>
+                <li>EstadÃ­sticas y rendimiento</li>
                 <li>Automatizaciones y recordatorios</li>
                 <li>Soporte por email</li>
               </ul>
@@ -115,26 +115,26 @@
           </div>
 
           <section class="public-benefits" aria-label="Ventajas">
-            <article><strong>Ahorra tiempo</strong><span>Automatiza tareas y reduce administración.</span></article>
+            <article><strong>Ahorra tiempo</strong><span>Automatiza tareas y reduce administraciÃ³n.</span></article>
             <article><strong>Menos ausencias</strong><span>Recordatorios por WhatsApp y email.</span></article>
-            <article><strong>Más control</strong><span>Informes y métricas para decidir mejor.</span></article>
+            <article><strong>MÃ¡s control</strong><span>Informes y mÃ©tricas para decidir mejor.</span></article>
             <article><strong>Datos seguros</strong><span>RGPD, copias y permisos por rol.</span></article>
           </section>
 
           <section class="public-faq-preview" aria-label="Preguntas frecuentes">
             <h2>Preguntas frecuentes</h2>
             <div class="faq-grid">
-              <details><summary>¿Puedo cancelar cuando quiera?</summary><p>Sí. En demo local queda registrado como prueba y en producción se gestiona desde el portal de pagos.</p></details>
-              <details><summary>¿Incluye soporte?</summary><p>Incluye soporte por email y acompañamiento de onboarding para configurar la clínica.</p></details>
-              <details><summary>¿Cumple RGPD?</summary><p>La app está preparada para permisos y exportación; en producción requiere backend, contrato y políticas legales activas.</p></details>
-              <details><summary>¿Puedo probar antes de contratar?</summary><p>Sí. Puedes usar la demo visual o crear una prueba gratuita de un mes.</p></details>
+              <details><summary>Â¿Puedo cancelar cuando quiera?</summary><p>SÃ­. En demo local queda registrado como prueba y en producciÃ³n se gestiona desde el portal de pagos.</p></details>
+              <details><summary>Â¿Incluye soporte?</summary><p>Incluye soporte por email y acompaÃ±amiento de onboarding para configurar la clÃ­nica.</p></details>
+              <details><summary>Â¿Cumple RGPD?</summary><p>La app estÃ¡ preparada para permisos y exportaciÃ³n; en producciÃ³n requiere backend, contrato y polÃ­ticas legales activas.</p></details>
+              <details><summary>Â¿Puedo probar antes de contratar?</summary><p>SÃ­. Puedes usar la demo visual o crear una prueba gratuita de un mes.</p></details>
             </div>
           </section>
 
           <section class="public-final-cta">
             <div>
-              <strong>Empieza hoy mismo y descubre cómo optimizar la gestión de tu clínica.</strong>
-              <span>Sin permanencia, cancelación en cualquier momento y sin tarjeta para empezar</span>
+              <strong>Empieza hoy mismo y descubre cÃ³mo optimizar la gestiÃ³n de tu clÃ­nica.</strong>
+              <span>Sin permanencia, cancelaciÃ³n en cualquier momento y sin tarjeta para empezar</span>
             </div>
             <button class="primary-button" type="button" data-open-register-plan="trial">Crear cuenta gratuita</button>
           </section>
@@ -148,26 +148,26 @@
               <div>
                 <h1>Klinia</h1>
               </div>
-              <p class="login-copy">Acceso privado para clínicas registradas. Gestiona agenda, pacientes, equipo, facturación y rendimiento en un solo lugar.</p>
+              <p class="login-copy">Acceso privado para clÃ­nicas registradas. Gestiona agenda, pacientes, equipo, facturaciÃ³n y rendimiento en un solo lugar.</p>
               <div class="login-proof">
                 <span>Multi-centro</span>
                 <span>Permisos por rol</span>
-                <span>Dirección en tiempo real</span>
+                <span>DirecciÃ³n en tiempo real</span>
               </div>
             </div>
 
             <form class="login-card" id="login-form">
               <div class="login-card-head">
                 <p class="eyebrow">Acceso privado</p>
-                <h2>Entrar a clínica</h2>
+                <h2>Entrar a clÃ­nica</h2>
               </div>
               <label>
-                Usuario / clínica
-                <input name="center" id="login-clinic-select" type="text" list="login-clinic-list" autocomplete="username" placeholder="Escribe tu clínica o email" required />
+                Usuario / clÃ­nica
+                <input name="center" id="login-clinic-select" type="text" list="login-clinic-list" autocomplete="username" placeholder="Escribe tu clÃ­nica o email" required />
                 <datalist id="login-clinic-list"></datalist>
               </label>
               <label>
-                Contraseña clínica
+                ContraseÃ±a clÃ­nica
                 <input name="password" type="password" autocomplete="current-password" required />
               </label>
               <p class="form-error login-error-message" id="login-error" role="alert" aria-live="polite"></p>
@@ -178,7 +178,7 @@
                 </label>
                 <button class="link-button" type="button" id="forgot-password">Restablecer</button>
               </div>
-              <button class="primary-button login-submit" type="submit">Iniciar sesión</button>
+              <button class="primary-button login-submit" type="submit">Iniciar sesiÃ³n</button>
               <div class="auth-divider"><span>o entra con</span></div>
               <div class="google-auth-slot" id="google-login-button" data-google-context="login"></div>
               <p class="form-help google-auth-status" id="google-login-status" role="status"></p>
@@ -194,12 +194,12 @@
                 <select name="profile" id="profile-select" required></select>
               </label>
               <label>
-                Contraseña del perfil
+                ContraseÃ±a del perfil
                 <input name="password" type="password" autocomplete="current-password" required />
               </label>
               <p class="form-error login-error-message" id="profile-login-error" role="alert" aria-live="polite"></p>
-              <button class="primary-button" type="submit">Iniciar sesión</button>
-              <button class="secondary-button" type="button" id="back-to-clinic-login">Cambiar clínica</button>
+              <button class="primary-button" type="submit">Iniciar sesiÃ³n</button>
+              <button class="secondary-button" type="button" id="back-to-clinic-login">Cambiar clÃ­nica</button>
             </form>
           </div>
         </section>
@@ -223,7 +223,7 @@
             <section class="google-recovery-panel hidden" id="google-recovery-panel" aria-live="polite">
               <strong id="google-recovery-email">Correo verificado</strong>
               <label class="hidden" id="google-recovery-clinic-field">
-                Clínica
+                ClÃ­nica
                 <select id="google-recovery-clinic"></select>
               </label>
               <label>
@@ -249,11 +249,11 @@
             <div class="modal-header">
               <div>
                 <p class="eyebrow">Acceso con Google</p>
-                <h2>Elige clínica</h2>
+                <h2>Elige clÃ­nica</h2>
               </div>
               <button class="icon-button dialog-close" type="button" data-dialog-id="google-clinic-choice-dialog" title="Cerrar">x</button>
             </div>
-            <p class="form-help" id="google-clinic-choice-help">Este correo existe en más de una clínica. Elige con cuál quieres continuar.</p>
+            <p class="form-help" id="google-clinic-choice-help">Este correo existe en mÃ¡s de una clÃ­nica. Elige con cuÃ¡l quieres continuar.</p>
             <div class="google-choice-list" id="google-clinic-choice-list"></div>
             <p class="form-error" id="google-clinic-choice-error" role="alert"></p>
             <div class="modal-actions">
@@ -271,7 +271,7 @@
                 <p class="eyebrow">Demo visual</p>
                 <h1>Klinia</h1>
               </div>
-              <p class="login-copy">Entra a una clínica ficticia con datos de ejemplo para explorar agenda, pacientes, facturación y configuración sin tocar ninguna cuenta real.</p>
+              <p class="login-copy">Entra a una clÃ­nica ficticia con datos de ejemplo para explorar agenda, pacientes, facturaciÃ³n y configuraciÃ³n sin tocar ninguna cuenta real.</p>
               <div class="login-proof">
                 <span>Datos ficticios</span>
                 <span>Sin registro</span>
@@ -285,12 +285,12 @@
                 <h2>Entrar a la demo</h2>
               </div>
               <div class="demo-credentials">
-                <span>Clínica</span>
-                <strong>Clínica Demo Klinia</strong>
-                <span>Contraseña</span>
+                <span>ClÃ­nica</span>
+                <strong>ClÃ­nica Demo Klinia</strong>
+                <span>ContraseÃ±a</span>
                 <strong>demo</strong>
               </div>
-              <p class="form-help">Este acceso abre solo la clínica demo. Para entrar a una clínica real usa el botón Entrar.</p>
+              <p class="form-help">Este acceso abre solo la clÃ­nica demo. Para entrar a una clÃ­nica real usa el botÃ³n Entrar.</p>
               <p class="form-error" id="demo-login-error" role="alert"></p>
               <button class="primary-button login-submit" type="submit">Entrar en demo</button>
               <button class="secondary-button" type="button" data-public-view-target="login">Ir al acceso real</button>
@@ -304,8 +304,8 @@
             <section class="help-hero-premium">
               <div>
                 <p class="eyebrow">Soporte Klinia</p>
-                <h1>¿Necesitas ayuda?</h1>
-                <p>Nuestro equipo está disponible para ayudarte con tu cuenta, agenda, pacientes y facturación.</p>
+                <h1>Â¿Necesitas ayuda?</h1>
+                <p>Nuestro equipo estÃ¡ disponible para ayudarte con tu cuenta, agenda, pacientes y facturaciÃ³n.</p>
                 <div class="help-hero-actions">
                   <a class="primary-button" href="mailto:angelmoscosofernandez@kliniasolutions.com">Contactar soporte</a>
                   <button class="secondary-button" type="button" data-help-scroll-faq>Centro de ayuda</button>
@@ -314,14 +314,14 @@
               <aside class="help-response-card" aria-label="Tiempo de respuesta">
                 <span>15</span>
                 <strong>Tiempo medio de respuesta</strong>
-                <p>&lt; 15 minutos en horario de atención.</p>
+                <p>&lt; 15 minutos en horario de atenciÃ³n.</p>
               </aside>
             </section>
 
             <div class="help-search-panel">
               <label for="help-search-input">Buscar en ayuda</label>
               <input id="help-search-input" type="search" placeholder="Buscar ayuda..." autocomplete="off" />
-              <p id="help-search-empty" class="help-search-empty hidden">No hay resultados con esa búsqueda.</p>
+              <p id="help-search-empty" class="help-search-empty hidden">No hay resultados con esa bÃºsqueda.</p>
             </div>
 
             <div class="help-content-grid">
@@ -329,14 +329,14 @@
                 <div class="support-card-head">
                   <img src="./assets/klinia-logo.svg" alt="" />
                   <div>
-                    <p class="eyebrow">Atención al cliente</p>
+                    <p class="eyebrow">AtenciÃ³n al cliente</p>
                     <h2>Soporte Klinia</h2>
                   </div>
                 </div>
                 <dl>
-                  <div><dt>Nombre</dt><dd>Ángel Moscoso Fernández</dd></div>
+                  <div><dt>Nombre</dt><dd>Ãngel Moscoso FernÃ¡ndez</dd></div>
                   <div><dt>Email</dt><dd><a href="mailto:angelmoscosofernandez@kliniasolutions.com">angelmoscosofernandez@kliniasolutions.com</a></dd></div>
-                  <div><dt>Teléfono</dt><dd><a href="tel:+34676608216">+34 676 608 216</a></dd></div>
+                  <div><dt>TelÃ©fono</dt><dd><a href="tel:+34676608216">+34 676 608 216</a></dd></div>
                   <div><dt>Horario</dt><dd>Lunes a viernes de 9:00 a 18:00 (CET)</dd></div>
                 </dl>
                 <div class="help-contact-actions">
@@ -347,7 +347,7 @@
 
               <section class="help-status-card" aria-label="Estado de plataforma">
                 <div class="help-section-title">
-                  <p class="eyebrow">Operación</p>
+                  <p class="eyebrow">OperaciÃ³n</p>
                   <h2>Estado de plataforma</h2>
                 </div>
                 <div class="platform-status-list" id="platform-status-list">
@@ -363,54 +363,54 @@
               <div class="help-section-title">
                 <p class="eyebrow">Centro de ayuda</p>
                 <h2>Preguntas frecuentes</h2>
-                <p>Respuestas claras para operar Klinia con seguridad desde el primer día.</p>
+                <p>Respuestas claras para operar Klinia con seguridad desde el primer dÃ­a.</p>
               </div>
               <div class="help-faq-categories" id="help-faq-categories">
                 <section class="help-faq-category" data-help-category>
                   <h3><span>CA</span>Cuenta y acceso</h3>
-                  <details data-help-faq data-search="cuenta acceso contraseña clave google trabajador dirección">
-                    <summary>¿Cómo recupero una clave de acceso?</summary>
-                    <p>Desde la pantalla de entrada puedes solicitar recuperación. Dirección también puede reenviar un acceso seguro a trabajadores desde Configuración.</p>
+                  <details data-help-faq data-search="cuenta acceso contraseÃ±a clave google trabajador direcciÃ³n">
+                    <summary>Â¿CÃ³mo recupero una clave de acceso?</summary>
+                    <p>Desde la pantalla de entrada puedes solicitar recuperaciÃ³n. DirecciÃ³n tambiÃ©n puede reenviar un acceso seguro a trabajadores desde ConfiguraciÃ³n.</p>
                   </details>
                   <details data-help-faq data-search="trabajador usuario email acceso">
-                    <summary>¿Cómo entra un trabajador?</summary>
-                    <p>Dirección crea el trabajador, envía el acceso por email y el profesional define su propia contraseña desde un enlace seguro.</p>
+                    <summary>Â¿CÃ³mo entra un trabajador?</summary>
+                    <p>DirecciÃ³n crea el trabajador, envÃ­a el acceso por email y el profesional define su propia contraseÃ±a desde un enlace seguro.</p>
                   </details>
                 </section>
                 <section class="help-faq-category" data-help-category>
-                  <h3><span>FA</span>Facturación</h3>
-                  <details data-help-faq data-search="facturación cobro tarjeta efectivo bono stripe">
-                    <summary>¿Qué métodos de cobro puedo registrar?</summary>
+                  <h3><span>FA</span>FacturaciÃ³n</h3>
+                  <details data-help-faq data-search="facturaciÃ³n cobro tarjeta efectivo bono stripe">
+                    <summary>Â¿QuÃ© mÃ©todos de cobro puedo registrar?</summary>
                     <p>Klinia permite diferenciar efectivo, tarjeta, bonos y movimientos manuales para mantener una lectura clara de la caja.</p>
                   </details>
-                  <details data-help-faq data-search="cancelar plan suscripción stripe">
-                    <summary>¿Puedo cancelar cuando quiera?</summary>
-                    <p>Sí. La suscripción SaaS se gestiona desde Mi suscripción y el portal de pagos seguro.</p>
+                  <details data-help-faq data-search="cancelar plan suscripciÃ³n stripe">
+                    <summary>Â¿Puedo cancelar cuando quiera?</summary>
+                    <p>SÃ­. La suscripciÃ³n SaaS se gestiona desde Mi suscripciÃ³n y el portal de pagos seguro.</p>
                   </details>
                 </section>
                 <section class="help-faq-category" data-help-category>
                   <h3><span>AG</span>Agenda</h3>
-                  <details data-help-faq data-search="agenda citas semana día horario trabajador disponibilidad">
-                    <summary>¿Puedo trabajar con horarios por minutos?</summary>
-                    <p>Sí. Las citas se colocan por hora real de inicio y duración del servicio, tanto en vista Día como Semana.</p>
+                  <details data-help-faq data-search="agenda citas semana dÃ­a horario trabajador disponibilidad">
+                    <summary>Â¿Puedo trabajar con horarios por minutos?</summary>
+                    <p>SÃ­. Las citas se colocan por hora real de inicio y duraciÃ³n del servicio, tanto en vista DÃ­a como Semana.</p>
                   </details>
                   <details data-help-faq data-search="recordatorios cita whatsapp email">
-                    <summary>¿Los recordatorios se enlazan con citas?</summary>
+                    <summary>Â¿Los recordatorios se enlazan con citas?</summary>
                     <p>Los recordatorios se generan desde citas reales y deben actualizarse si cambia la cita o se cancela.</p>
                   </details>
                 </section>
                 <section class="help-faq-category" data-help-category>
                   <h3><span>PA</span>Pacientes</h3>
-                  <details data-help-faq data-search="pacientes ficha clínica historial bonos documentos">
-                    <summary>¿Qué incluye la ficha del paciente?</summary>
-                    <p>Datos personales, historial, consentimientos, bonos, facturación asociada y documentación clínica.</p>
+                  <details data-help-faq data-search="pacientes ficha clÃ­nica historial bonos documentos">
+                    <summary>Â¿QuÃ© incluye la ficha del paciente?</summary>
+                    <p>Datos personales, historial, consentimientos, bonos, facturaciÃ³n asociada y documentaciÃ³n clÃ­nica.</p>
                   </details>
                 </section>
                 <section class="help-faq-category" data-help-category>
                   <h3><span>RG</span>RGPD</h3>
-                  <details data-help-faq data-search="rgpd protección datos seguridad permisos auditoría">
-                    <summary>¿Cumple RGPD?</summary>
-                    <p>Klinia incorpora permisos, separación por clínica, auditoría y buenas prácticas de minimización. La clínica debe completar sus textos legales y contratos de tratamiento.</p>
+                  <details data-help-faq data-search="rgpd protecciÃ³n datos seguridad permisos auditorÃ­a">
+                    <summary>Â¿Cumple RGPD?</summary>
+                    <p>Klinia incorpora permisos, separaciÃ³n por clÃ­nica, auditorÃ­a y buenas prÃ¡cticas de minimizaciÃ³n. La clÃ­nica debe completar sus textos legales y contratos de tratamiento.</p>
                   </details>
                 </section>
               </div>
@@ -422,10 +422,10 @@
                 <h2>Primeros pasos en Klinia</h2>
               </div>
               <div class="help-video-grid">
-                <article><span>01</span><strong>Crear paciente</strong><p>Guía rápida para dar de alta una ficha clínica.</p><small>Vídeo próximamente</small></article>
-                <article><span>02</span><strong>Crear trabajador</strong><p>Alta de profesional, permisos y acceso seguro.</p><small>Vídeo próximamente</small></article>
-                <article><span>03</span><strong>Cobrar una cita</strong><p>Registro de efectivo, tarjeta o bono sin duplicados.</p><small>Vídeo próximamente</small></article>
-                <article><span>04</span><strong>Configurar agenda</strong><p>Días de atención, horarios y disponibilidad.</p><small>Vídeo próximamente</small></article>
+                <article><span>01</span><strong>Crear paciente</strong><p>GuÃ­a rÃ¡pida para dar de alta una ficha clÃ­nica.</p><small>VÃ­deo prÃ³ximamente</small></article>
+                <article><span>02</span><strong>Crear trabajador</strong><p>Alta de profesional, permisos y acceso seguro.</p><small>VÃ­deo prÃ³ximamente</small></article>
+                <article><span>03</span><strong>Cobrar una cita</strong><p>Registro de efectivo, tarjeta o bono sin duplicados.</p><small>VÃ­deo prÃ³ximamente</small></article>
+                <article><span>04</span><strong>Configurar agenda</strong><p>DÃ­as de atenciÃ³n, horarios y disponibilidad.</p><small>VÃ­deo prÃ³ximamente</small></article>
               </div>
             </section>
 
@@ -433,8 +433,8 @@
               <a href="#help-faq">Estado plataforma</a>
               <a href="#help-faq">RGPD</a>
               <a href="mailto:angelmoscosofernandez@kliniasolutions.com">Contacto</a>
-              <a href="#help-faq">Documentación</a>
-              <span>Versión actual 2026.06</span>
+              <a href="#help-faq">DocumentaciÃ³n</a>
+              <span>VersiÃ³n actual 2026.06</span>
             </footer>
           </section>
         </section>
@@ -448,22 +448,22 @@
               </div>
               <nav class="superadmin-nav">
                 <button class="active" type="button" data-superadmin-module="dashboard">Dashboard</button>
-                <button type="button" data-superadmin-module="clinics">Clínicas</button>
-                <button type="button" data-superadmin-module="clinic-detail">Detalle clínica</button>
+                <button type="button" data-superadmin-module="clinics">ClÃ­nicas</button>
+                <button type="button" data-superadmin-module="clinic-detail">Detalle clÃ­nica</button>
                 <button type="button" data-superadmin-module="users">Usuarios</button>
                 <button type="button" data-superadmin-module="subscriptions">Planes y suscripciones</button>
-                <button type="button" data-superadmin-module="billing">Facturación</button>
+                <button type="button" data-superadmin-module="billing">FacturaciÃ³n</button>
                 <button type="button" data-superadmin-module="support">Soporte y tickets</button>
                 <button type="button" data-superadmin-module="audit">Auditoria</button>
                 <button type="button" data-superadmin-module="communications">Comunicaciones</button>
                 <button type="button" data-superadmin-module="reports">Informes</button>
-                <button type="button" data-superadmin-module="settings">Configuración</button>
+                <button type="button" data-superadmin-module="settings">ConfiguraciÃ³n</button>
                 <button type="button" data-superadmin-module="system">Integraciones y logs</button>
               </nav>
               <div class="superadmin-sidebar-footer">
                 <span id="superadmin-backend-state">Backend conectado</span>
                 <button class="secondary-button" type="button" id="superadmin-change-password-button">Cambiar clave</button>
-                <button class="secondary-button" type="button" id="superadmin-logout-button">Cerrar sesión</button>
+                <button class="secondary-button" type="button" id="superadmin-logout-button">Cerrar sesiÃ³n</button>
               </div>
             </aside>
 
@@ -477,7 +477,7 @@
                 <div class="superadmin-topbar-actions">
                   <label class="superadmin-search">
                     <span>Buscar</span>
-                    <input id="superadmin-global-search" type="search" placeholder="Clínica, usuario, email, acción..." />
+                    <input id="superadmin-global-search" type="search" placeholder="ClÃ­nica, usuario, email, acciÃ³n..." />
                   </label>
                   <button class="secondary-button" type="button" id="superadmin-export-button">Exportar</button>
                   <button class="secondary-button" type="button" id="superadmin-refresh-button">Actualizar</button>
@@ -486,9 +486,9 @@
 
               <form class="superadmin-filters" id="superadmin-filter-form">
                 <label>
-                  Clínica
+                  ClÃ­nica
                   <select name="clinicId" id="superadmin-clinic-filter">
-                    <option value="">Todas las clínicas backend</option>
+                    <option value="">Todas las clÃ­nicas backend</option>
                   </select>
                 </label>
                 <label>
@@ -509,9 +509,9 @@
 
               <section class="superadmin-panel active" data-superadmin-panel="dashboard">
                 <section class="superadmin-kpis" aria-label="Resumen general">
-                  <article><span>Clínicas totales</span><strong id="superadmin-total-clinics">-</strong><small id="superadmin-clinics-count">-</small></article>
+                  <article><span>ClÃ­nicas totales</span><strong id="superadmin-total-clinics">-</strong><small id="superadmin-clinics-count">-</small></article>
                   <article><span>Usuarios</span><strong id="superadmin-total-users">-</strong><small id="superadmin-users-count">-</small></article>
-                  <article><span>Ingresos</span><strong id="superadmin-revenue">Pendiente</strong><small>Requiere facturación backend</small></article>
+                  <article><span>Ingresos</span><strong id="superadmin-revenue">Pendiente</strong><small>Requiere facturaciÃ³n backend</small></article>
                   <article><span>Tickets abiertos</span><strong id="superadmin-open-tickets">0</strong><small>Seguimiento operativo</small></article>
                   <article><span>Activas</span><strong id="superadmin-active-clinics">-</strong><small>Suscripcion active</small></article>
                   <article><span>En prueba</span><strong id="superadmin-trial-clinics">-</strong><small>Trial / trialing</small></article>
@@ -528,7 +528,7 @@
                     <div class="superadmin-card-head"><h2>Actividad reciente</h2><span id="superadmin-audit-count">-</span></div>
                     <div class="superadmin-table-wrap compact">
                       <table>
-                        <thead><tr><th>Fecha</th><th>Clínica</th><th>Acción</th><th>Resultado</th></tr></thead>
+                        <thead><tr><th>Fecha</th><th>ClÃ­nica</th><th>AcciÃ³n</th><th>Resultado</th></tr></thead>
                         <tbody id="superadmin-dashboard-activity-table"></tbody>
                       </table>
                     </div>
@@ -543,7 +543,7 @@
               <section class="superadmin-panel" data-superadmin-panel="clinics">
                 <section class="superadmin-card superadmin-card-wide">
                   <div class="superadmin-card-head">
-                    <h2>Clínicas registradas</h2>
+                    <h2>ClÃ­nicas registradas</h2>
                     <div class="superadmin-inline-actions">
                       <select id="superadmin-clinic-status-filter" aria-label="Filtrar por estado">
                         <option value="">Todos los estados</option>
@@ -552,13 +552,13 @@
                         <option value="past_due">Impagadas</option>
                         <option value="canceled">Canceladas</option>
                         <option value="archived">Archivadas</option>
-                        <option value="review_required">Revisión requerida</option>
+                        <option value="review_required">RevisiÃ³n requerida</option>
                       </select>
                     </div>
                   </div>
                   <div class="superadmin-table-wrap">
                     <table>
-                      <thead><tr><th>Clínica</th><th>Suscripción</th><th>Usuarios</th><th>Última actividad</th><th>Acciones</th></tr></thead>
+                      <thead><tr><th>ClÃ­nica</th><th>SuscripciÃ³n</th><th>Usuarios</th><th>Ãšltima actividad</th><th>Acciones</th></tr></thead>
                       <tbody id="superadmin-clinics-table"></tbody>
                     </table>
                   </div>
@@ -567,14 +567,14 @@
 
               <section class="superadmin-panel" data-superadmin-panel="clinic-detail">
                 <section class="superadmin-detail-header">
-                  <div><span>Clínica seleccionada</span><strong id="superadmin-detail-name">Selecciona una clínica</strong><small id="superadmin-detail-email">-</small></div>
+                  <div><span>ClÃ­nica seleccionada</span><strong id="superadmin-detail-name">Selecciona una clÃ­nica</strong><small id="superadmin-detail-email">-</small></div>
                   <div class="superadmin-inline-actions">
                     <button class="secondary-button" type="button" id="superadmin-detail-open-audit">Ver auditoria</button>
                     <button class="secondary-button" type="button" id="superadmin-detail-impersonate">Impersonar</button>
                   </div>
                 </section>
                 <div class="superadmin-grid">
-                  <section class="superadmin-card"><div class="superadmin-card-head"><h2>Información general</h2></div><dl class="superadmin-definition-list" id="superadmin-detail-general"></dl></section>
+                  <section class="superadmin-card"><div class="superadmin-card-head"><h2>InformaciÃ³n general</h2></div><dl class="superadmin-definition-list" id="superadmin-detail-general"></dl></section>
                   <section class="superadmin-card"><div class="superadmin-card-head"><h2>Plan y uso</h2></div><dl class="superadmin-definition-list" id="superadmin-detail-plan"></dl></section>
                   <section class="superadmin-card"><div class="superadmin-card-head"><h2>Usuarios</h2><span id="superadmin-detail-users-count">-</span></div><div id="superadmin-detail-users" class="superadmin-mini-list"></div></section>
                   <section class="superadmin-card"><div class="superadmin-card-head"><h2>Actividad reciente</h2></div><div id="superadmin-detail-activity" class="superadmin-mini-list"></div></section>
@@ -589,7 +589,7 @@
                     <div class="superadmin-inline-actions">
                       <select id="superadmin-user-role-filter" aria-label="Filtrar por rol">
                         <option value="">Todos los roles</option>
-                        <option value="owner">Dirección</option>
+                        <option value="owner">DirecciÃ³n</option>
                         <option value="staff">Recepcion / staff</option>
                         <option value="practitioner">Profesional</option>
                       </select>
@@ -602,7 +602,7 @@
                   </div>
                   <div class="superadmin-table-wrap">
                     <table>
-                      <thead><tr><th>Usuario</th><th>Clínica</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Acciones</th></tr></thead>
+                      <thead><tr><th>Usuario</th><th>ClÃ­nica</th><th>Rol</th><th>Estado</th><th>Ãšltimo acceso</th><th>Acciones</th></tr></thead>
                       <tbody id="superadmin-users-table"></tbody>
                     </table>
                   </div>
@@ -617,7 +617,7 @@
                   </div>
                   <div class="superadmin-table-wrap">
                     <table>
-                      <thead><tr><th>Fecha</th><th>Clínica</th><th>Usuario</th><th>Acción</th><th>Resultado</th><th>Origen</th></tr></thead>
+                      <thead><tr><th>Fecha</th><th>ClÃ­nica</th><th>Usuario</th><th>AcciÃ³n</th><th>Resultado</th><th>Origen</th></tr></thead>
                       <tbody id="superadmin-audit-table"></tbody>
                     </table>
                   </div>
@@ -660,7 +660,7 @@
           </div>
           <button class="icon-button dialog-close" type="button" data-dialog-id="change-password-dialog" data-password-change-optional title="Cerrar">x</button>
         </div>
-        <p class="form-help" id="change-password-help">Actualiza la clave de este usuario. No guardamos contraseñas en texto plano.</p>
+        <p class="form-help" id="change-password-help">Actualiza la clave de este usuario. No guardamos contraseÃ±as en texto plano.</p>
         <label>
           Clave actual
           <input name="currentPassword" type="password" autocomplete="current-password" required />
@@ -686,22 +686,22 @@
         <div class="modal-header">
           <div>
             <p class="eyebrow">Acceso seguro</p>
-            <h2>Crear contraseña</h2>
+            <h2>Crear contraseÃ±a</h2>
           </div>
         </div>
-        <p class="form-help">Define tu contraseña de Klinia. El enlace solo puede usarse una vez y caduca por seguridad.</p>
+        <p class="form-help">Define tu contraseÃ±a de Klinia. El enlace solo puede usarse una vez y caduca por seguridad.</p>
         <label>
-          Nueva contraseña
+          Nueva contraseÃ±a
           <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
-          <span class="field-hint">Mínimo 8 caracteres, con mayúscula, minúscula y un número o símbolo.</span>
+          <span class="field-hint">MÃ­nimo 8 caracteres, con mayÃºscula, minÃºscula y un nÃºmero o sÃ­mbolo.</span>
         </label>
         <label>
-          Repetir contraseña
+          Repetir contraseÃ±a
           <input name="confirmPassword" type="password" autocomplete="new-password" minlength="8" required />
         </label>
         <p class="form-error" id="access-token-error" role="alert"></p>
         <div class="modal-actions">
-          <button class="primary-button" type="submit">Guardar contraseña</button>
+          <button class="primary-button" type="submit">Guardar contraseÃ±a</button>
         </div>
       </form>
     </dialog>
@@ -719,10 +719,10 @@
           <button class="nav-item active" data-section="agenda" type="button">Agenda</button>
           <button class="nav-item" data-section="pacientes" type="button">Pacientes</button>
           <button class="nav-item" data-section="automatizaciones" type="button">Recordatorios</button>
-          <button class="nav-item" data-section="facturacion" type="button">Facturación</button>
+          <button class="nav-item" data-section="facturacion" type="button">FacturaciÃ³n</button>
           <button class="nav-item" data-section="rendimiento" type="button">Rendimiento</button>
-          <button class="nav-item" data-section="suscripcion" type="button">Mi suscripción</button>
-          <button class="nav-item" data-section="configuracion" type="button">Configuración</button>
+          <button class="nav-item" data-section="suscripcion" type="button">Mi suscripciÃ³n</button>
+          <button class="nav-item" data-section="configuracion" type="button">ConfiguraciÃ³n</button>
           <button class="nav-item" data-section="permisos" type="button">Permisos</button>
         </nav>
       </aside>
@@ -740,9 +740,9 @@
           </div>
           <div class="topbar-actions">
             <label class="session-switch">
-              <span>Sesión</span>
+              <span>SesiÃ³n</span>
               <select id="session-select" aria-label="Cambiar perfil de prueba">
-                <option value="owner">Dirección</option>
+                <option value="owner">DirecciÃ³n</option>
                 <option value="ana">Ana Martin</option>
                 <option value="luis">Luis Ortega</option>
                 <option value="clara">Clara Vidal</option>
@@ -778,7 +778,7 @@
         <section class="content-section active" id="agenda">
           <div class="toolbar">
             <div class="segmented" role="tablist" aria-label="Vista de agenda">
-              <button class="selected calendar-mode" data-mode="day" type="button">Día</button>
+              <button class="selected calendar-mode" data-mode="day" type="button">DÃ­a</button>
               <button class="calendar-mode" data-mode="week" type="button">Semana</button>
               <button class="calendar-mode" data-mode="month" type="button">2 meses</button>
             </div>
@@ -814,7 +814,7 @@
               <thead>
                 <tr>
                   <th>Paciente</th>
-                  <th>Teléfono</th>
+                  <th>TelÃ©fono</th>
                   <th>Email</th>
                   <th>Ultima cita</th>
                   <th></th>
@@ -835,7 +835,7 @@
               </div>
             </div>
             <div class="patient-tabs" role="tablist" aria-label="Ficha de paciente">
-              <button class="selected patient-tab" data-patient-tab="info" type="button">Información</button>
+              <button class="selected patient-tab" data-patient-tab="info" type="button">InformaciÃ³n</button>
               <button class="patient-tab" data-patient-tab="consents" type="button">Consentimientos</button>
               <button class="patient-tab" data-patient-tab="history" type="button">Historial</button>
               <button class="patient-tab" data-patient-tab="packs" type="button">Bonos</button>
@@ -916,7 +916,7 @@
           <div class="section-header">
             <div>
               <h2>Recordatorios a pacientes</h2>
-              <p>Cola inteligente por clínica. Prepara WhatsApp manualmente con el mensaje configurado por Dirección.</p>
+              <p>Cola inteligente por clÃ­nica. Prepara WhatsApp manualmente con el mensaje configurado por DirecciÃ³n.</p>
             </div>
             <div class="automation-header-actions">
               <button class="secondary-button" type="button" id="recalculate-reminders">Recalcular</button>
@@ -959,25 +959,25 @@
 
         <section class="content-section" id="facturacion">
           <div class="section-header">
-            <h2>Facturación</h2>
+            <h2>FacturaciÃ³n</h2>
             <div class="compact-actions">
               <button class="secondary-button" type="button" id="download-billing-pdf">Descargar PDF</button>
-              <button class="secondary-button" type="button" id="add-manual-billing">Añadir pago o cobro</button>
+              <button class="secondary-button" type="button" id="add-manual-billing">AÃ±adir pago o cobro</button>
               <button class="secondary-button new-service-button" type="button" id="new-service">Nuevo servicio</button>
             </div>
           </div>
-          <div class="billing-filters" aria-label="Filtros de facturación">
+          <div class="billing-filters" aria-label="Filtros de facturaciÃ³n">
             <label>
               Vista
               <select id="billing-filter-mode">
                 <option value="current-month">Mes en curso</option>
-                <option value="day">Día concreto</option>
+                <option value="day">DÃ­a concreto</option>
                 <option value="month">Mes seleccionado</option>
                 <option value="range">Entre fechas</option>
               </select>
             </label>
             <label data-billing-filter-field="day">
-              Día
+              DÃ­a
               <input id="billing-filter-day" type="date" />
             </label>
             <label data-billing-filter-field="month">
@@ -995,8 +995,8 @@
             <label>
               Orden
               <select id="billing-sort-order">
-                <option value="desc">Más recientes</option>
-                <option value="asc">Más antiguos</option>
+                <option value="desc">MÃ¡s recientes</option>
+                <option value="asc">MÃ¡s antiguos</option>
                 <option value="amount_desc">Mayor importe</option>
                 <option value="amount_asc">Menor importe</option>
               </select>
@@ -1027,7 +1027,7 @@
           </div>
           <details class="billing-advanced-panel" open>
             <summary>
-              <span>Filtros de facturación</span>
+              <span>Filtros de facturaciÃ³n</span>
               <small>Combina fecha, profesional, paciente, cobro, servicio e importe</small>
             </summary>
             <div class="billing-advanced-grid">
@@ -1035,13 +1035,13 @@
                 Fecha de cita
                 <select id="billing-advanced-date-mode">
                   <option value="current-month">Mes en curso</option>
-                  <option value="day">Día concreto</option>
+                  <option value="day">DÃ­a concreto</option>
                   <option value="month">Mes seleccionado</option>
                   <option value="range">Desde / hasta</option>
                 </select>
               </label>
               <label data-billing-advanced-date-field="day">
-                Día
+                DÃ­a
                 <input id="billing-advanced-day" type="date" />
               </label>
               <label data-billing-advanced-date-field="month">
@@ -1099,18 +1099,18 @@
                 <select id="billing-filter-service"></select>
               </label>
               <label>
-                Importe mínimo
+                Importe mÃ­nimo
                 <input id="billing-filter-min-amount" type="number" min="0" step="0.01" placeholder="0" />
               </label>
               <label>
-                Importe máximo
-                <input id="billing-filter-max-amount" type="number" min="0" step="0.01" placeholder="Sin límite" />
+                Importe mÃ¡ximo
+                <input id="billing-filter-max-amount" type="number" min="0" step="0.01" placeholder="Sin lÃ­mite" />
               </label>
               <label>
                 Orden
                 <select id="billing-advanced-sort-order">
-                  <option value="desc">Más recientes</option>
-                  <option value="asc">Más antiguos</option>
+                  <option value="desc">MÃ¡s recientes</option>
+                  <option value="asc">MÃ¡s antiguos</option>
                   <option value="amount_desc">Mayor importe</option>
                   <option value="amount_asc">Menor importe</option>
                 </select>
@@ -1164,7 +1164,7 @@
           <div class="toolbar">
             <div class="segmented" role="tablist" aria-label="Vista de rendimiento">
               <button class="selected performance-mode" data-mode="worker" type="button">Trabajador</button>
-              <button class="performance-mode" data-mode="owner" type="button" id="owner-mode-button">Dirección</button>
+              <button class="performance-mode" data-mode="owner" type="button" id="owner-mode-button">DirecciÃ³n</button>
             </div>
             <div class="filters" id="worker-filter-wrap">
               <select id="worker-profile-select" aria-label="Seleccionar trabajador"></select>
@@ -1172,10 +1172,10 @@
             <div class="filters performance-date-filters" id="performance-date-filters">
               <select id="performance-range-mode" aria-label="Periodo de rendimiento">
                 <option value="month">Mes</option>
-                <option value="day">Día</option>
+                <option value="day">DÃ­a</option>
                 <option value="range">Entre fechas</option>
               </select>
-              <input id="performance-day" type="date" aria-label="Día de rendimiento" />
+              <input id="performance-day" type="date" aria-label="DÃ­a de rendimiento" />
               <input id="performance-month" type="month" aria-label="Mes de rendimiento" />
               <input id="performance-date-from" type="date" aria-label="Desde" />
               <input id="performance-date-to" type="date" aria-label="Hasta" />
@@ -1188,7 +1188,7 @@
             <section class="profile-summary" id="worker-summary"></section>
             <div class="stats-layout">
               <article class="chart-panel">
-                <h2>Facturación del trabajador</h2>
+                <h2>FacturaciÃ³n del trabajador</h2>
                 <div class="billing-board compact" id="worker-billing"></div>
               </article>
               <article class="chart-panel">
@@ -1206,8 +1206,8 @@
                   <tr>
                     <th>Trabajador</th>
                     <th>Operaciones</th>
-                    <th>Facturación</th>
-                    <th>Comisión estimada</th>
+                    <th>FacturaciÃ³n</th>
+                    <th>ComisiÃ³n estimada</th>
                     <th>Ticket medio</th>
                   </tr>
                 </thead>
@@ -1229,7 +1229,7 @@
                 <p><span>Fisioterapia general</span><strong>42%</strong></p>
                 <p><span>Readaptacion</span><strong>24%</strong></p>
                 <p><span>Suelo pelvico</span><strong>19%</strong></p>
-                <p><span>Sesión grupal</span><strong>15%</strong></p>
+                <p><span>SesiÃ³n grupal</span><strong>15%</strong></p>
               </div>
             </article>
           </div>
@@ -1238,10 +1238,10 @@
         <section class="content-section subscription-section" id="suscripcion">
           <div class="subscription-page-head">
             <div>
-              <p class="eyebrow">Mi suscripción</p>
-              <h2>Plan, pagos y facturación SaaS</h2>
+              <p class="eyebrow">Mi suscripciÃ³n</p>
+              <h2>Plan, pagos y facturaciÃ³n SaaS</h2>
             </div>
-            <span class="subscription-trial-badge" id="subscription-trial-badge">Estado de suscripción</span>
+            <span class="subscription-trial-badge" id="subscription-trial-badge">Estado de suscripciÃ³n</span>
           </div>
 
           <article class="subscription-overview-card">
@@ -1250,16 +1250,16 @@
               <div>
                 <strong id="subscription-plan-title">Plan</strong>
                 <span id="subscription-plan-state">Estado</span>
-                <p id="subscription-plan-copy">Gestiona tu acceso a Klinia con los datos reales de la clínica.</p>
+                <p id="subscription-plan-copy">Gestiona tu acceso a Klinia con los datos reales de la clÃ­nica.</p>
               </div>
             </div>
             <div class="subscription-overview-stat">
-              <span>Días restantes</span>
+              <span>DÃ­as restantes</span>
               <strong id="subscription-days-left">-</strong>
-              <small id="subscription-renewal-date">Renovación pendiente</small>
+              <small id="subscription-renewal-date">RenovaciÃ³n pendiente</small>
             </div>
             <div class="subscription-overview-stat">
-              <span>Después de la prueba</span>
+              <span>DespuÃ©s de la prueba</span>
               <strong id="subscription-after-price">50 EUR / mes</strong>
               <small>IVA no incluido</small>
             </div>
@@ -1274,23 +1274,23 @@
               <div class="section-header">
                 <div>
                   <h2>Detalles de tu plan</h2>
-                  <p>Información actual de tu suscripción SaaS.</p>
+                  <p>InformaciÃ³n actual de tu suscripciÃ³n SaaS.</p>
                 </div>
               </div>
               <div class="subscription-current-plan" id="subscription-current-plan"></div>
               <ul class="subscription-feature-list">
                 <li>Citas y agenda diaria y semanal</li>
-                <li>Gestión de pacientes y ficha clínica</li>
+                <li>GestiÃ³n de pacientes y ficha clÃ­nica</li>
                 <li>Equipo, salas y permisos por rol</li>
-                <li>Facturación y control de pagos</li>
-                <li>Rendimiento y métricas de clínica</li>
+                <li>FacturaciÃ³n y control de pagos</li>
+                <li>Rendimiento y mÃ©tricas de clÃ­nica</li>
                 <li>Recordatorios y automatizaciones</li>
               </ul>
               <section class="subscription-plan-selection" id="subscription-plan-selection">
                 <div class="section-header">
                   <div>
                     <h2>Elegir nuevo plan</h2>
-                    <p>Selecciona el plan que mejor se adapta a tu clínica.</p>
+                    <p>Selecciona el plan que mejor se adapta a tu clÃ­nica.</p>
                   </div>
                 </div>
                 <div class="plan-options subscription-plan-options" id="settings-plan-options"></div>
@@ -1301,8 +1301,8 @@
             <article class="settings-panel subscription-billing-panel">
               <div class="section-header">
                 <div>
-                  <h2>Información de pago</h2>
-                  <p>Datos fiscales y estado de conexión con el portal de pagos.</p>
+                  <h2>InformaciÃ³n de pago</h2>
+                  <p>Datos fiscales y estado de conexiÃ³n con el portal de pagos.</p>
                 </div>
                 <button class="secondary-button" type="button" id="open-billing-portal">Portal de pagos</button>
               </div>
@@ -1319,11 +1319,11 @@
                     <input name="taxId" type="text" />
                   </label>
                   <label>
-                    Email facturación
+                    Email facturaciÃ³n
                     <input name="billingEmail" type="email" />
                   </label>
                   <label>
-                    Dirección fiscal
+                    DirecciÃ³n fiscal
                     <input name="billingAddress" type="text" />
                   </label>
                   <button class="primary-button" type="submit">Guardar datos fiscales</button>
@@ -1335,8 +1335,8 @@
             <article class="settings-panel subscription-history-panel">
               <div class="section-header">
                 <div>
-                  <h2>Historial de facturación</h2>
-                  <p>Facturas SaaS reales asociadas a esta clínica.</p>
+                  <h2>Historial de facturaciÃ³n</h2>
+                  <p>Facturas SaaS reales asociadas a esta clÃ­nica.</p>
                 </div>
               </div>
               <div class="table-wrap">
@@ -1344,7 +1344,7 @@
                   <thead>
                     <tr>
                       <th>Fecha</th>
-                      <th>Descripción</th>
+                      <th>DescripciÃ³n</th>
                       <th>Importe</th>
                       <th>Estado</th>
                     </tr>
@@ -1357,22 +1357,22 @@
             <article class="settings-panel subscription-cancel-panel">
               <div class="section-header">
                 <div>
-                  <h2>Cancelar suscripción</h2>
+                  <h2>Cancelar suscripciÃ³n</h2>
                   <p>Gestiona la baja de forma segura antes de finalizar el periodo activo.</p>
                 </div>
               </div>
               <div class="subscription-warning">
                 <strong>Ten en cuenta que:</strong>
-                <span>La cancelación de una suscripción conectada debe completarse desde el portal de pagos para mantener Stripe sincronizado.</span>
+                <span>La cancelaciÃ³n de una suscripciÃ³n conectada debe completarse desde el portal de pagos para mantener Stripe sincronizado.</span>
               </div>
-              <button class="danger-button" type="button" id="cancel-subscription">Cancelar suscripción</button>
+              <button class="danger-button" type="button" id="cancel-subscription">Cancelar suscripciÃ³n</button>
             </article>
           </div>
 
           <div class="subscription-support-strip">
             <div>
-              <strong>¿Necesitas ayuda?</strong>
-              <span>El soporte puede revisar contigo el plan, el pago o el alta de la clínica.</span>
+              <strong>Â¿Necesitas ayuda?</strong>
+              <span>El soporte puede revisar contigo el plan, el pago o el alta de la clÃ­nica.</span>
             </div>
             <button class="secondary-button" type="button" id="subscription-contact-support">Contactar soporte</button>
           </div>
@@ -1381,31 +1381,31 @@
         <section class="content-section" id="configuracion">
           <div class="section-header">
             <div>
-              <p class="eyebrow">Dirección</p>
-              <h2>Configuración de clínica</h2>
+              <p class="eyebrow">DirecciÃ³n</p>
+              <h2>ConfiguraciÃ³n de clÃ­nica</h2>
             </div>
           </div>
 
           <div class="settings-grid">
             <article class="settings-panel clinic-settings-panel">
               <div class="section-header">
-                <h2>Clínica</h2>
+                <h2>ClÃ­nica</h2>
               </div>
               <form class="settings-form" id="clinic-form">
                 <label>
                   Nombre comercial
-                  <input name="name" type="text" value="Clínica Demo Klinia" readonly />
+                  <input name="name" type="text" value="ClÃ­nica Demo Klinia" readonly />
                 </label>
                 <label>
                   Email
                   <input name="email" type="email" value="demo@klinia.local" readonly />
                 </label>
                 <label>
-                  Teléfono
+                  TelÃ©fono
                   <input name="phone" type="tel" value="600 000 000" readonly />
                 </label>
                 <fieldset class="time-ranges-fieldset clinic-hours-fieldset">
-                  <legend>Horario de atención</legend>
+                  <legend>Horario de atenciÃ³n</legend>
                   <label>
                     Apertura
                     <input name="openingStart" type="time" value="09:00" required />
@@ -1416,13 +1416,13 @@
                   </label>
                 </fieldset>
                 <fieldset class="register-days clinic-working-days">
-                  <legend>Días de atención</legend>
+                  <legend>DÃ­as de atenciÃ³n</legend>
                   <label><input type="checkbox" name="workingDays" value="mon" checked /> Lun</label>
                   <label><input type="checkbox" name="workingDays" value="tue" checked /> Mar</label>
-                  <label><input type="checkbox" name="workingDays" value="wed" checked /> Mié</label>
+                  <label><input type="checkbox" name="workingDays" value="wed" checked /> MiÃ©</label>
                   <label><input type="checkbox" name="workingDays" value="thu" checked /> Jue</label>
                   <label><input type="checkbox" name="workingDays" value="fri" checked /> Vie</label>
-                  <label><input type="checkbox" name="workingDays" value="sat" /> Sáb</label>
+                  <label><input type="checkbox" name="workingDays" value="sat" /> SÃ¡b</label>
                   <label><input type="checkbox" name="workingDays" value="sun" /> Dom</label>
                 </fieldset>
                 <label>
@@ -1430,9 +1430,9 @@
                   <textarea name="reminderMessageTemplate" rows="5" placeholder="Hola {{paciente}}, te recordamos tu cita..."></textarea>
                 </label>
                 <p class="form-help">Variables disponibles: {{paciente}}, {{fecha}}, {{hora}}, {{clinica}}, {{profesional}}, {{servicio}}.</p>
-                <button class="primary-button" type="submit">Guardar configuración</button>
+                <button class="primary-button" type="submit">Guardar configuraciÃ³n</button>
                 <button class="secondary-button" type="button" id="test-brevo">Probar Brevo API</button>
-                <button class="danger-button" type="button" id="delete-clinic">Resetear datos de esta clínica</button>
+                <button class="danger-button" type="button" id="delete-clinic">Resetear datos de esta clÃ­nica</button>
                 <p class="save-status" id="clinic-save-status"></p>
               </form>
             </article>
@@ -1441,7 +1441,7 @@
               <div class="section-header">
                 <div>
                   <h2>Trabajadores y accesos</h2>
-                  <p>Recepción se registra como un trabajador más, con su propio perfil de acceso.</p>
+                  <p>RecepciÃ³n se registra como un trabajador mÃ¡s, con su propio perfil de acceso.</p>
                 </div>
                 <button class="secondary-button" type="button" id="new-practitioner">Nuevo trabajador</button>
               </div>
@@ -1493,7 +1493,7 @@
               <div class="section-header">
                 <div>
                   <h2>Seguridad de datos</h2>
-                  <p>Exporta o restaura una copia de seguridad operativa de esta clínica cuando necesites soporte o revisión técnica.</p>
+                  <p>Exporta o restaura una copia de seguridad operativa de esta clÃ­nica cuando necesites soporte o revisiÃ³n tÃ©cnica.</p>
                 </div>
               </div>
               <div class="form-row">
@@ -1503,7 +1503,7 @@
                   <input id="import-clinic-backup" type="file" accept="application/json" />
                 </label>
               </div>
-              <p class="form-help">Guarda este archivo en una carpeta segura y úsalo únicamente para soporte o restauración autorizada.</p>
+              <p class="form-help">Guarda este archivo en una carpeta segura y Ãºsalo Ãºnicamente para soporte o restauraciÃ³n autorizada.</p>
               <p class="save-status" id="backup-status"></p>
             </article>
 
@@ -1516,7 +1516,7 @@
               </div>
               <div class="form-row">
                 <label>
-                  Logo de la clínica
+                  Logo de la clÃ­nica
                   <input id="clinic-logo-input" type="file" accept="image/*" />
                 </label>
                 <button class="secondary-button" type="button" id="new-consent-template">Crear consentimiento</button>
@@ -1532,7 +1532,7 @@
                   <h2>Sesiones grupales</h2>
                   <p>Sesiones recurrentes para cualquier servicio grupal.</p>
                 </div>
-                <button class="secondary-button" type="button" id="new-group">Nueva sesión grupal</button>
+                <button class="secondary-button" type="button" id="new-group">Nueva sesiÃ³n grupal</button>
               </div>
               <div class="compact-list" id="settings-groups"></div>
             </article>
@@ -1542,7 +1542,7 @@
         <section class="content-section" id="permisos">
           <div class="section-header">
             <div>
-              <p class="eyebrow">Dirección</p>
+              <p class="eyebrow">DirecciÃ³n</p>
               <h2>Permisos de usuarios</h2>
             </div>
           </div>
@@ -1551,7 +1551,7 @@
               <div class="section-header">
                 <div>
                   <h2>Accesos por perfil</h2>
-                  <p>Activa exactamente qué puede ver Recepción y cada trabajador. Para que un trabajador marque vacaciones/días libres, activa Disponibilidad / configuración.</p>
+                  <p>Activa exactamente quÃ© puede ver RecepciÃ³n y cada trabajador. Para que un trabajador marque vacaciones/dÃ­as libres, activa Disponibilidad / configuraciÃ³n.</p>
                 </div>
               </div>
               <div class="permissions-list" id="permissions-list"></div>
@@ -1565,10 +1565,13 @@
       <form method="dialog" class="modal-form consent-template-form" id="consent-template-form">
         <div class="modal-header">
           <div>
-            <p class="eyebrow">Plantilla de la clínica</p>
+            <p class="eyebrow">Plantilla de la clÃ­nica</p>
             <h2 id="consent-template-dialog-title">Crear consentimiento</h2>
           </div>
-          <button class="icon-button dialog-close" type="button" data-dialog-id="consent-template-dialog" title="Cerrar">x</button>
+          <div class="modal-window-actions">
+            <button class="icon-button modal-window-button" type="button" data-dialog-toggle="consent-template-dialog" title="Ampliar">[]</button>
+            <button class="icon-button dialog-close" type="button" data-dialog-id="consent-template-dialog" title="Cerrar">x</button>
+          </div>
         </div>
         <label>
           Titulo del consentimiento
@@ -1591,7 +1594,7 @@
       <form method="dialog" class="modal-form consent-delete-form" id="consent-delete-form">
         <div class="modal-header">
           <div>
-            <p class="eyebrow">Plantilla de la clínica</p>
+            <p class="eyebrow">Plantilla de la clÃ­nica</p>
             <h2>Eliminar consentimiento</h2>
           </div>
           <button class="icon-button dialog-close" type="button" data-dialog-id="consent-delete-dialog" title="Cerrar">x</button>
@@ -1612,7 +1615,10 @@
             <p class="eyebrow">Consentimiento del paciente</p>
             <h2 id="patient-consent-dialog-title">Preparar consentimiento</h2>
           </div>
-          <button class="icon-button dialog-close" type="button" data-dialog-id="patient-consent-dialog" title="Cerrar">x</button>
+          <div class="modal-window-actions">
+            <button class="icon-button modal-window-button" type="button" data-dialog-toggle="patient-consent-dialog" title="Ampliar">[]</button>
+            <button class="icon-button dialog-close" type="button" data-dialog-id="patient-consent-dialog" title="Cerrar">x</button>
+          </div>
         </div>
 
         <div class="patient-consent-layout">
@@ -1677,7 +1683,7 @@
           <span class="form-help" id="appointment-patient-create-hint"></span>
         </label>
         <label>
-          Día
+          DÃ­a
           <input name="date" type="date" required />
         </label>
         <label>
@@ -1706,7 +1712,7 @@
             <input name="start" type="time" step="300" required value="12:00" />
           </label>
           <label>
-            Duración
+            DuraciÃ³n
             <input name="duration" type="number" min="5" max="480" step="5" required value="60" />
           </label>
           <label>
@@ -1798,7 +1804,7 @@
             <input name="occupation" type="text" placeholder="Profesion/actividad" />
           </label>
           <label>
-            Teléfono
+            TelÃ©fono
             <input name="phone" type="tel" placeholder="600 000 000" />
           </label>
           <label>
@@ -1835,7 +1841,7 @@
         <div class="modal-header">
           <div>
             <p class="eyebrow">Historial clinico</p>
-            <h2 id="clinical-note-dialog-title">Nota clínica</h2>
+            <h2 id="clinical-note-dialog-title">Nota clÃ­nica</h2>
           </div>
           <button class="icon-button dialog-close" type="button" data-dialog-id="clinical-note-dialog" title="Cerrar">x</button>
         </div>
@@ -1923,7 +1929,7 @@
           <legend>Datos de agenda</legend>
           <div class="form-grid two">
             <label>
-              Día
+              DÃ­a
               <input name="date" type="date" required />
             </label>
             <label>
@@ -1931,7 +1937,7 @@
               <input name="start" type="time" step="300" required />
             </label>
             <label>
-              Duración
+              DuraciÃ³n
               <input name="duration" type="number" min="5" max="480" step="5" required />
             </label>
             <label>
@@ -1973,8 +1979,8 @@
           </select>
         </label>
         <section class="appointment-production-panel hidden" id="appointment-production-panel">
-          <strong>Producción de la sesión</strong>
-          <span id="appointment-production-text">Esta sesión está cubierta por bono y no genera un nuevo cobro.</span>
+          <strong>ProducciÃ³n de la sesiÃ³n</strong>
+          <span id="appointment-production-text">Esta sesiÃ³n estÃ¡ cubierta por bono y no genera un nuevo cobro.</span>
         </section>
         <label>
           Nota interna de la cita
@@ -2005,7 +2011,7 @@
         </label>
         <div class="form-grid two">
           <label>
-            Número de sesiones
+            NÃºmero de sesiones
             <input name="sessions" type="number" min="1" step="1" required value="10" />
           </label>
           <label>
@@ -2097,15 +2103,15 @@
             <input name="expiresAt" type="date" />
           </label>
           <label>
-            Método de cobro del bono
+            MÃ©todo de cobro del bono
             <select name="paymentMethod">
-              <option value="">Selecciona método</option>
+              <option value="">Selecciona mÃ©todo</option>
               <option value="cash">Efectivo</option>
               <option value="card">Tarjeta</option>
             </select>
           </label>
         </div>
-        <p class="form-help">Puedes corregir sesiones utilizadas si hubo una imputación errónea. Revisa las citas vinculadas para evitar descuadres.</p>
+        <p class="form-help">Puedes corregir sesiones utilizadas si hubo una imputaciÃ³n errÃ³nea. Revisa las citas vinculadas para evitar descuadres.</p>
         <label class="check-row">
           <input name="invoice" type="checkbox" />
           Facturable
@@ -2145,10 +2151,10 @@
         </div>
         <label class="check-row">
           <input name="groupSession" type="checkbox" />
-          Sesión grupal
+          SesiÃ³n grupal
         </label>
         <div class="group-service-fields">
-          <strong>Configuración de sesión grupal</strong>
+          <strong>ConfiguraciÃ³n de sesiÃ³n grupal</strong>
           <div class="form-row">
             <label>
               Precio mensual por paciente
@@ -2157,7 +2163,7 @@
           </div>
           <div class="form-row">
             <label>
-              Precio sesión suelta
+              Precio sesiÃ³n suelta
               <input name="dropInPrice" type="number" min="0" step="1" value="0" />
             </label>
           <label class="hidden">
@@ -2180,11 +2186,11 @@
     <dialog id="group-dialog">
       <form method="dialog" class="modal-form" id="group-form">
         <div class="modal-header">
-          <h2>Nueva sesión grupal</h2>
+          <h2>Nueva sesiÃ³n grupal</h2>
           <button class="icon-button dialog-close" type="button" data-dialog-id="group-dialog" title="Cerrar">x</button>
         </div>
         <label>
-          Nombre de la sesión grupal
+          Nombre de la sesiÃ³n grupal
           <input name="name" type="text" required placeholder="Yoga lunes tarde" />
         </label>
         <label>
@@ -2202,7 +2208,7 @@
           </label>
         </div>
         <fieldset class="day-checkboxes">
-          <legend>Días de sesión</legend>
+          <legend>DÃ­as de sesiÃ³n</legend>
           <label><input type="checkbox" name="days" value="mon" /> Lunes</label>
           <label><input type="checkbox" name="days" value="tue" /> Martes</label>
           <label><input type="checkbox" name="days" value="wed" /> Miercoles</label>
@@ -2240,17 +2246,17 @@
           <div class="group-fixed-list" id="group-form-patient-list"></div>
           <div class="group-inline-add">
             <label>
-              Añadir paciente
+              AÃ±adir paciente
               <select id="group-form-patient-add"></select>
             </label>
-            <button class="secondary-button" type="button" id="group-form-add-patient">Añadir</button>
+            <button class="secondary-button" type="button" id="group-form-add-patient">AÃ±adir</button>
           </div>
         </section>
         <p class="form-help">Aqui se muestran solo los pacientes ya inscritos. Usa el selector para anadir nuevos sin mezclar toda la base de pacientes con los inscritos.</p>
         <p class="form-error" id="group-form-error" role="alert"></p>
         <div class="modal-actions">
           <button class="secondary-button dialog-close" type="button" data-dialog-id="group-dialog">Cancelar</button>
-          <button class="primary-button" value="default" type="submit">Guardar sesión</button>
+          <button class="primary-button" value="default" type="submit">Guardar sesiÃ³n</button>
         </div>
       </form>
     </dialog>
@@ -2261,7 +2267,7 @@
       <div class="modal-form group-session-modal">
         <div class="modal-header">
           <div>
-            <h2 id="group-session-title">Sesión grupal</h2>
+            <h2 id="group-session-title">SesiÃ³n grupal</h2>
             <p id="group-session-meta" class="form-help"></p>
           </div>
           <button class="icon-button dialog-close" type="button" data-dialog-id="group-session-dialog" title="Cerrar">x</button>
@@ -2274,26 +2280,26 @@
           <section>
             <h3>Pacientes fijos</h3>
             <div class="compact-list" id="group-session-fixed"></div>
-            <p class="form-help">Los pacientes fijos se gestionan desde Configuración > Sesiones grupales para no sobrecargar la agenda.</p>
+            <p class="form-help">Los pacientes fijos se gestionan desde ConfiguraciÃ³n > Sesiones grupales para no sobrecargar la agenda.</p>
           </section>
           <section>
-            <h3>Sesiones sueltas del día</h3>
+            <h3>Sesiones sueltas del dÃ­a</h3>
             <div class="compact-list" id="group-session-extras"></div>
           </section>
         </div>
         <section class="dropin-panel">
-          <h3>Añadir sesión suelta</h3>
+          <h3>AÃ±adir sesiÃ³n suelta</h3>
           <div class="form-row">
             <label>
               Paciente
               <select id="group-dropin-patient"></select>
             </label>
-            <button class="primary-button" type="button" id="add-dropin">Añadir a esta sesión</button>
+            <button class="primary-button" type="button" id="add-dropin">AÃ±adir a esta sesiÃ³n</button>
           </div>
-          <p class="form-help">La sesión suelta solo se añade para el día seleccionado en agenda. No modifica los pacientes fijos del grupo.</p>
+          <p class="form-help">La sesiÃ³n suelta solo se aÃ±ade para el dÃ­a seleccionado en agenda. No modifica los pacientes fijos del grupo.</p>
         </section>
         <section class="dropin-panel group-exception-panel">
-          <h3>Cambio solo para esta sesión</h3>
+          <h3>Cambio solo para esta sesiÃ³n</h3>
           <form id="group-exception-form" class="group-exception-form">
             <div class="form-row">
               <label>
@@ -2308,16 +2314,16 @@
             <p class="form-help" id="group-exception-status">No afecta al resto de sesiones recurrentes.</p>
             <p class="form-error" id="group-exception-error" role="alert"></p>
             <div class="compact-actions">
-              <button class="primary-button" type="submit">Guardar solo esta sesión</button>
-              <button class="secondary-button" type="button" id="clear-group-exception">Restaurar sesión</button>
+              <button class="primary-button" type="submit">Guardar solo esta sesiÃ³n</button>
+              <button class="secondary-button" type="button" id="clear-group-exception">Restaurar sesiÃ³n</button>
             </div>
           </form>
         </section>
         <section class="dropin-panel group-complete-panel">
-          <h3>Producción de la sesión</h3>
+          <h3>ProducciÃ³n de la sesiÃ³n</h3>
           <p class="form-help" id="group-session-completed-label">Pendiente de completar para rendimiento.</p>
           <div class="compact-actions">
-            <button class="primary-button" type="button" id="complete-group-session">Marcar sesión completada</button>
+            <button class="primary-button" type="button" id="complete-group-session">Marcar sesiÃ³n completada</button>
           </div>
         </section>
         <div class="modal-actions">
@@ -2353,14 +2359,14 @@
         </div>
         <div class="form-row practitioner-access-actions" id="practitioner-access-actions" hidden>
           <button class="secondary-button" type="button" id="resend-practitioner-access">Reenviar acceso</button>
-          <button class="secondary-button" type="button" id="send-practitioner-password-reset">Enviar restablecimiento de contraseña</button>
+          <button class="secondary-button" type="button" id="send-practitioner-password-reset">Enviar restablecimiento de contraseÃ±a</button>
         </div>
         <p class="save-status" id="practitioner-key-status"></p>
         <div class="form-row">
           <label>
             Tipo de trabajador
             <select name="workerType">
-              <option value="autonomo">Autónomo</option>
+              <option value="autonomo">AutÃ³nomo</option>
               <option value="asalariado">Empleado asalariado</option>
             </select>
           </label>
@@ -2403,8 +2409,8 @@
           </div>
         </fieldset>
         <fieldset class="time-ranges-fieldset">
-          <legend>Servicios y comisión por servicio</legend>
-          <p class="form-help">Configura los servicios que realiza este trabajador y la comisión correspondiente para cada servicio.</p>
+          <legend>Servicios y comisiÃ³n por servicio</legend>
+          <p class="form-help">Configura los servicios que realiza este trabajador y la comisiÃ³n correspondiente para cada servicio.</p>
           <div class="service-commission-grid" id="practitioner-service-commissions"></div>
         </fieldset>
         <label>
@@ -2421,20 +2427,20 @@
     <dialog id="manual-billing-dialog">
       <form method="dialog" class="modal-form" id="manual-billing-form" novalidate>
         <div class="modal-header">
-          <h2 id="manual-billing-title">Añadir pago o cobro</h2>
+          <h2 id="manual-billing-title">AÃ±adir pago o cobro</h2>
           <button class="icon-button dialog-close" type="button" data-dialog-id="manual-billing-dialog" title="Cerrar">x</button>
         </div>
         <label>
           Tipo de movimiento
           <select name="type" required>
-            <option value="charge">Cobro: suma a facturación</option>
-            <option value="payment">Pago: resta de facturación</option>
+            <option value="charge">Cobro: suma a facturaciÃ³n</option>
+            <option value="payment">Pago: resta de facturaciÃ³n</option>
           </select>
         </label>
         <label>
-          Método
+          MÃ©todo
           <select name="paymentMethod" required>
-            <option value="">Selecciona método</option>
+            <option value="">Selecciona mÃ©todo</option>
             <option value="cash">Efectivo</option>
             <option value="card">Tarjeta</option>
           </select>
@@ -2485,14 +2491,14 @@
             Tipo
             <select name="type">
               <option value="unavailable">No disponible</option>
-              <option value="day_off">Día libre</option>
+              <option value="day_off">DÃ­a libre</option>
               <option value="vacation">Vacaciones</option>
             </select>
           </label>
         </div>
         <label class="check-row">
           <input name="allDay" type="checkbox" checked />
-          Todo el día
+          Todo el dÃ­a
         </label>
         <div class="form-row unavailability-hours">
           <label>
@@ -2528,7 +2534,7 @@
         </label>
         <label>
           Tipo
-          <input name="type" type="text" required placeholder="Camilla, gimnasio, sesión grupal..." />
+          <input name="type" type="text" required placeholder="Camilla, gimnasio, sesiÃ³n grupal..." />
         </label>
         <div class="modal-actions">
           <button class="secondary-button dialog-close" type="button" data-dialog-id="room-dialog">Cancelar</button>
@@ -2543,90 +2549,90 @@
           <div>
             <p class="eyebrow" id="register-flow-eyebrow">Nueva cuenta</p>
             <h2 id="register-dialog-title">Empieza tu prueba gratuita</h2>
-            <span id="register-dialog-subtitle">Crea la cuenta, completa la clínica y accede al panel.</span>
+            <span id="register-dialog-subtitle">Crea la cuenta, completa la clÃ­nica y accede al panel.</span>
           </div>
           <button class="icon-button dialog-close" type="button" data-dialog-id="register-dialog" title="Cerrar">x</button>
         </div>
         <div class="register-progress" aria-label="Alta SaaS">
           <button type="button" data-register-progress="account"><span>1</span>Crea tu cuenta</button>
-          <button type="button" data-register-progress="clinic"><span>2</span>Tu clínica</button>
+          <button type="button" data-register-progress="clinic"><span>2</span>Tu clÃ­nica</button>
           <button type="button" data-register-progress="operations"><span>3</span>Datos adicionales</button>
-          <button type="button" data-register-progress="confirm"><span>4</span>Confirmación</button>
+          <button type="button" data-register-progress="confirm"><span>4</span>ConfirmaciÃ³n</button>
         </div>
         <div class="register-body">
           <section class="register-step active" data-register-step="account">
             <div class="register-section-title">
               <h3>Datos personales</h3>
-              <p>Empieza creando el acceso principal de dirección.</p>
+              <p>Empieza creando el acceso principal de direcciÃ³n.</p>
             </div>
             <div class="register-google-box">
-              <span>Opcional: precarga nombre y email con Google. El alta de clínica seguirá pidiendo todos los datos necesarios.</span>
+              <span>Opcional: precarga nombre y email con Google. El alta de clÃ­nica seguirÃ¡ pidiendo todos los datos necesarios.</span>
               <div class="google-auth-slot" id="google-register-button" data-google-context="register"></div>
               <p class="form-help google-auth-status" id="google-register-status" role="status"></p>
             </div>
             <div class="form-grid two">
               <label>
                 Nombre completo
-                <input name="ownerName" type="text" placeholder="Ej: María López" required />
+                <input name="ownerName" type="text" placeholder="Ej: MarÃ­a LÃ³pez" required />
               </label>
               <label>
                 Email
                 <input name="email" type="text" inputmode="email" autocomplete="email" placeholder="tu.email@correo.com" required />
               </label>
               <label>
-                Teléfono móvil
+                TelÃ©fono mÃ³vil
                 <input name="phone" type="tel" placeholder="+34 600 123 456" required />
               </label>
               <label>
-                Cargo en la clínica
+                Cargo en la clÃ­nica
                 <select name="ownerRole" required>
-                  <option selected value="Direccion">Dirección</option>
+                  <option selected value="Direccion">DirecciÃ³n</option>
                 </select>
               </label>
               <label>
-                Contraseña
+                ContraseÃ±a
                 <input name="password" type="password" minlength="8" required />
-                <span class="field-hint">Mínimo 8 caracteres, con mayúscula, minúscula y un número o símbolo.</span>
+                <span class="field-hint">MÃ­nimo 8 caracteres, con mayÃºscula, minÃºscula y un nÃºmero o sÃ­mbolo.</span>
               </label>
               <label>
-                Confirmar contraseña
+                Confirmar contraseÃ±a
                 <input name="confirmPassword" type="password" minlength="8" required />
               </label>
             </div>
             <div class="register-info-box">
-              <strong>Tus datos están protegidos</strong>
-              <span>Usamos esta información para crear el acceso de dirección y preparar la clínica.</span>
+              <strong>Tus datos estÃ¡n protegidos</strong>
+              <span>Usamos esta informaciÃ³n para crear el acceso de direcciÃ³n y preparar la clÃ­nica.</span>
             </div>
           </section>
 
           <section class="register-step" data-register-step="clinic" hidden>
             <div class="register-section-title">
-              <h3>Información de la clínica</h3>
-              <p>Completa los datos que aparecerán en la configuración inicial.</p>
+              <h3>InformaciÃ³n de la clÃ­nica</h3>
+              <p>Completa los datos que aparecerÃ¡n en la configuraciÃ³n inicial.</p>
             </div>
             <div class="form-grid two">
               <label>
-                Nombre de la clínica
-                <input name="name" type="text" placeholder="Ej: Clínica Fisio Salud" required />
+                Nombre de la clÃ­nica
+                <input name="name" type="text" placeholder="Ej: ClÃ­nica Fisio Salud" required />
               </label>
               <label>
                 NIF / CIF
                 <input name="taxId" type="text" placeholder="Ej: B12345678" required />
               </label>
               <label>
-                Email de la clínica
+                Email de la clÃ­nica
                 <input name="clinicEmail" type="text" inputmode="email" placeholder="info@clinica.com" required />
               </label>
               <label>
-                Teléfono de la clínica
+                TelÃ©fono de la clÃ­nica
                 <input name="clinicPhone" type="tel" placeholder="+34 600 123 456" required />
               </label>
               <label class="wide-field">
-                Dirección
+                DirecciÃ³n
                 <input name="billingAddress" type="text" placeholder="Calle Mayor, 10" required />
               </label>
               <label>
-                Código postal
+                CÃ³digo postal
                 <input name="postalCode" type="text" placeholder="28001" required />
               </label>
               <label>
@@ -2634,9 +2640,9 @@
                 <input name="city" type="text" placeholder="Madrid" required />
               </label>
               <label>
-                País
+                PaÃ­s
                 <select name="country" required>
-                  <option>España</option>
+                  <option>EspaÃ±a</option>
                   <option>Portugal</option>
                   <option>Francia</option>
                 </select>
@@ -2644,7 +2650,7 @@
             </div>
             <div class="register-preview-row">
               <label class="register-logo-drop">
-                Logo de la clínica (opcional)
+                Logo de la clÃ­nica (opcional)
                 <input name="clinicLogoFile" type="file" accept="image/*" />
                 <span>Sube tu logo</span>
                 <small>PNG, JPG o SVG. Max. 2MB</small>
@@ -2652,7 +2658,7 @@
               <article class="register-clinic-preview">
                 <span class="register-preview-logo hidden" id="register-preview-logo" aria-hidden="true"></span>
                 <div>
-                  <strong data-register-preview="clinicName">Clínica Fisio Salud</strong>
+                  <strong data-register-preview="clinicName">ClÃ­nica Fisio Salud</strong>
                   <small data-register-preview="clinicAddress">Calle Mayor, 10, 28001 Madrid</small>
                   <small data-register-preview="clinicPhone">+34 600 123 456</small>
                   <small data-register-preview="clinicEmail">info@clinica.com</small>
@@ -2663,7 +2669,7 @@
 
           <section class="register-step" data-register-step="operations" hidden>
             <div class="register-section-title">
-              <h3>Información adicional</h3>
+              <h3>InformaciÃ³n adicional</h3>
               <p>Estos datos ayudan a preparar mejor la cuenta y el onboarding.</p>
             </div>
             <div class="form-grid two">
@@ -2672,21 +2678,21 @@
                 <select name="specialty" required>
                   <option value="">Selecciona la especialidad</option>
                   <option>Fisioterapia</option>
-                  <option>Psicología</option>
-                  <option>Podología</option>
-                  <option>Medicina estética</option>
-                  <option>Clínica multidisciplinar</option>
+                  <option>PsicologÃ­a</option>
+                  <option>PodologÃ­a</option>
+                  <option>Medicina estÃ©tica</option>
+                  <option>ClÃ­nica multidisciplinar</option>
                 </select>
               </label>
               <label>
-                Página web (opcional)
+                PÃ¡gina web (opcional)
                 <input name="website" type="url" placeholder="https://www.tuclinica.com" />
               </label>
               <label>
-                Tipo de clínica
+                Tipo de clÃ­nica
                 <select name="clinicType" required>
                   <option value="">Selecciona el tipo</option>
-                  <option>Centro único</option>
+                  <option>Centro Ãºnico</option>
                   <option>Multi-centro</option>
                   <option>Consulta individual</option>
                 </select>
@@ -2696,13 +2702,13 @@
                 <input name="instagram" type="text" placeholder="@tuclinica" />
               </label>
               <label>
-                Número de profesionales
+                NÃºmero de profesionales
                 <select name="professionalsCount" required>
                   <option value="">Selecciona un rango</option>
                   <option>1 profesional</option>
                   <option>2-5 profesionales</option>
                   <option>6-10 profesionales</option>
-                  <option>Más de 10 profesionales</option>
+                  <option>MÃ¡s de 10 profesionales</option>
                 </select>
               </label>
               <label>
@@ -2710,7 +2716,7 @@
                 <input name="facebook" type="text" placeholder="facebook.com/tuclinica" />
               </label>
               <label>
-                Horario de atención
+                Horario de atenciÃ³n
                 <div class="inline-inputs">
                   <input name="openingStart" type="time" required value="09:00" />
                   <input name="openingEnd" type="time" required value="20:00" />
@@ -2721,26 +2727,26 @@
                 <select name="timezone" required>
                   <option>(GMT+01:00) Madrid</option>
                   <option>(GMT+00:00) Lisboa</option>
-                  <option>(GMT+01:00) París</option>
+                  <option>(GMT+01:00) ParÃ­s</option>
                 </select>
               </label>
             </div>
             <fieldset class="register-days">
-              <legend>Días de atención</legend>
+              <legend>DÃ­as de atenciÃ³n</legend>
               <label><input type="checkbox" name="days" value="lun" checked /> Lun</label>
               <label><input type="checkbox" name="days" value="mar" checked /> Mar</label>
-              <label><input type="checkbox" name="days" value="mie" checked /> Mié</label>
+              <label><input type="checkbox" name="days" value="mie" checked /> MiÃ©</label>
               <label><input type="checkbox" name="days" value="jue" checked /> Jue</label>
               <label><input type="checkbox" name="days" value="vie" checked /> Vie</label>
-              <label><input type="checkbox" name="days" value="sab" /> Sáb</label>
+              <label><input type="checkbox" name="days" value="sab" /> SÃ¡b</label>
               <label><input type="checkbox" name="days" value="dom" /> Dom</label>
             </fieldset>
           </section>
 
           <section class="register-step" data-register-step="confirm" hidden>
             <div class="register-section-title">
-              <h3>Confirma los datos de tu clínica</h3>
-              <p>Revisa la información antes de finalizar. Podrás modificarla más adelante desde configuración.</p>
+              <h3>Confirma los datos de tu clÃ­nica</h3>
+              <p>Revisa la informaciÃ³n antes de finalizar. PodrÃ¡s modificarla mÃ¡s adelante desde configuraciÃ³n.</p>
             </div>
             <div class="register-confirm-grid">
               <article>
@@ -2748,21 +2754,21 @@
                 <dl>
                   <dt>Nombre</dt><dd data-register-summary="ownerName">-</dd>
                   <dt>Email</dt><dd data-register-summary="email">-</dd>
-                  <dt>Teléfono móvil</dt><dd data-register-summary="phone">-</dd>
+                  <dt>TelÃ©fono mÃ³vil</dt><dd data-register-summary="phone">-</dd>
                   <dt>Cargo</dt><dd data-register-summary="ownerRole">-</dd>
                 </dl>
               </article>
               <article>
-                <div class="register-confirm-head"><strong>Sobre la clínica</strong><button type="button" data-register-edit-step="clinic">Editar</button></div>
+                <div class="register-confirm-head"><strong>Sobre la clÃ­nica</strong><button type="button" data-register-edit-step="clinic">Editar</button></div>
                 <dl>
                   <dt>Nombre</dt><dd data-register-summary="name">-</dd>
                   <dt>NIF/CIF</dt><dd data-register-summary="taxId">-</dd>
                   <dt>Email</dt><dd data-register-summary="clinicEmail">-</dd>
-                  <dt>Dirección</dt><dd data-register-summary="fullAddress">-</dd>
+                  <dt>DirecciÃ³n</dt><dd data-register-summary="fullAddress">-</dd>
                 </dl>
               </article>
               <article>
-                <div class="register-confirm-head"><strong>Operación</strong><button type="button" data-register-edit-step="operations">Editar</button></div>
+                <div class="register-confirm-head"><strong>OperaciÃ³n</strong><button type="button" data-register-edit-step="operations">Editar</button></div>
                 <dl>
                   <dt>Especialidad</dt><dd data-register-summary="specialty">-</dd>
                   <dt>Tipo</dt><dd data-register-summary="clinicType">-</dd>
@@ -2783,7 +2789,7 @@
                   <label class="plan-option">
                     <input name="paymentPlan" type="radio" value="kliniaplan" />
                     <strong>Profesional</strong>
-                    <span>Suscripción mensual</span>
+                    <span>SuscripciÃ³n mensual</span>
                     <small>50 EUR/mes</small>
                   </label>
                 </div>
@@ -2794,19 +2800,19 @@
           <section class="register-step register-success-step" data-register-step="success" hidden>
             <div class="success-orb">OK</div>
             <h3>Claves enviadas correctamente</h3>
-            <p>Ya puedes acceder a tu cuenta de Klinia con el email y la contraseña que acabas de crear.</p>
+            <p>Ya puedes acceder a tu cuenta de Klinia con el email y la contraseÃ±a que acabas de crear.</p>
             <article>
-              <strong>¿Qué incluye tu prueba gratuita?</strong>
+              <strong>Â¿QuÃ© incluye tu prueba gratuita?</strong>
               <ul>
                 <li>Acceso completo a todas las funciones</li>
                 <li>1 mes gratis sin compromiso</li>
-                <li>Sin tarjeta de crédito para empezar</li>
+                <li>Sin tarjeta de crÃ©dito para empezar</li>
                 <li>Soporte por email incluido</li>
               </ul>
             </article>
             <div class="register-info-box">
               <strong>Siguiente paso</strong>
-              <span>Inicia sesión con tu email y contraseña para empezar a gestionar tu clínica.</span>
+              <span>Inicia sesiÃ³n con tu email y contraseÃ±a para empezar a gestionar tu clÃ­nica.</span>
             </div>
           </section>
         </div>
@@ -2814,8 +2820,8 @@
         <div class="modal-actions register-actions">
           <button class="secondary-button" type="button" id="register-back-button">Volver</button>
           <button class="primary-button" type="button" id="register-next-button">Continuar</button>
-          <button class="primary-button hidden" type="submit" id="register-submit-button">Confirmar y crear clínica</button>
-          <button class="primary-button hidden" type="button" id="register-login-button">Ir al inicio de sesión</button>
+          <button class="primary-button hidden" type="submit" id="register-submit-button">Confirmar y crear clÃ­nica</button>
+          <button class="primary-button hidden" type="button" id="register-login-button">Ir al inicio de sesiÃ³n</button>
         </div>
       </form>
     </dialog>
@@ -2889,21 +2895,23 @@
         <div class="modal-header">
           <div>
             <p class="eyebrow">Seguridad de datos</p>
-            <h2>Resetear clínica</h2>
+            <h2>Resetear clÃ­nica</h2>
           </div>
         </div>
-        <p id="clinic-reset-message" class="feedback-message">¿Estás seguro que desea resetear clínica?</p>
+        <p id="clinic-reset-message" class="feedback-message">Â¿EstÃ¡s seguro que desea resetear clÃ­nica?</p>
         <div class="modal-actions">
           <button class="secondary-button dialog-close" type="button" data-dialog-id="clinic-reset-dialog">No</button>
-          <button class="danger-button" type="submit">Sí, resetear datos</button>
+          <button class="danger-button" type="submit">SÃ­, resetear datos</button>
         </div>
       </form>
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260710-pwa-mobile-3"></script>
+    <script src="./app.js?v=20260714-prod-five-fixes"></script>
   </body>
 </html>
+
+
 
 
 

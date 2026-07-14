@@ -1886,8 +1886,8 @@ h2 {
   border: 1px solid var(--line);
   border-radius: 10px;
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
   margin-top: 12px;
   padding: 12px;
 }
@@ -1898,6 +1898,20 @@ h2 {
   font-size: 13px;
   font-weight: 800;
   gap: 6px;
+  min-width: 0;
+}
+
+.billing-filters select,
+.billing-filters input,
+.billing-advanced-grid select,
+.billing-advanced-grid input {
+  min-width: 0;
+  width: 100%;
+}
+
+.billing-filters button {
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 .billing-filters label.is-hidden {
@@ -1936,8 +1950,8 @@ h2 {
 .billing-advanced-grid {
   border-top: 1px solid var(--line);
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
   padding: 14px 16px 16px;
 }
 
@@ -2023,6 +2037,12 @@ h2 {
   border-radius: 999px;
   background: var(--worker-color);
   box-shadow: 0 0 0 1px var(--line), 0 4px 10px rgba(24, 38, 34, 0.12);
+}
+
+.worker-color-loading {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .worker-color-key:hover,
@@ -4497,16 +4517,24 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   overflow-wrap: anywhere;
 }
 
+.consent-card .signature-preview {
+  display: none;
+}
+
 #consent-template-dialog {
-  width: min(780px, calc(100vw - 32px));
+  width: min(980px, calc(100vw - 32px));
+  min-width: min(520px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  overflow: hidden;
+  overflow: auto;
+  resize: both;
 }
 
 #patient-consent-dialog {
-  width: min(1080px, calc(100vw - 32px));
+  width: min(1260px, calc(100vw - 32px));
+  min-width: min(680px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  overflow: hidden;
+  overflow: auto;
+  resize: both;
 }
 
 #consent-delete-dialog {
@@ -4521,6 +4549,61 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   overflow: auto;
 }
 
+
+.modal-window-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-window-button {
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+#consent-template-dialog.modal-expanded,
+#patient-consent-dialog.modal-expanded {
+  width: calc(100vw - 24px);
+  max-width: none;
+  max-height: calc(100dvh - 24px);
+  height: calc(100dvh - 24px);
+}
+
+#consent-template-dialog.modal-expanded .modal-form,
+#patient-consent-dialog.modal-expanded .modal-form {
+  max-height: calc(100dvh - 24px);
+}
+
+#consent-template-dialog.modal-expanded .consent-template-form textarea {
+  min-height: 58vh;
+}
+
+#patient-consent-dialog.modal-expanded .patient-consent-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+}
+
+.signed-consent-file {
+  border: 1px solid #dce5df;
+  border-radius: 8px;
+  background: #fbfdfb;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 8px 10px;
+}
+
+.signed-consent-file strong {
+  min-width: min(260px, 100%);
+  overflow-wrap: anywhere;
+}
+
+.signed-consent-file span {
+  color: var(--muted);
+  font-size: 12px;
+}
 .consent-template-form textarea {
   min-height: 340px;
   max-height: min(52vh, 520px);
@@ -4956,7 +5039,7 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 
 .subscription-plan-card li::before {
   color: var(--accent);
-  content: "✓";
+  content: "âœ“";
   font-weight: 900;
   left: 0;
   position: absolute;
@@ -4995,7 +5078,7 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 
 .subscription-feature-list li::before {
   color: var(--accent);
-  content: "✓";
+  content: "âœ“";
   font-weight: 900;
   left: 0;
   position: absolute;
@@ -5754,6 +5837,11 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
   .service-commission-grid,
   .clinic-hours-fieldset {
     grid-template-columns: 1fr;
+  }
+
+  .billing-filters button,
+  .billing-advanced-actions button {
+    width: 100%;
   }
 
   .billing-advanced-panel summary {
@@ -7561,3 +7649,4 @@ body.superadmin-mode .public-view.active.superadmin-view {
     min-width: 620px;
   }
 }
+

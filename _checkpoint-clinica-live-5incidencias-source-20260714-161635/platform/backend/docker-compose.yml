@@ -1,0 +1,33 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: platform/backend/Dockerfile
+    container_name: klinia-api
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    container_name: klinia-postgres
+    environment:
+      POSTGRES_DB: klinia
+      POSTGRES_USER: klinia
+      POSTGRES_PASSWORD: klinia_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - klinia_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U klinia -d klinia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  klinia_postgres_data:

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Klinia | Portfolio de producto SaaS</title>
+    <meta
+      name="description"
+      content="Portfolio técnico-profesional de Klinia: SaaS multi-clínica para agenda, pacientes, facturación, roles, suscripciones y superadmin."
+    />
+    <link rel="icon" href="../assets/klinia-logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./portfolio.css" />
+  </head>
+  <body>
+    <header class="site-header" id="top">
+      <a class="brand" href="#top" aria-label="Volver al inicio">
+        <img src="../assets/klinia-logo.svg" alt="" />
+        <span>Klinia</span>
+      </a>
+      <nav class="main-nav" aria-label="Navegación principal">
+        <a href="#proyecto">Proyecto</a>
+        <a href="#funcionalidades">Funcionalidades</a>
+        <a href="#arquitectura">Arquitectura</a>
+        <a href="#retos">Retos</a>
+        <a href="#contacto">Contacto</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Portfolio técnico-profesional</p>
+          <h1>Klinia</h1>
+          <p class="hero-lead">SaaS de gestión integral para clínicas privadas</p>
+          <p class="hero-subtitle">
+            Agenda, pacientes, facturación, rendimiento, suscripciones, roles y panel superadmin en una plataforma multi-clínica.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#proyecto">Ver proyecto</a>
+            <a class="button secondary" href="#funcionalidades">Ver funcionalidades</a>
+            <a class="button ghost" href="#contacto">Contactar</a>
+          </div>
+        </div>
+        <div class="hero-visual" aria-label="Vista conceptual de Klinia">
+          <div class="product-window">
+            <div class="window-dots"><span></span><span></span><span></span></div>
+            <div class="window-grid">
+              <aside>
+                <img src="../assets/klinia-logo.svg" alt="" />
+                <strong>Klinia</strong>
+                <span>Agenda</span>
+                <span>Pacientes</span>
+                <span>Facturación</span>
+                <span>Superadmin</span>
+              </aside>
+              <section>
+                <div class="mini-kpi"><span>Clínicas</span><strong>Multi-tenant</strong></div>
+                <div class="mini-calendar">
+                  <article><b>09:30</b><span>Paciente &middot; Fisio</span></article>
+                  <article><b>11:15</b><span>Clase grupal</span></article>
+                  <article><b>13:00</b><span>Cobro tarjeta</span></article>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section intro" id="proyecto">
+        <div class="section-heading">
+          <p class="eyebrow">Sobre el proyecto</p>
+          <h2>Un SaaS real para operar clínicas privadas</h2>
+        </div>
+        <div class="intro-grid">
+          <article>
+            <h3>Problema</h3>
+            <p>
+              Muchas clínicas gestionan agenda, bonos, pacientes, cobros y rendimiento en herramientas separadas. Klinia centraliza
+              la operativa diaria y reduce errores administrativos.
+            </p>
+          </article>
+          <article>
+            <h3>Usuarios</h3>
+            <p>
+              Dirección, recepción, trabajadores y soporte SaaS. Cada perfil necesita una experiencia distinta, con permisos y datos
+              separados por clínica.
+            </p>
+          </article>
+          <article>
+            <h3>Diferencial</h3>
+            <p>
+              Combina producto, facturación interna, suscripción SaaS, PWA multidispositivo, roles y panel superadmin en una sola
+              plataforma preparada para crecer.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="funcionalidades">
+        <div class="section-heading split">
+          <div>
+            <p class="eyebrow">Funcionalidades principales</p>
+            <h2>Módulo a módulo, pensado para uso diario</h2>
+          </div>
+          <p>Una base funcional amplia para operar clínicas reales, con foco en consistencia de datos y usabilidad.</p>
+        </div>
+        <div class="feature-grid" id="feature-grid"></div>
+      </section>
+
+      <section class="section architecture" id="arquitectura">
+        <div class="section-heading">
+          <p class="eyebrow">Arquitectura técnica</p>
+          <h2>Frontend ligero, backend API y datos persistentes</h2>
+        </div>
+        <div class="architecture-map">
+          <article>
+            <span>Frontend</span>
+            <strong>HTML &middot; CSS &middot; JavaScript</strong>
+            <p>Interfaz responsive, PWA, service worker y experiencia multidispositivo.</p>
+          </article>
+          <article>
+            <span>Backend</span>
+            <strong>FastAPI &middot; Python</strong>
+            <p>API de autenticación, clínicas, usuarios, auditoría, Stripe y datos operativos.</p>
+          </article>
+          <article>
+            <span>Base de datos</span>
+            <strong>PostgreSQL</strong>
+            <p>Persistencia real, separación por clínica y preparación multi-tenant.</p>
+          </article>
+          <article>
+            <span>Infraestructura</span>
+            <strong>Render &middot; Vercel</strong>
+            <p>Backend público, frontend desplegado, dominio propio y configuración de producción.</p>
+          </article>
+          <article>
+            <span>Pagos</span>
+            <strong>Stripe</strong>
+            <p>Checkout, portal, webhooks y estado de suscripción SaaS.</p>
+          </article>
+          <article>
+            <span>Acceso</span>
+            <strong>JWT &middot; Google Login</strong>
+            <p>Login tradicional compatible con Google OAuth, roles y recuperación de acceso.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="retos">
+        <div class="section-heading split">
+          <div>
+            <p class="eyebrow">Retos y soluciones</p>
+            <h2>Problemas reales resueltos durante la evolución</h2>
+          </div>
+          <p>El proyecto evolucionó desde prototipo a producto en producción, priorizando estabilidad y operativa real.</p>
+        </div>
+        <div class="challenge-list" id="challenge-list"></div>
+      </section>
+
+      <section class="section captures" id="capturas">
+        <div class="section-heading">
+          <p class="eyebrow">Capturas y mockups</p>
+          <h2>Secciones preparadas para documentar el producto</h2>
+        </div>
+        <div class="capture-grid" id="capture-grid"></div>
+      </section>
+
+      <section class="section metrics-role">
+        <div class="metrics-panel">
+          <div class="section-heading compact">
+            <p class="eyebrow">Métricas del proyecto</p>
+            <h2>Estado actual editable</h2>
+          </div>
+          <div class="metric-grid" id="metric-grid"></div>
+        </div>
+        <article class="role-card">
+          <p class="eyebrow">Mi papel en el proyecto</p>
+          <h2>Founder / Product Builder</h2>
+          <p>
+            He dirigido la definición funcional, el diseño del producto, la validación con clínicas reales, la priorización, las
+            pruebas, los despliegues y la evolución del SaaS.
+          </p>
+          <p>
+            El proyecto demuestra capacidad para convertir una necesidad real de negocio en una plataforma digital desplegada,
+            usable y preparada para iterar con clientes.
+          </p>
+        </article>
+      </section>
+
+      <section class="section stack">
+        <div class="section-heading">
+          <p class="eyebrow">Stack visual</p>
+          <h2>Tecnologías y herramientas</h2>
+        </div>
+        <div class="stack-list" id="stack-list"></div>
+      </section>
+
+      <section class="final-cta" id="contacto">
+        <p class="eyebrow">Contacto</p>
+        <h2>¿Quieres ver cómo construí Klinia?</h2>
+        <p>Portfolio pensado para recruiters, empresas tecnológicas, startups, consultoras y posibles socios.</p>
+        <a class="button primary" href="mailto:kliniasolutions@gmail.com?subject=Portfolio%20Klinia">Contactar</a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Klinia &middot; Portfolio de producto SaaS</span>
+      <a href="#top">Volver arriba</a>
+    </footer>
+
+    <script src="./portfolio.js"></script>
+  </body>
+</html>
