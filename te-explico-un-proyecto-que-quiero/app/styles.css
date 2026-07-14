@@ -5039,7 +5039,7 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 
 .subscription-plan-card li::before {
   color: var(--accent);
-  content: "âœ“";
+  content: "✓";
   font-weight: 900;
   left: 0;
   position: absolute;
@@ -5078,7 +5078,7 @@ body.availability-only-settings #configuracion .settings-panel:not(.availability
 
 .subscription-feature-list li::before {
   color: var(--accent);
-  content: "âœ“";
+  content: "✓";
   font-weight: 900;
   left: 0;
   position: absolute;

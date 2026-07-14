@@ -1,0 +1,59 @@
+services:
+  - type: web
+    name: klinia-api
+    env: python
+    rootDir: platform/backend
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_NAME
+        value: Klinia
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: klinia-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+      - key: CORS_ORIGINS
+        value: https://www.kliniasolutions.com,https://kliniasolutions.com,https://app.klinia.es
+      - key: FRONTEND_URL
+        value: https://www.kliniasolutions.com
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: SUPERADMIN_EMAIL
+        sync: false
+      - key: SUPERADMIN_PASSWORD
+        sync: false
+      - key: SUPERADMIN_NAME
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_KLINIAPLAN_MONTHLY
+        value: price_1TX6HB0ETxpjrlLIzNY5Qg61
+      - key: STRIPE_PRICE_KLINIAPLAN_ANNUAL
+        value: price_1TYhkz0ETxpjrlLI3FWIfVkr
+      - key: STRIPE_PRICE_KLINIAPLAN
+        sync: false
+      - key: STRIPE_PRICE_STARTER
+        sync: false
+      - key: STRIPE_PRICE_PRO
+        sync: false
+      - key: STRIPE_PRICE_BUSINESS
+        sync: false
+
+databases:
+  - name: klinia-postgres
+    plan: starter

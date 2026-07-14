@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260714-prod-five-fixes";
+const KLINIA_CACHE = "klinia-20260714-auditoria-estabilidad";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260714-prod-five-fixes",
-  "./app.js?v=20260714-prod-five-fixes",
+  "./styles.css?v=20260714-auditoria-estabilidad",
+  "./app.js?v=20260714-auditoria-estabilidad",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

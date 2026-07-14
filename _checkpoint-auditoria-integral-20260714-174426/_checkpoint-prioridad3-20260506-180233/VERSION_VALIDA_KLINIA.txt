@@ -1,0 +1,1 @@
+﻿ESTA ES LA UNICA VERSION VALIDA DE KLINIA. Arrancar desde .\app en puerto 8001 y abrir http://localhost:8001/. No usar la carpeta Documents\Codex antigua.
