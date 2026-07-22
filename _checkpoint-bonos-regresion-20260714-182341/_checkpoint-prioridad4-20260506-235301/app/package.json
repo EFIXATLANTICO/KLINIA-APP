@@ -1,0 +1,10 @@
+{
+  "name": "klinia-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Klinia PWA frontend",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}

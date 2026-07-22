@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Klinia</title>
+    <link rel="icon" href="./assets/klinia-logo.svg" type="image/svg+xml" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#10231f" />
+    <meta name="application-name" content="Klinia" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Klinia" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <style>
+      body.login-mode .app-shell { display: none !important; }
+      body:not(.login-mode) .login-screen { display: none !important; }
+    </style>
+    <link rel="stylesheet" href="./styles.css?v=20260505-pwa-v1" />
+  </head>
+  <body class="login-mode">
+    <section class="login-screen" id="login-screen" aria-label="Acceso a Klinia">
+      <div class="login-shell">
+        <div class="login-brand-panel">
+          <img class="login-logo" src="./assets/klinia-logo.svg" alt="Klinia" />
+          <div>
+            <h1>Klinia</h1>
+          </div>
+          <p class="login-copy">Gestion operativa para clinicas privadas: agenda, pacientes, equipo, facturacion y rendimiento en un solo lugar.</p>
+          <div class="login-proof">
+            <span>Multi-centro</span>
+            <span>Permisos por rol</span>
+            <span>Direccion en tiempo real</span>
+          </div>
+        </div>
+
+        <form class="login-card" id="login-form">
+          <div class="login-card-head">
+            <p class="eyebrow">Acceso privado</p>
+            <h2>Entrar a clinica</h2>
+          </div>
+          <label>
+            Usuario / clinica
+            <input name="center" id="login-clinic-select" type="text" list="login-clinic-list" autocomplete="username" placeholder="Escribe tu clinica o email" required />
+            <datalist id="login-clinic-list"></datalist>
+          </label>
+          <label>
+            Contrasena clinica
+            <input name="password" type="password" value="demo" autocomplete="current-password" required />
+          </label>
+          <div class="login-row">
+            <label class="check-row">
+              <input name="remember" type="checkbox" checked />
+              Recordar
+            </label>
+            <button class="link-button" type="button">Restablecer</button>
+          </div>
+          <button class="primary-button login-submit" type="submit">Iniciar sesion</button>
+          <button class="secondary-button" type="button" id="demo-login">Abrir demo</button>
+          <button class="secondary-button" type="button" id="open-register">Registrar clinica</button>
+        </form>
+
+        <form class="login-card hidden" id="profile-form">
+          <div class="login-card-head">
+            <p class="eyebrow">Perfil de acceso</p>
+            <h2>Entrar como</h2>
+          </div>
+          <label>
+            Perfil
+            <select name="profile" id="profile-select" required></select>
+          </label>
+          <label>
+            Contrasena del perfil
+            <input name="password" type="password" value="demo" autocomplete="current-password" required />
+          </label>
+          <button class="primary-button" type="submit">Iniciar sesion</button>
+          <button class="secondary-button" type="button" id="back-to-clinic-login">Cambiar clinica</button>
+        </form>
+      </div>
+    </section>
+
+    <div class="app-shell" id="app-shell">
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <div class="brand">
+          <img class="brand-logo" src="./assets/klinia-logo.svg" alt="Klinia" />
+          <div>
+            <strong>Klinia</strong>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-section="agenda" type="button">Agenda</button>
+          <button class="nav-item" data-section="pacientes" type="button">Pacientes</button>
+          <button class="nav-item" data-section="equipo" type="button">Equipo y salas</button>
+          <button class="nav-item" data-section="automatizaciones" type="button">Automatizaciones</button>
+          <button class="nav-item" data-section="facturacion" type="button">Facturacion</button>
+          <button class="nav-item" data-section="rendimiento" type="button">Rendimiento</button>
+          <button class="nav-item" data-section="estadisticas" type="button">Estadisticas</button>
+          <button class="nav-item" data-section="configuracion" type="button">Configuracion</button>
+          <button class="nav-item" data-section="permisos" type="button">Permisos</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="current-date-label">Agenda</p>
+            <h1 id="section-title">Agenda</h1>
+          </div>
+          <div class="topbar-actions">
+            <label class="session-switch">
+              <span>Sesion</span>
+              <select id="session-select" aria-label="Cambiar perfil de prueba">
+                <option value="owner">Direccion</option>
+                <option value="ana">Ana Martin</option>
+                <option value="luis">Luis Ortega</option>
+                <option value="clara">Clara Vidal</option>
+              </select>
+            </label>
+            <button class="icon-button" type="button" title="Buscar">B</button>
+            <button class="secondary-button install-button hidden" type="button" id="install-app">Instalar app</button>
+            <button class="secondary-button" type="button" id="logout-button">Salir</button>
+            <button class="primary-button" type="button" id="new-appointment">Nueva cita</button>
+          </div>
+        </header>
+
+        <section class="metrics-grid" aria-label="Resumen de actividad">
+          <article class="metric-card">
+            <span>Citas hoy</span>
+            <strong id="metric-appointments">0</strong>
+            <small>3 profesionales activos</small>
+          </article>
+          <article class="metric-card">
+            <span>Ocupacion</span>
+            <strong id="metric-occupancy">0%</strong>
+            <small>Salas disponibles: 4</small>
+          </article>
+          <article class="metric-card">
+            <span>Ingresos previstos</span>
+            <strong id="metric-revenue">0 EUR</strong>
+            <small>Sesiones confirmadas</small>
+          </article>
+          <article class="metric-card warning metric-action" id="reminders-metric-card" tabindex="0" role="button" aria-label="Abrir recordatorios">
+            <span>Recordatorios</span>
+            <strong id="metric-reminders">0</strong>
+            <small id="metric-reminders-label">Programados para hoy</small>
+          </article>
+        </section>
+
+        <section class="worker-color-legend" id="worker-color-legend" aria-label="Filtro rapido por trabajador"></section>
+
+        <section class="content-section active" id="agenda">
+          <div class="toolbar">
+            <div class="segmented" role="tablist" aria-label="Vista de agenda">
+              <button class="selected calendar-mode" data-mode="day" type="button">Dia</button>
+              <button class="calendar-mode" data-mode="week" type="button">Semana</button>
+              <button class="calendar-mode" data-mode="month" type="button">Mes</button>
+            </div>
+            <div class="filters">
+              <button class="icon-button" type="button" id="prev-date" title="Anterior">&lt;</button>
+              <input id="calendar-date" type="date" aria-label="Seleccionar fecha exacta" />
+              <button class="icon-button" type="button" id="next-date" title="Siguiente">&gt;</button>
+              <details class="worker-filter" id="filter-practitioner">
+                <summary>Profesionales</summary>
+                <div class="worker-filter-menu"></div>
+              </details>
+              <select id="filter-room" aria-label="Filtrar sala"></select>
+            </div>
+          </div>
+
+          <div class="schedule-layout">
+            <div class="schedule" id="schedule"></div>
+            <aside class="day-panel">
+              <h2>Hoy</h2>
+              <div class="next-list" id="next-list"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="content-section" id="pacientes">
+          <div class="section-header">
+            <h2>Pacientes</h2>
+            <button class="secondary-button" type="button" id="new-patient">Alta paciente</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Paciente</th>
+                  <th>Telefono</th>
+                  <th>Email</th>
+                  <th>Ultima cita</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="patients-table"></tbody>
+            </table>
+          </div>
+          <article class="patient-detail hidden" id="patient-detail">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Ficha del paciente</p>
+                <h2 id="patient-detail-name">Paciente</h2>
+              </div>
+              <button class="secondary-button" type="button" id="close-patient-detail">Cerrar ficha</button>
+            </div>
+            <div class="detail-grid">
+              <section>
+                <h3>Datos</h3>
+                <dl id="patient-detail-data"></dl>
+              </section>
+              <section>
+                <h3>Citas</h3>
+                <div class="compact-list" id="patient-appointments"></div>
+              </section>
+              <section>
+                <h3>Notas clinicas</h3>
+                <form class="note-form" id="clinical-note-form">
+                  <textarea name="content" rows="4" placeholder="Escribe una nota de evolucion..." required></textarea>
+                  <button class="primary-button" type="submit">Guardar nota</button>
+                </form>
+                <div class="compact-list" id="clinical-notes"></div>
+              </section>
+            </div>
+          </article>
+        </section>
+
+        <section class="content-section" id="equipo">
+          <div class="cards-grid" id="team-grid"></div>
+        </section>
+
+        <section class="content-section" id="automatizaciones">
+          <div class="section-header">
+            <div>
+              <h2>Recordatorios a pacientes</h2>
+              <p>Cola inteligente por clinica. Prepara WhatsApp cuando llega la hora del aviso.</p>
+            </div>
+            <div class="automation-header-actions">
+              <button class="secondary-button" type="button" id="prepare-due-whatsapp">Preparar vencidos</button>
+              <button class="secondary-button" type="button" id="recalculate-reminders">Recalcular</button>
+            </div>
+          </div>
+          <div class="cards-grid automation-summary-grid">
+            <article class="metric-card">
+              <span>Programados hoy</span>
+              <strong id="reminders-today">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Total pendientes</span>
+              <strong id="reminders-pending-total">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>Canal</span>
+              <strong>WhatsApp</strong>
+            </article>
+            <article class="metric-card">
+              <span>Estado</span>
+              <strong id="reminders-mode-label">Manual</strong>
+            </article>
+          </div>
+          <section class="automation-controls">
+            <label class="check-row">
+              <input id="auto-whatsapp-reminders" type="checkbox" />
+              Preparar automaticamente WhatsApp vencidos
+            </label>
+            <p class="form-help" id="automation-status">Los mensajes se abren en WhatsApp con el texto preparado para confirmar el envio.</p>
+          </section>
+          <div class="reminders-layout">
+            <section class="automation-panel">
+              <h2>Pendientes</h2>
+              <p>La cola se ordena por urgencia. Al gestionar uno, pasa a historial y el siguiente sube automaticamente.</p>
+              <div class="reminders-list" id="reminders-pending-list"></div>
+            </section>
+            <section class="automation-panel">
+              <h2>Historial</h2>
+              <p>Solo recordatorios enviados, confirmados o fallidos. Los pendientes no aparecen aqui.</p>
+              <div class="reminders-list" id="reminders-history-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="content-section" id="facturacion">
+          <div class="section-header">
+            <h2>Facturacion</h2>
+            <button class="secondary-button new-service-button" type="button" id="new-service">Nuevo servicio</button>
+          </div>
+          <div class="billing-board">
+            <article>
+              <span>Cobrado este mes</span>
+              <strong id="billing-paid">0 EUR</strong>
+            </article>
+            <article>
+              <span>Pendiente</span>
+              <strong id="billing-pending">0 EUR</strong>
+            </article>
+            <article>
+              <span>Cancelado/no facturable</span>
+              <strong id="billing-lost">0 EUR</strong>
+            </article>
+          </div>
+          <div class="table-wrap spaced">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cita</th>
+                  <th>Paciente</th>
+                  <th>Profesional</th>
+                  <th>Estado</th>
+                  <th>Importe</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="billing-table"></tbody>
+            </table>
+          </div>
+          <div class="section-header spaced-header">
+            <h2>Servicios y tarifas</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Servicio</th>
+                  <th>Duracion</th>
+                  <th>Precio</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="services-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="content-section" id="rendimiento">
+          <div class="toolbar">
+            <div class="segmented" role="tablist" aria-label="Vista de rendimiento">
+              <button class="selected performance-mode" data-mode="worker" type="button">Trabajador</button>
+              <button class="performance-mode" data-mode="owner" type="button" id="owner-mode-button">Direccion</button>
+            </div>
+            <div class="filters" id="worker-filter-wrap">
+              <select id="worker-profile-select" aria-label="Seleccionar trabajador"></select>
+            </div>
+          </div>
+
+          <div class="performance-view" id="worker-performance">
+            <section class="profile-summary" id="worker-summary"></section>
+            <div class="stats-layout">
+              <article class="chart-panel">
+                <h2>Facturacion del trabajador</h2>
+                <div class="billing-board compact" id="worker-billing"></div>
+              </article>
+              <article class="chart-panel">
+                <h2>Actividad reciente</h2>
+                <div class="compact-list" id="worker-activity"></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="performance-view hidden" id="owner-performance">
+            <section class="owner-summary" id="owner-summary"></section>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Trabajador</th>
+                    <th>Citas</th>
+                    <th>Facturacion</th>
+                    <th>Ticket medio</th>
+                    <th>Ocupacion</th>
+                  </tr>
+                </thead>
+                <tbody id="owner-report-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-section" id="estadisticas">
+          <div class="stats-layout">
+            <article class="chart-panel">
+              <h2>Ocupacion semanal</h2>
+              <div class="bar-chart" id="bar-chart"></div>
+            </article>
+            <article class="chart-panel">
+              <h2>Servicios mas realizados</h2>
+              <div class="service-list">
+                <p><span>Fisioterapia general</span><strong>42%</strong></p>
+                <p><span>Readaptacion</span><strong>24%</strong></p>
+                <p><span>Suelo pelvico</span><strong>19%</strong></p>
+                <p><span>Sesion grupal</span><strong>15%</strong></p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-section" id="configuracion">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Direccion</p>
+              <h2>Configuracion de clinica</h2>
+            </div>
+          </div>
+
+          <div class="settings-grid">
+            <article class="settings-panel">
+              <div class="section-header">
+                <h2>Clinica</h2>
+              </div>
+              <form class="settings-form" id="clinic-form">
+                <label>
+                  Nombre comercial
+                  <input name="name" type="text" value="Clinica Demo Klinia" />
+                </label>
+                <label>
+                  Email
+                  <input name="email" type="email" value="demo@klinia.local" />
+                </label>
+                <label>
+                  Telefono
+                  <input name="phone" type="tel" value="600 000 000" />
+                </label>
+                <button class="primary-button" type="submit">Guardar clinica</button>
+                <button class="danger-button" type="button" id="delete-clinic">Resetear datos de esta clinica</button>
+                <p class="save-status" id="clinic-save-status"></p>
+              </form>
+            </article>
+
+            <article class="settings-panel">
+              <div class="section-header">
+                <h2>Trabajadores</h2>
+                <button class="secondary-button" type="button" id="new-practitioner">Nuevo trabajador</button>
+              </div>
+              <div class="compact-list" id="settings-practitioners"></div>
+            </article>
+
+            <article class="settings-panel">
+              <div class="section-header">
+                <h2>Disponibilidad</h2>
+                <button class="secondary-button" type="button" id="new-unavailability-settings">Marcar ausencia</button>
+              </div>
+              <div class="compact-list" id="settings-unavailability"></div>
+            </article>
+
+            <article class="settings-panel">
+              <div class="section-header">
+                <h2>Salas</h2>
+                <button class="secondary-button" type="button" id="new-room">Nueva sala</button>
+              </div>
+              <div class="compact-list" id="settings-rooms"></div>
+            </article>
+
+            <article class="settings-panel">
+              <div class="section-header">
+                <h2>Servicios</h2>
+                <button class="secondary-button new-service-button" type="button">Nuevo servicio</button>
+              </div>
+              <div class="compact-list" id="settings-services"></div>
+            </article>
+
+            <article class="settings-panel settings-panel-wide">
+              <div class="section-header">
+                <div>
+                  <h2>Sesiones grupales</h2>
+                  <p>Sesiones recurrentes para cualquier servicio grupal.</p>
+                </div>
+                <button class="secondary-button" type="button" id="new-group">Nueva sesion grupal</button>
+              </div>
+              <div class="compact-list" id="settings-groups"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-section" id="permisos">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Direccion</p>
+              <h2>Permisos de usuarios</h2>
+            </div>
+          </div>
+          <div class="settings-grid">
+            <article class="settings-panel settings-panel-wide">
+              <div class="section-header">
+                <div>
+                  <h2>Accesos por perfil</h2>
+                  <p>Activa las secciones que puede ver Recepcion y cada trabajador al entrar.</p>
+                </div>
+              </div>
+              <div class="permissions-list" id="permissions-list"></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="appointment-dialog">
+      <form method="dialog" class="modal-form" id="appointment-form">
+        <div class="modal-header">
+          <h2>Nueva cita</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="appointment-dialog" title="Cerrar">x</button>
+        </div>
+
+        <label>
+          Paciente
+          <select name="patient" required></select>
+        </label>
+        <label>
+          Dia
+          <input name="date" type="date" required />
+        </label>
+        <label>
+          Profesional
+          <select name="practitioner" required></select>
+        </label>
+        <label>
+          Sala
+          <select name="room" required></select>
+        </label>
+        <label>
+          Servicio
+          <select name="service" required></select>
+        </label>
+        <label>
+          Asistentes (solo sesiones grupales)
+          <input name="groupAttendees" type="number" min="1" step="1" value="1" />
+        </label>
+        <div class="form-row">
+          <label>
+            Hora
+            <input name="start" type="time" required value="12:00" />
+          </label>
+          <label>
+            Estado
+            <select name="status">
+              <option value="confirmed">Confirmada</option>
+              <option value="pending">Pendiente</option>
+            </select>
+          </label>
+        </div>
+        <p class="form-error" id="form-error" role="alert"></p>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" id="appointment-block-agenda">Bloquear agenda</button>
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="appointment-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar cita</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="patient-dialog">
+      <form method="dialog" class="modal-form" id="patient-form">
+        <div class="modal-header">
+          <h2>Alta paciente</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="patient-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Nombre completo
+          <input name="name" type="text" required placeholder="Nombre y apellidos" />
+        </label>
+        <label>
+          Telefono
+          <input name="phone" type="tel" required placeholder="600 000 000" />
+        </label>
+        <label>
+          Email
+          <input name="email" type="email" placeholder="paciente@correo.com" />
+        </label>
+        <label>
+          Alerta interna
+          <input name="alert" type="text" placeholder="Observacion relevante" />
+        </label>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="patient-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar paciente</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="appointment-detail-dialog">
+      <form method="dialog" class="modal-form" id="appointment-detail-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Detalle de cita</p>
+            <h2 id="appointment-detail-title">Cita</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="appointment-detail-dialog" title="Cerrar">x</button>
+        </div>
+        <dl id="appointment-detail-data"></dl>
+        <label>
+          Estado
+          <select name="status">
+            <option value="pending">Pendiente</option>
+            <option value="confirmed">Confirmada</option>
+            <option value="completed">Atendida</option>
+            <option value="cancelled">Cancelada</option>
+            <option value="no_show">No asistio</option>
+          </select>
+        </label>
+        <label>
+          Nota interna de la cita
+          <textarea name="internalNotes" rows="3" placeholder="Motivo de cambio, observacion de recepcion..."></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="appointment-detail-dialog">Cerrar</button>
+          <button class="primary-button" value="default" type="submit">Guardar cambios</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="service-dialog">
+      <form method="dialog" class="modal-form" id="service-form">
+        <div class="modal-header">
+          <h2>Nuevo servicio</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="service-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Nombre
+          <input name="name" type="text" required placeholder="Fisioterapia general" />
+        </label>
+        <label>
+          Descripcion
+          <input name="description" type="text" placeholder="Tratamiento individual" />
+        </label>
+        <div class="form-row">
+          <label>
+            Duracion
+            <input name="duration" type="number" required min="15" step="5" value="60" />
+          </label>
+          <label class="service-price-field">
+            Precio individual EUR
+            <input name="price" type="number" required min="0" step="1" value="45" />
+          </label>
+        </div>
+        <label class="check-row">
+          <input name="groupSession" type="checkbox" />
+          Sesion grupal
+        </label>
+        <div class="group-service-fields">
+          <strong>Configuracion de sesion grupal</strong>
+          <div class="form-row">
+            <label>
+              Max. integrantes
+              <input name="capacity" type="number" min="1" step="1" value="1" />
+            </label>
+            <label>
+              Precio mensual por paciente
+              <input name="monthlyPrice" type="number" min="0" step="1" value="0" />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>
+              Precio sesion suelta
+              <input name="dropInPrice" type="number" min="0" step="1" value="0" />
+            </label>
+          <label>
+            % trabajador por paciente
+              <input name="commissionPerPatient" type="text" inputmode="decimal" value="0" />
+            </label>
+          </div>
+        </div>
+        <label class="check-row">
+          <input name="active" type="checkbox" checked />
+          Servicio activo
+        </label>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="service-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar servicio</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="group-dialog">
+      <form method="dialog" class="modal-form" id="group-form">
+        <div class="modal-header">
+          <h2>Nueva sesion grupal</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="group-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Nombre de la sesion grupal
+          <input name="name" type="text" required placeholder="Yoga lunes tarde" />
+        </label>
+        <label>
+          Servicio
+          <select name="service" required></select>
+        </label>
+        <div class="form-row">
+          <label>
+            Trabajador
+            <select name="practitioner" required></select>
+          </label>
+          <label>
+            Sala
+            <select name="room" required></select>
+          </label>
+        </div>
+        <fieldset class="day-checkboxes">
+          <legend>Dias de sesion</legend>
+          <label><input type="checkbox" name="days" value="mon" /> Lunes</label>
+          <label><input type="checkbox" name="days" value="tue" /> Martes</label>
+          <label><input type="checkbox" name="days" value="wed" /> Miercoles</label>
+          <label><input type="checkbox" name="days" value="thu" /> Jueves</label>
+          <label><input type="checkbox" name="days" value="fri" /> Viernes</label>
+          <label><input type="checkbox" name="days" value="sat" /> Sabado</label>
+          <label><input type="checkbox" name="days" value="sun" /> Domingo</label>
+        </fieldset>
+        <div class="form-row">
+          <label>
+            Hora
+            <input name="start" type="time" required value="18:00" />
+          </label>
+          <label>
+            Capacidad
+            <input name="capacity" type="number" min="1" step="1" value="6" required />
+          </label>
+        </div>
+        <label>
+          Pacientes inscritos
+          <select name="patients" multiple size="6"></select>
+        </label>
+        <p class="form-help">Para seleccionar varios pacientes, mantÃ©n pulsado Ctrl mientras haces clic.</p>
+        <p class="form-error" id="group-form-error" role="alert"></p>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="group-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar sesion</button>
+        </div>
+      </form>
+    </dialog>
+
+
+
+    <dialog id="group-session-dialog">
+      <form method="dialog" class="modal-form group-session-modal">
+        <div class="modal-header">
+          <div>
+            <h2 id="group-session-title">Sesion grupal</h2>
+            <p id="group-session-meta" class="form-help"></p>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="group-session-dialog" title="Cerrar">x</button>
+        </div>
+        <section class="group-session-summary">
+          <strong id="group-session-capacity">0/0 plazas</strong>
+          <span id="group-session-warning" class="form-error"></span>
+        </section>
+        <div class="group-session-grid">
+          <section>
+            <h3>Pacientes fijos</h3>
+            <div class="compact-list" id="group-session-fixed"></div>
+            <p class="form-help">Los pacientes fijos se gestionan desde Configuracion > Sesiones grupales para no sobrecargar la agenda.</p>
+          </section>
+          <section>
+            <h3>Sesiones sueltas del dia</h3>
+            <div class="compact-list" id="group-session-extras"></div>
+          </section>
+        </div>
+        <section class="dropin-panel">
+          <h3>Anadir sesion suelta</h3>
+          <div class="form-row">
+            <label>
+              Paciente
+              <select id="group-dropin-patient"></select>
+            </label>
+            <button class="primary-button" type="button" id="add-dropin">Anadir a esta sesion</button>
+          </div>
+          <p class="form-help">La sesion suelta solo se anade para el dia seleccionado en agenda. No modifica los pacientes fijos del grupo.</p>
+        </section>
+        <section class="dropin-panel group-complete-panel">
+          <h3>Produccion de la sesion</h3>
+          <p class="form-help" id="group-session-completed-label">Pendiente de completar para rendimiento.</p>
+          <button class="primary-button" type="button" id="complete-group-session">Marcar sesion completada</button>
+        </section>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="group-session-dialog">Cerrar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="practitioner-dialog">
+      <form method="dialog" class="modal-form" id="practitioner-form" novalidate>
+        <div class="modal-header">
+          <h2>Nuevo trabajador</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="practitioner-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Nombre
+          <input name="name" type="text" required placeholder="Nombre y apellidos" />
+        </label>
+        <label>
+          Especialidad
+          <input name="specialty" type="text" required placeholder="Fisioterapia deportiva" />
+        </label>
+        <div class="form-row">
+          <label>
+            Email usuario
+            <input name="email" type="email" placeholder="trabajador@gmail.com" />
+          </label>
+          <label>
+            Clave acceso
+            <input name="password" type="password" value="demo" required />
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Comision %
+            <input name="commissionRate" type="text" inputmode="decimal" value="40" placeholder="30,5" />
+          </label>
+          <label>
+            Objetivo mensual EUR
+            <input name="target" type="number" min="0" value="2500" />
+          </label>
+        </div>
+        <fieldset class="time-ranges-fieldset">
+          <legend>Horario habitual</legend>
+          <div class="form-row">
+            <label>
+              Manana desde
+              <input name="availabilityStart" type="time" value="08:00" required />
+            </label>
+            <label>
+              Manana hasta
+              <input name="availabilityEnd" type="time" value="14:00" required />
+            </label>
+          </div>
+          <div class="form-row">
+            <label>
+              Tarde desde
+              <input name="availabilityStart2" type="time" value="15:00" />
+            </label>
+            <label>
+              Tarde hasta
+              <input name="availabilityEnd2" type="time" value="20:00" />
+            </label>
+          </div>
+        </fieldset>
+        <label>
+          Color
+          <input name="color" type="color" value="#168776" />
+        </label>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="practitioner-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar trabajador</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="unavailability-dialog">
+      <form method="dialog" class="modal-form" id="unavailability-form">
+        <div class="modal-header">
+          <h2>Marcar no disponible</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="unavailability-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Trabajador
+          <select name="practitioner" required></select>
+        </label>
+        <div class="form-row">
+          <label>
+            Dia
+            <input name="date" type="date" required />
+          </label>
+          <label>
+            Tipo
+            <select name="type">
+              <option value="unavailable">No disponible</option>
+              <option value="day_off">Dia libre</option>
+              <option value="vacation">Vacaciones</option>
+            </select>
+          </label>
+        </div>
+        <label class="check-row">
+          <input name="allDay" type="checkbox" checked />
+          Todo el dia
+        </label>
+        <div class="form-row unavailability-hours">
+          <label>
+            Desde
+            <input name="start" type="time" value="08:00" />
+          </label>
+          <label>
+            Hasta
+            <input name="end" type="time" value="21:00" />
+          </label>
+        </div>
+        <label>
+          Motivo
+          <input name="reason" type="text" placeholder="Vacaciones, medico, formacion..." />
+        </label>
+        <p class="form-error" id="unavailability-form-error" role="alert"></p>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="unavailability-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar bloqueo</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="room-dialog">
+      <form method="dialog" class="modal-form" id="room-form">
+        <div class="modal-header">
+          <h2>Nueva sala</h2>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="room-dialog" title="Cerrar">x</button>
+        </div>
+        <label>
+          Nombre
+          <input name="name" type="text" required placeholder="Sala 3" />
+        </label>
+        <label>
+          Tipo
+          <input name="type" type="text" required placeholder="Camilla, gimnasio, sesion grupal..." />
+        </label>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="room-dialog">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar sala</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="register-dialog">
+      <form method="dialog" class="modal-form" id="register-form">
+        <div class="modal-head">
+          <div>
+            <p class="eyebrow">Nueva cuenta</p>
+            <h2>Registrar clinica</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="register-dialog" title="Cerrar">x</button>
+        </div>
+        <div class="form-grid two">
+          <label>
+            Nombre de la clinica
+            <input name="name" type="text" placeholder="Clinica Maite Lozano" required />
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" placeholder="direccion@clinica.com" />
+          </label>
+          <label>
+            Telefono
+            <input name="phone" type="tel" placeholder="600 000 000" />
+          </label>
+          <label>
+            Contrasena
+            <input name="password" type="password" value="demo" required />
+          </label>
+        </div>
+        <button class="google-button" type="button" id="register-google">Registrar con Google</button>
+        <p class="form-error" id="register-error"></p>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="register-dialog">Cancelar</button>
+          <button class="primary-button" type="submit">Crear clinica</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js?v=20260505-pwa-v1"></script>
+  </body>
+</html>
+
