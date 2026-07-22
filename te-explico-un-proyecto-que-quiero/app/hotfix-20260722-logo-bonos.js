@@ -1,5 +1,5 @@
 (function () {
-  const HOTFIX_VERSION = "20260722-logo-bonos-persist";
+  const HOTFIX_VERSION = "20260722-bonos-assignment-v2";
   if (window.__kliniaLogoBonosHotfix === HOTFIX_VERSION) {
     return;
   }
@@ -58,18 +58,14 @@
 
   function showInlineError(selector, message) {
     const target = query(selector);
-    if (!target) {
-      return;
-    }
+    if (!target) return;
     target.textContent = message;
     target.classList.add("visible");
   }
 
   function clearInlineError(selector) {
     const target = query(selector);
-    if (!target) {
-      return;
-    }
+    if (!target) return;
     target.textContent = "";
     target.classList.remove("visible");
   }
@@ -93,13 +89,15 @@
     }
     const isSuperadmin = typeof isSuperadminSession === "function" && isSuperadminSession();
     const backendReady = typeof backendDataEnabled === "function" && backendDataEnabled();
-    if (!isSuperadmin && backendReady && typeof saveClinicDataToBackend === "function") {
+    const keySupported = typeof canWriteSyncedClinicDataKey !== "function" || canWriteSyncedClinicDataKey(key);
+    if (!isSuperadmin && backendReady && keySupported && typeof saveClinicDataToBackend === "function") {
       await saveClinicDataToBackend(key, value);
-      return;
+      return true;
     }
     if (typeof saveSyncedClinicState === "function") {
       saveSyncedClinicState(key, value);
     }
+    return false;
   }
 
   function packServiceName(pack) {
@@ -116,19 +114,20 @@
 
   function fillPatientPackSelector() {
     const select = query("#patient-pack-template");
-    if (!select) {
-      return;
-    }
+    if (!select) return;
+
     const currentValue = select.value;
     const packs = getSessionPackList().filter((pack) => pack && String(pack.id || "").trim());
     select.innerHTML = "";
+
+    const assignButton = query("#assign-patient-pack");
     if (!packs.length) {
       select.append(new Option("Crea un bono en Configuracion", ""));
       select.disabled = true;
-      const assignButton = query("#assign-patient-pack");
       if (assignButton) assignButton.disabled = true;
       return;
     }
+
     packs.forEach((pack) => {
       const sessions = Number(pack.sessions || 0);
       const price = Number(pack.price || 0);
@@ -136,33 +135,49 @@
       select.append(new Option(label, pack.id));
     });
     select.disabled = false;
-    const assignButton = query("#assign-patient-pack");
     if (assignButton) assignButton.disabled = false;
-    if (packs.some((pack) => String(pack.id) === String(currentValue))) {
-      select.value = currentValue;
-    } else {
-      select.value = packs[0].id;
+    select.value = packs.some((pack) => String(pack.id) === String(currentValue)) ? currentValue : packs[0].id;
+  }
+
+  function safelyRefreshPackViews() {
+    try {
+      if (typeof renderCommercialSettings === "function") renderCommercialSettings();
+    } catch (error) {
+      console.warn("Klinia hotfix could not refresh commercial settings.", error);
     }
+    try {
+      if (typeof renderPatientDetail === "function") renderPatientDetail();
+    } catch (error) {
+      console.warn("Klinia hotfix could not refresh patient detail.", error);
+    }
+    fillPatientPackSelector();
   }
 
   function installPatientPackSelectorPatch() {
-    if (typeof renderPatientDetail === "function" && !renderPatientDetail.__kliniaLogoBonosHotfix) {
+    if (typeof renderPatientDetail === "function" && !renderPatientDetail.__kliniaBonosAssignmentV2) {
       const originalRenderPatientDetail = renderPatientDetail;
       renderPatientDetail = function patchedRenderPatientDetail(...args) {
         const result = originalRenderPatientDetail.apply(this, args);
         fillPatientPackSelector();
         return result;
       };
-      renderPatientDetail.__kliniaLogoBonosHotfix = true;
+      renderPatientDetail.__kliniaBonosAssignmentV2 = true;
+    }
+    if (typeof renderCommercialSettings === "function" && !renderCommercialSettings.__kliniaBonosAssignmentV2) {
+      const originalRenderCommercialSettings = renderCommercialSettings;
+      renderCommercialSettings = function patchedRenderCommercialSettings(...args) {
+        const result = originalRenderCommercialSettings.apply(this, args);
+        fillPatientPackSelector();
+        return result;
+      };
+      renderCommercialSettings.__kliniaBonosAssignmentV2 = true;
     }
     fillPatientPackSelector();
   }
 
   async function handleSessionPackSubmit(event) {
     const form = event.target?.closest?.("#session-pack-form");
-    if (!form) {
-      return;
-    }
+    if (!form) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     clearInlineError("#session-pack-error");
@@ -178,6 +193,7 @@
     const previous = getSessionPackList();
     const editingPackId = form.dataset.editingPackId || "";
     const now = new Date().toISOString();
+    const existing = previous.find((item) => String(item.id) === String(editingPackId));
     const nextPack = {
       id: editingPackId || nextId("pack"),
       name,
@@ -186,7 +202,7 @@
       expiryMonths: Math.max(0, Number(form.elements.expiryMonths?.value || 0)),
       serviceId: form.elements.serviceId?.value || "",
       invoice: Boolean(form.elements.invoice?.checked),
-      createdAt: editingPackId ? previous.find((item) => String(item.id) === String(editingPackId))?.createdAt : now,
+      createdAt: existing?.createdAt || now,
       updatedAt: now
     };
     const next = editingPackId
@@ -196,68 +212,63 @@
     const submitButton = form.querySelector('[type="submit"]');
     if (submitButton) submitButton.disabled = true;
     setSessionPackList(next);
+
     try {
       await persistClinicCollection("session-packs", next);
-      query("#session-pack-dialog")?.close();
-      if (typeof renderCommercialSettings === "function") renderCommercialSettings();
-      if (typeof renderPatientDetail === "function") renderPatientDetail();
-      fillPatientPackSelector();
-      safeToast("Bono guardado y disponible en Pacientes.", "success");
     } catch (error) {
       setSessionPackList(previous);
       if (typeof saveClinicState === "function") saveClinicState("session-packs", previous);
-      if (typeof renderCommercialSettings === "function") renderCommercialSettings();
       fillPatientPackSelector();
       const message = error?.message || "No se pudo guardar el bono en la nube.";
       showInlineError("#session-pack-error", message);
       safeToast(message, "error");
       console.warn("Klinia session pack persistence failed", error);
-    } finally {
       if (submitButton) submitButton.disabled = false;
+      return;
     }
+
+    query("#session-pack-dialog")?.close();
+    safelyRefreshPackViews();
+    safeToast("Bono guardado y disponible en Pacientes.", "success");
+    if (submitButton) submitButton.disabled = false;
   }
 
   async function handleSessionPackDelete(event) {
     const form = event.target?.closest?.("#session-pack-delete-form");
-    if (!form) {
-      return;
-    }
+    if (!form) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+
     const deletePackId = form.dataset.deletePackId;
-    if (!deletePackId) {
-      return;
-    }
+    if (!deletePackId) return;
     const previous = getSessionPackList();
     const next = previous.filter((item) => String(item.id) !== String(deletePackId));
     const submitButton = form.querySelector('[type="submit"]');
     if (submitButton) submitButton.disabled = true;
     setSessionPackList(next);
+
     try {
       await persistClinicCollection("session-packs", next);
-      query("#session-pack-delete-dialog")?.close();
-      if (typeof renderCommercialSettings === "function") renderCommercialSettings();
-      if (typeof renderPatientDetail === "function") renderPatientDetail();
-      fillPatientPackSelector();
-      safeToast("Bono eliminado de la configuracion.", "success");
     } catch (error) {
       setSessionPackList(previous);
       if (typeof saveClinicState === "function") saveClinicState("session-packs", previous);
-      if (typeof renderCommercialSettings === "function") renderCommercialSettings();
       fillPatientPackSelector();
       const message = error?.message || "No se pudo eliminar el bono en la nube.";
       safeToast(message, "error");
       console.warn("Klinia session pack deletion failed", error);
-    } finally {
       if (submitButton) submitButton.disabled = false;
+      return;
     }
+
+    query("#session-pack-delete-dialog")?.close();
+    safelyRefreshPackViews();
+    safeToast("Bono eliminado de la configuracion.", "success");
+    if (submitButton) submitButton.disabled = false;
   }
 
   async function handlePatientPackAssign(event) {
     const button = event.target?.closest?.("#assign-patient-pack");
-    if (!button) {
-      return;
-    }
+    if (!button) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     fillPatientPackSelector();
@@ -290,36 +301,37 @@
     const next = [...previous, nextPack];
     button.disabled = true;
     setPatientPackList(next);
+
     try {
       await persistClinicCollection("patient-packs", next);
-      if (typeof renderPatientDetail === "function") renderPatientDetail();
-      safeToast("Bono asignado al paciente.", "success");
     } catch (error) {
       setPatientPackList(previous);
       if (typeof saveClinicState === "function") saveClinicState("patient-packs", previous);
-      if (typeof renderPatientDetail === "function") renderPatientDetail();
+      safelyRefreshPackViews();
       const message = error?.message || "No se pudo asignar el bono al paciente.";
       safeToast(message, "error");
       console.warn("Klinia patient pack assignment failed", error);
-    } finally {
-      button.disabled = false;
+      if (button.isConnected) button.disabled = false;
+      return;
     }
+
+    safelyRefreshPackViews();
+    safeToast("Bono asignado al paciente.", "success");
+    if (button.isConnected) button.disabled = false;
   }
 
   async function handleClinicLogoChange(event) {
     const input = event.target?.closest?.("#clinic-logo-input");
-    if (!input) {
-      return;
-    }
+    if (!input) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+
     const file = input.files?.[0];
     const status = query("#clinic-logo-status");
-    if (!file) {
-      return;
-    }
+    if (!file) return;
     if (status) status.textContent = "Validando logo...";
     const previous = clinicLogoValue();
+
     try {
       if (typeof readClinicLogoFile !== "function") {
         throw new Error("No se pudo leer el logo seleccionado.");
@@ -345,11 +357,10 @@
 
   async function handleClinicLogoRemove(event) {
     const button = event.target?.closest?.("#remove-clinic-logo");
-    if (!button) {
-      return;
-    }
+    if (!button) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+
     const previous = clinicLogoValue();
     const status = query("#clinic-logo-status");
     button.disabled = true;
@@ -383,7 +394,17 @@
     queryAll('[data-patient-tab="packs"], [data-section="pacientes"], #new-session-pack').forEach((node) => {
       node.addEventListener("click", () => window.setTimeout(fillPatientPackSelector, 0));
     });
+    if (document.body && !window.__kliniaBonosAssignmentObserver) {
+      window.__kliniaBonosAssignmentObserver = new MutationObserver(() => {
+        if (query("#patient-pack-template")) {
+          fillPatientPackSelector();
+        }
+      });
+      window.__kliniaBonosAssignmentObserver.observe(document.body, { childList: true, subtree: true });
+    }
     window.setTimeout(fillPatientPackSelector, 0);
+    window.setTimeout(fillPatientPackSelector, 500);
+    window.setTimeout(fillPatientPackSelector, 1500);
     console.info(`Klinia hotfix active: ${HOTFIX_VERSION}`);
   }
 
