@@ -1,6 +1,6 @@
-const KLINIA_CACHE = "klinia-20260722-logo-bonos-persist";
-const KLINIA_HOTFIX_VERSION = "20260722-logo-bonos-persist";
-const KLINIA_HOTFIX_SCRIPT = "./hotfix-20260722-logo-bonos.js?v=20260722-logo-bonos-persist";
+const KLINIA_CACHE = "klinia-20260722-bonos-assignment-v2";
+const KLINIA_HOTFIX_VERSION = "20260722-bonos-assignment-v2";
+const KLINIA_HOTFIX_SCRIPT = "./hotfix-20260722-logo-bonos.js?v=20260722-bonos-assignment-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -46,6 +46,21 @@ async function appendKliniaHotfix(response) {
   }
 }
 
+async function injectKliniaHotfixIntoHtml(response) {
+  if (!response || !response.ok) {
+    return response;
+  }
+  const html = await response.text();
+  if (html.includes("hotfix-20260722-logo-bonos.js")) {
+    return new Response(html, responseInitFrom(response, "text/html; charset=utf-8"));
+  }
+  const script = `<script src="${KLINIA_HOTFIX_SCRIPT}" defer></script>`;
+  const nextHtml = html.includes("</body>")
+    ? html.replace("</body>", `${script}\n</body>`)
+    : `${html}\n${script}`;
+  return new Response(nextHtml, responseInitFrom(response, "text/html; charset=utf-8"));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(KLINIA_CACHE).then((cache) => cache.addAll(APP_SHELL)));
   self.skipWaiting();
@@ -68,6 +83,7 @@ self.addEventListener("fetch", (event) => {
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request, { cache: "no-store" })
+        .then((response) => injectKliniaHotfixIntoHtml(response))
         .then((response) => {
           const copy = response.clone();
           caches.open(KLINIA_CACHE).then((cache) => cache.put("./index.html", copy)).catch(() => null);
