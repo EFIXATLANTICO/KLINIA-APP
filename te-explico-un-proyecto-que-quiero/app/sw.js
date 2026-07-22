@@ -1,65 +1,15 @@
-const KLINIA_CACHE = "klinia-20260722-bonos-assignment-v2";
-const KLINIA_HOTFIX_VERSION = "20260722-bonos-assignment-v2";
-const KLINIA_HOTFIX_SCRIPT = "./hotfix-20260722-logo-bonos.js?v=20260722-bonos-assignment-v2";
+const KLINIA_CACHE = "klinia-20260722-safe-sw-restore";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260722-agenda-bonos-logo-google",
-  "./app.js?v=20260722-agenda-bonos-logo-google",
-  KLINIA_HOTFIX_SCRIPT,
+  "./styles.css?v=20260722-safe-sw-restore",
+  "./app.js?v=20260722-safe-sw-restore",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
   "./assets/klinia-icon-192.png",
   "./assets/klinia-icon-512.png"
 ];
-
-function responseInitFrom(response, contentType) {
-  const headers = new Headers(response.headers);
-  headers.set("Content-Type", contentType);
-  headers.set("Cache-Control", "no-store");
-  return {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  };
-}
-
-async function appendKliniaHotfix(response) {
-  if (!response || !response.ok) {
-    return response;
-  }
-  const appSource = await response.text();
-  try {
-    const hotfixResponse = await fetch(KLINIA_HOTFIX_SCRIPT, { cache: "no-store" });
-    if (!hotfixResponse.ok) {
-      return new Response(appSource, responseInitFrom(response, "application/javascript; charset=utf-8"));
-    }
-    const hotfixSource = await hotfixResponse.text();
-    return new Response(
-      `${appSource}\n\n;/* Klinia hotfix ${KLINIA_HOTFIX_VERSION} */\n${hotfixSource}\n`,
-      responseInitFrom(response, "application/javascript; charset=utf-8")
-    );
-  } catch (error) {
-    console.warn("Klinia service worker could not append hotfix.", error);
-    return new Response(appSource, responseInitFrom(response, "application/javascript; charset=utf-8"));
-  }
-}
-
-async function injectKliniaHotfixIntoHtml(response) {
-  if (!response || !response.ok) {
-    return response;
-  }
-  const html = await response.text();
-  if (html.includes("hotfix-20260722-logo-bonos.js")) {
-    return new Response(html, responseInitFrom(response, "text/html; charset=utf-8"));
-  }
-  const script = `<script src="${KLINIA_HOTFIX_SCRIPT}" defer></script>`;
-  const nextHtml = html.includes("</body>")
-    ? html.replace("</body>", `${script}\n</body>`)
-    : `${html}\n${script}`;
-  return new Response(nextHtml, responseInitFrom(response, "text/html; charset=utf-8"));
-}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(KLINIA_CACHE).then((cache) => cache.addAll(APP_SHELL)));
@@ -83,27 +33,12 @@ self.addEventListener("fetch", (event) => {
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request, { cache: "no-store" })
-        .then((response) => injectKliniaHotfixIntoHtml(response))
         .then((response) => {
           const copy = response.clone();
           caches.open(KLINIA_CACHE).then((cache) => cache.put("./index.html", copy)).catch(() => null);
           return response;
         })
         .catch(() => caches.match("./index.html").then((cached) => cached || caches.match("./offline.html")))
-    );
-    return;
-  }
-
-  if (event.request.destination === "script" && requestUrl.pathname.endsWith("/app.js")) {
-    event.respondWith(
-      fetch(event.request, { cache: "no-store" })
-        .then((response) => appendKliniaHotfix(response))
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(KLINIA_CACHE).then((cache) => cache.put(event.request, copy)).catch(() => null);
-          return response;
-        })
-        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./offline.html")))
     );
     return;
   }
