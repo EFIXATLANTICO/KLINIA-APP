@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260714-auditoria-estabilidad";
+const KLINIA_CACHE = "klinia-20260722-agenda-bonos-logo-google";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260714-auditoria-estabilidad",
-  "./app.js?v=20260714-auditoria-estabilidad",
+  "./styles.css?v=20260722-agenda-bonos-logo-google",
+  "./app.js?v=20260722-agenda-bonos-logo-google",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

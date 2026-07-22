@@ -16,7 +16,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260714-auditoria-estabilidad" />
+    <link rel="stylesheet" href="./styles.css?v=20260722-agenda-bonos-logo-google" />
   </head>
   <body class="login-mode">
     <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
@@ -1515,10 +1515,13 @@
                 </div>
               </div>
               <div class="form-row">
-                <label>
+                <label class="clinic-logo-uploader">
                   Logo de la clínica
-                  <input id="clinic-logo-input" type="file" accept="image/*" />
+                  <input id="clinic-logo-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
                 </label>
+                <div class="clinic-logo-preview empty" id="clinic-logo-preview"><span>Se usará el logo corporativo de Klinia en facturas y documentos.</span></div>
+                <button class="secondary-button" type="button" id="remove-clinic-logo" disabled>Eliminar logo</button>
+                <p class="save-status clinic-logo-status" id="clinic-logo-status"></p>
                 <button class="secondary-button" type="button" id="new-consent-template">Crear consentimiento</button>
                 <button class="secondary-button" type="button" id="new-session-pack">Crear bono</button>
               </div>
@@ -2907,7 +2910,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260714-auditoria-estabilidad"></script>
+    <script src="./app.js?v=20260722-agenda-bonos-logo-google"></script>
   </body>
 </html>
 

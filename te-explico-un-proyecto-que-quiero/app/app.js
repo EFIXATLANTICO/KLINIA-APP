@@ -853,6 +853,8 @@ let googleInitializedClientId = "";
 let googleRecoveryState = { idToken: "", email: "", choices: [], selectedClinicId: "" };
 let pendingAccessToken = "";
 const googleScriptSrc = "https://accounts.google.com/gsi/client?hl=es";
+const clinicLogoMaxBytes = 2 * 1024 * 1024;
+const clinicLogoAllowedTypes = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"]);
 const googleAuthDebug = (() => {
   try {
     return new URLSearchParams(window.location.search).has("googleDebug") || localStorage.getItem("klinia:google-debug") === "1";
@@ -3465,15 +3467,14 @@ async function updateHelpPlatformStatus() {
 
 async function loadGoogleAuthConfig() {
   try {
-    googleConfig = await backendRequest("/auth/google/config", { auth: false, timeoutMs: 10000 });
-    googleAuthLog("config recibida", { enabled: Boolean(googleConfig.enabled), clientId: googleConfig.client_id ? "presente" : "vacío" });
+    googleConfig = await backendRequestWithNetworkRetry("/auth/google/config", { auth: false, timeoutMs: 10000 }, 2);
+    googleAuthLog("config recibida", { enabled: Boolean(googleConfig.enabled), clientId: googleConfig.client_id ? "presente" : "vacio" });
   } catch (error) {
     googleConfig = { enabled: false, client_id: "" };
     googleAuthLog("config no disponible", error);
   }
   return googleConfig;
 }
-
 function waitForGoogleIdentity(timeoutMs = 9000) {
   if (window.google?.accounts?.id) {
     googleAuthLog("window.google disponible");
@@ -3564,7 +3565,7 @@ async function initializeGoogleAuthAttempt(retried = false) {
   await loadGoogleAuthConfig();
   if (!googleConfig.enabled || !googleConfig.client_id) {
     clearGoogleAuthSlots();
-    setGoogleAuthStatus("Google no esta activado para esta clinica. Puedes entrar con email y contrasena.");
+    setGoogleAuthStatus("Google no está disponible ahora. Puedes entrar con email y contraseña.");
     return;
   }
   try {
@@ -3624,7 +3625,7 @@ async function initializeGoogleAuthAttempt(retried = false) {
     }
     console.warn("[Klinia Google] No se pudo activar Google Identity Services", error);
     clearGoogleAuthSlots();
-    setGoogleAuthStatus("Google no se ha podido cargar. Revisa el dominio autorizado o usa email y contrasena.");
+    setGoogleAuthStatus("No hemos podido cargar Google. Puedes entrar con email y contraseña.");
   }
 }
 
@@ -5171,7 +5172,7 @@ function appointmentIsCharged(appointment) {
   if (normalizeAppointmentStatus(appointment?.status) !== "confirmed") {
     return false;
   }
-  if (appointment?.patientPackId) {
+  if (appointment?.patientPackId || appointment?.plannedPatientPackId) {
     return true;
   }
   return ["cash", "card", "transfer"].includes(appointmentPaymentStatus(appointment));
@@ -5302,7 +5303,7 @@ function patientPackActualUsedCount(pack) {
     return 0;
   }
   return appointments.filter((appointment) => (
-    appointment.patientPackId === pack.id
+    String(appointment.patientPackId || "") === String(pack.id)
       && normalizeAppointmentStatus(appointment.status) === "confirmed"
   )).length;
 }
@@ -5383,10 +5384,10 @@ function validatePatientPackConsumption(pack, context = {}) {
   if (!pack) {
     return "El bono seleccionado no existe o ya no esta asignado al paciente.";
   }
-  if (context.patientId && pack.patientId !== context.patientId) {
+  if (context.patientId && String(pack.patientId) !== String(context.patientId)) {
     return "El bono seleccionado pertenece a otro paciente.";
   }
-  if (context.serviceId && pack.serviceId && pack.serviceId !== context.serviceId) {
+  if (context.serviceId && pack.serviceId && String(pack.serviceId) !== String(context.serviceId)) {
     return `Este bono solo es aplicable a ${packServiceLabel(pack)}.`;
   }
   const counters = patientPackCounters(pack);
@@ -5431,7 +5432,7 @@ function consumePatientPackTransaction(packId, context = {}) {
       lastConsumptionSource: context.source || "manual",
       lastAppointmentId: context.appointmentId || pack.lastAppointmentId || ""
     };
-    patientPacks = patientPacks.map((item) => item.id === packId ? updatedPack : item);
+    patientPacks = patientPacks.map((item) => String(item.id) === String(packId) ? updatedPack : item);
     saveSyncedClinicState("patient-packs", patientPacks);
     return {
       ok: true,
@@ -5446,10 +5447,10 @@ function consumePatientPackTransaction(packId, context = {}) {
 
 function patientPacksForAppointment(appointment) {
   return patientPacks.filter((pack) => (
-    pack.patientId === appointment.patientId
+    String(pack.patientId) === String(appointment.patientId)
       && patientPackRemaining(pack) > 0
       && !isPatientPackExpired(pack)
-      && (!pack.serviceId || pack.serviceId === appointment.serviceId)
+      && (!pack.serviceId || String(pack.serviceId) === String(appointment.serviceId))
   ));
 }
 
@@ -5470,7 +5471,7 @@ function restorePatientPackUse(packId) {
     return;
   }
   refreshPatientPacksForTransaction();
-  patientPacks = patientPacks.map((item) => item.id === packId
+  patientPacks = patientPacks.map((item) => String(item.id) === String(packId)
     ? { ...item, used: Math.max(0, Number(item.used || 0) - 1), updatedAt: new Date().toISOString() }
     : item
   );
@@ -6244,27 +6245,43 @@ function renderWorkerColorLegend() {
   if (!legend) {
     return;
   }
-  const visiblePractitioners = selectedAgendaPractitioners();
+  const source = activePractitioners();
+  const visibleIds = selectedAgendaPractitioners().map((item) => String(item.id));
   const loading = backendInitialLoadPending && backendDataEnabled();
-  legend.innerHTML = visiblePractitioners.length
-    ? visiblePractitioners.map((practitioner) => `
-      <button class="worker-color-key" type="button" data-worker-jump="${practitioner.id}" title="${practitioner.name}" aria-label="Ver agenda de ${practitioner.name}" style="--worker-color:${practitioner.color || "#168776"}"></button>
-    `).join("")
+  legend.innerHTML = source.length
+    ? source.map((practitioner) => {
+      const selected = visibleIds.includes(String(practitioner.id));
+      return `
+        <button class="worker-color-key ${selected ? "selected" : "muted"}" type="button" data-worker-jump="${practitioner.id}" title="${selected ? "Ocultar" : "Mostrar"} ${escapeHtml(practitioner.name)}" aria-label="${selected ? "Ocultar" : "Mostrar"} agenda de ${escapeHtml(practitioner.name)}" aria-pressed="${selected ? "true" : "false"}" style="--worker-color:${practitioner.color || "#168776"}"></button>
+      `;
+    }).join("")
     : (loading ? `<span class="worker-color-loading">Cargando profesionales...</span>` : "");
 
   $$("[data-worker-jump]").forEach((button) => {
     button.addEventListener("click", () => {
-      selectedPractitionerIds = [button.dataset.workerJump];
+      const workerId = button.dataset.workerJump || "";
+      const allIds = activePractitioners().map((item) => item.id);
+      const current = selectedPractitionerIds.includes("all")
+        ? allIds.slice()
+        : selectedPractitionerIds
+          .map((id) => allIds.find((itemId) => String(itemId) === String(id)))
+          .filter((id) => id !== undefined && id !== null);
+      const isSelected = current.some((id) => String(id) === String(workerId));
+      let next = isSelected
+        ? current.filter((id) => String(id) !== String(workerId))
+        : [...current, allIds.find((id) => String(id) === String(workerId)) || workerId];
+      next = [...new Set(next)];
+      selectedPractitionerIds = !next.length || next.length === allIds.length ? ["all"] : next;
       saveState("selected-practitioner-ids", selectedPractitionerIds);
       setActiveSection("agenda");
       renderFilters();
+      renderMetrics();
       renderSession();
       renderSchedule();
       renderNextList();
     });
   });
 }
-
 function renderAppointmentFormOptions() {
   const form = $("#appointment-form");
   const safeServices = services.filter((service) => service.active);
@@ -6428,10 +6445,10 @@ function updateAppointmentPackOptions(form = $("#appointment-form")) {
   const patientId = form.elements.patient?.value || "";
   const serviceId = form.elements.service?.value || "";
   const packs = patientPacks.filter((pack) => (
-    pack.patientId === patientId
+    String(pack.patientId) === String(patientId)
       && patientPackRemaining(pack) > 0
       && !isPatientPackExpired(pack)
-      && (!pack.serviceId || pack.serviceId === serviceId)
+      && (!pack.serviceId || String(pack.serviceId) === String(serviceId))
   ));
   select.innerHTML = "";
   select.append(new Option("No usar bono", ""));
@@ -7618,6 +7635,51 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      resolve("");
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("No se pudo leer el archivo.")));
+    reader.readAsText(file);
+  });
+}
+
+function svgLooksSafe(svgText = "") {
+  const value = String(svgText || "").toLowerCase();
+  return !value.includes("<script")
+    && !value.includes("javascript:")
+    && !value.includes("<foreignobject")
+    && !/\son[a-z]+\s*=/.test(value);
+}
+
+function svgTextToDataUrl(svgText = "") {
+  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+}
+
+async function readClinicLogoFile(file) {
+  if (!file) return "";
+  const type = String(file.type || "").toLowerCase();
+  const extension = String(file.name || "").split(".").pop()?.toLowerCase() || "";
+  const normalizedType = extension === "jpg" ? "image/jpeg" : (type || (extension === "svg" ? "image/svg+xml" : ""));
+  if (!clinicLogoAllowedTypes.has(normalizedType)) {
+    throw new Error("Formato no válido. Usa PNG, JPG, WEBP o SVG seguro.");
+  }
+  if (file.size > clinicLogoMaxBytes) {
+    throw new Error("El logo supera 2 MB. Sube una imagen más ligera.");
+  }
+  if (normalizedType === "image/svg+xml") {
+    const svgText = await readFileAsText(file);
+    if (!svgLooksSafe(svgText)) {
+      throw new Error("El SVG contiene código no permitido. Sube un SVG limpio o un PNG.");
+    }
+    return svgTextToDataUrl(svgText);
+  }
+  return readFileAsDataUrl(file);
+}
 function dataUrlToBlobUrl(dataUrl) {
   const [meta, payload] = String(dataUrl || "").split(",");
   if (!meta || !payload) return "";
@@ -7856,7 +7918,7 @@ function renderPatientDetail() {
     ))
     .sort((a, b) => `${b.invoiceGeneratedAt || b.date || ""}`.localeCompare(`${a.invoiceGeneratedAt || a.date || ""}`));
   const invoicePacks = patientPacks
-    .filter((pack) => pack.patientId === patient.id && pack.invoice)
+    .filter((pack) => String(pack.patientId) === String(patient.id) && pack.invoice)
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const invoicesList = $("#patient-invoices");
   if (invoicesList) {
@@ -10592,7 +10654,22 @@ function handleBillingReturnFromStripe() {
 }
 
 
+function updateClinicLogoPreview() {
+  const preview = $("#clinic-logo-preview");
+  const removeButton = $("#remove-clinic-logo");
+  if (preview) {
+    preview.innerHTML = clinicLogo
+      ? `<img src="${clinicLogo}" alt="Logo de la clínica" />`
+      : `<span>Se usará el logo corporativo de Klinia en facturas y documentos.</span>`;
+    preview.classList.toggle("empty", !clinicLogo);
+  }
+  if (removeButton) {
+    removeButton.disabled = !clinicLogo;
+  }
+}
+
 function renderCommercialSettings() {
+  updateClinicLogoPreview();
   const consentList = $("#settings-consents");
   const packList = $("#settings-packs");
   if (consentList) {
@@ -10733,7 +10810,7 @@ function confirmSessionPackDeletion(id) {
   const pack = byId(sessionPacks, id);
   if (!pack) return;
   sessionPacks = sessionPacks.filter((item) => item.id !== id);
-  saveClinicState("session-packs", sessionPacks);
+  saveSyncedClinicState("session-packs", sessionPacks);
   $("#session-pack-delete-dialog")?.close();
   renderCommercialSettings();
   renderPatientDetail();
@@ -10795,7 +10872,7 @@ function setupCommercialSettings() {
     sessionPacks = editingPackId
       ? sessionPacks.map((item) => item.id === editingPackId ? next : item)
       : [...sessionPacks, next];
-    saveClinicState("session-packs", sessionPacks);
+    saveSyncedClinicState("session-packs", sessionPacks);
     $("#session-pack-dialog").close();
     renderCommercialSettings();
     renderPatientDetail();
@@ -10804,19 +10881,30 @@ function setupCommercialSettings() {
     event.preventDefault();
     confirmSessionPackDeletion(event.currentTarget.dataset.deletePackId);
   });
-  $("#clinic-logo-input")?.addEventListener("change", (event) => {
+  $("#clinic-logo-input")?.addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
+    const status = $("#clinic-logo-status");
     if (!file) return;
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      clinicLogo = reader.result;
+    if (status) status.textContent = "Validando logo...";
+    try {
+      clinicLogo = await readClinicLogoFile(file);
       saveSyncedClinicState("clinic-logo", clinicLogo);
-      renderCommercialSettings();
-    });
-    reader.readAsDataURL(file);
+      updateClinicLogoPreview();
+      if (status) status.textContent = "Logo guardado para esta clínica.";
+    } catch (error) {
+      event.target.value = "";
+      if (status) status.textContent = error.message || "No se pudo guardar el logo.";
+      showToast(error.message || "No se pudo guardar el logo.", "warning");
+    }
+  });
+  $("#remove-clinic-logo")?.addEventListener("click", () => {
+    clinicLogo = "";
+    saveSyncedClinicState("clinic-logo", clinicLogo);
+    updateClinicLogoPreview();
+    const status = $("#clinic-logo-status");
+    if (status) status.textContent = "Logo eliminado. Se usará el logo de Klinia por defecto.";
   });
 }
-
 
 
 function kliniaLocalStorageSnapshot() {
@@ -13634,7 +13722,7 @@ function openAppointmentDetail(appointmentId) {
     packSelect.innerHTML = "";
     packSelect.append(new Option("No usar bono", ""));
     availablePacks.forEach((pack) => packSelect.append(new Option(`${pack.name} - ${patientPackRemaining(pack)} disponibles - ${patientPackExpiryLabel(pack)}`, pack.id)));
-    if (selectedPackId && !availablePacks.some((pack) => pack.id === selectedPackId)) {
+    if (selectedPackId && !availablePacks.some((pack) => String(pack.id) === String(selectedPackId))) {
       const usedPack = byId(patientPacks, selectedPackId);
       if (usedPack) packSelect.append(new Option(`${usedPack.name} - ${appointment.patientPackId ? "aplicado" : "previsto"}`, usedPack.id));
     }
@@ -13907,7 +13995,7 @@ function setupAppointmentDetail() {
       nextPatientPackUsedAt = "";
       restoredExistingPack = true;
     }
-    if (!finalStatusIsCancelled && selectedPackId && existingAppointment?.patientPackId !== selectedPackId) {
+    if (!finalStatusIsCancelled && selectedPackId && String(existingAppointment?.patientPackId || "") !== String(selectedPackId || "")) {
       const consumeResult = usePatientPackForAppointment(scheduleCandidate, selectedPackId);
       if (!consumeResult.ok) {
         if (restoredExistingPack && existingAppointment?.patientPackId) {
@@ -13929,7 +14017,7 @@ function setupAppointmentDetail() {
       consumedPatientPackAt = consumeResult.consumedAt || new Date().toISOString();
       nextPatientPackUsedAt = consumedPatientPackAt;
     }
-    if (!finalStatusIsCancelled && selectedPackId && existingAppointment?.patientPackId === selectedPackId) {
+    if (!finalStatusIsCancelled && selectedPackId && String(existingAppointment?.patientPackId || "") === String(selectedPackId || "")) {
       nextPatientPackId = selectedPackId;
       nextPlannedPatientPackId = "";
       nextPatientPackUsedAt = existingAppointment.patientPackUsedAt || new Date().toISOString();
@@ -16051,7 +16139,7 @@ function setupPatientConsentsAndPacks() {
       if (!confirmed) return;
     }
     const usageChanged = Number(pack.used || 0) !== used || used !== actualUsed;
-    patientPacks = patientPacks.map((item) => item.id === pack.id
+    patientPacks = patientPacks.map((item) => String(item.id) === String(pack.id)
       ? {
           ...item,
           name,
@@ -16212,7 +16300,7 @@ function generateInvoiceForPatientPack(packId) {
 <p class="total">Total: ${pack.price} EUR</p>
 </body></html>`;
   downloadTextFile(`factura-${invoiceNumber}.html`, html, "text/html");
-  patientPacks = patientPacks.map((item) => item.id === pack.id
+  patientPacks = patientPacks.map((item) => String(item.id) === String(pack.id)
     ? { ...item, invoice: true, invoiceGenerated: true, invoiceGeneratedAt: new Date().toISOString(), invoiceNumber, paymentMethod: selectedPaymentMethod }
     : item
   );
@@ -16460,16 +16548,20 @@ function setupFilters() {
       return;
     }
     const value = event.target.value;
+    const source = activePractitioners();
     if (value === "all") {
-      selectedPractitionerIds = event.target.checked ? ["all"] : practitioners.map((item) => item.id);
+      selectedPractitionerIds = event.target.checked ? ["all"] : source.map((item) => item.id);
     } else {
       const current = selectedPractitionerIds.includes("all")
-        ? practitioners.map((item) => item.id)
-        : selectedPractitionerIds.slice();
+        ? source.map((item) => item.id)
+        : selectedPractitionerIds
+          .map((id) => source.find((item) => String(item.id) === String(id))?.id)
+          .filter((id) => id !== undefined && id !== null);
+      const selectedId = source.find((item) => String(item.id) === String(value))?.id || value;
       selectedPractitionerIds = event.target.checked
-        ? [...new Set([...current, value])]
-        : current.filter((id) => id !== value);
-      if (!selectedPractitionerIds.length || selectedPractitionerIds.length === practitioners.length) {
+        ? [...new Set([...current, selectedId])]
+        : current.filter((id) => String(id) !== String(value));
+      if (!selectedPractitionerIds.length || selectedPractitionerIds.length === source.length) {
         selectedPractitionerIds = ["all"];
       }
     }
