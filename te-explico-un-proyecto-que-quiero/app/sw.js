@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260722-safe-sw-restore";
+const KLINIA_CACHE = "klinia-20260723-bonos-native";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260722-safe-sw-restore",
-  "./app.js?v=20260722-safe-sw-restore",
+  "./styles.css?v=20260723-bonos-native",
+  "./app.js?v=20260723-bonos-native",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",

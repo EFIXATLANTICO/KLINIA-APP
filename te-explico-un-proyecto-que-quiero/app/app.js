@@ -5298,6 +5298,42 @@ function sessionPackExpiryDate(pack) {
   return months > 0 ? addMonthsIso(todayIso(), months) : "";
 }
 
+function availableSessionPacksForAssignment() {
+  return (Array.isArray(sessionPacks) ? sessionPacks : []).filter((pack) => pack && String(pack.id || "").trim());
+}
+
+function sessionPackAssignmentLabel(pack) {
+  const sessions = Math.max(1, Number(pack?.sessions || 1));
+  const price = Math.max(0, Number(pack?.price || 0));
+  return `${pack?.name || "Bono"} - ${sessions} sesiones - ${price} EUR - ${packServiceLabel(pack)}`;
+}
+
+function refreshPatientPackTemplateSelector() {
+  const select = $("#patient-pack-template");
+  const button = $("#assign-patient-pack");
+  if (!select) return;
+
+  const previousValue = select.value;
+  const packs = availableSessionPacksForAssignment();
+  select.innerHTML = "";
+
+  if (!packs.length) {
+    select.append(new Option("Sin bonos configurados", ""));
+    select.disabled = true;
+    if (button) button.disabled = true;
+    return;
+  }
+
+  packs.forEach((pack) => {
+    select.append(new Option(sessionPackAssignmentLabel(pack), pack.id));
+  });
+  const stillExists = packs.some((pack) => String(pack.id) === String(previousValue));
+  select.value = stillExists ? previousValue : String(packs[0].id || "");
+  select.disabled = false;
+  if (button) button.disabled = false;
+}
+
+
 function patientPackActualUsedCount(pack) {
   if (!pack?.id) {
     return 0;
@@ -7773,6 +7809,7 @@ function renderPatientDetail() {
   detail.classList.remove("hidden");
   document.body.classList.add("patient-profile-open");
   populateClinicalTemplateSelectors();
+  refreshPatientPackTemplateSelector();
   $("#patient-detail-name").textContent = patient.name;
   $("#patient-detail-data").innerHTML = `
     <dt>Nombre</dt>
@@ -16088,10 +16125,18 @@ function setupPatientConsentsAndPacks() {
   });
 
   $("#assign-patient-pack")?.addEventListener("click", () => {
+    refreshPatientPackTemplateSelector();
     const patient = byId(patients, selectedPatientId);
-    const pack = byId(sessionPacks, $("#patient-pack-template")?.value);
-    if (!patient || !pack) {
-      $("#patient-packs").innerHTML = `<article class="compact-item"><span>Crea primero un bono en Configuración.</span></article>`;
+    const selectedPackId = $("#patient-pack-template")?.value || "";
+    const pack = byId(availableSessionPacksForAssignment(), selectedPackId);
+    if (!patient) {
+      return;
+    }
+    if (!pack) {
+      const list = $("#patient-packs");
+      if (list) {
+        list.innerHTML = `<article class="compact-item"><span>Crea primero un bono en Configuración.</span></article>`;
+      }
       return;
     }
     patientPacks = [...patientPacks, {
