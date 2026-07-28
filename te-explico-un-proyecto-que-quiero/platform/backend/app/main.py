@@ -33,6 +33,7 @@ from .models import (
     DemoAccessSession,
     ManualBillingMovement,
     Patient,
+    PatientPackConsumption,
     Practitioner,
     ReminderStatus,
     Room,
@@ -948,6 +949,388 @@ def apply_appointment_payment(
     )
     appointment.metadata_json = json.dumps(metadata, ensure_ascii=True)
     sync_appointment_payment_movement(db, user, appointment, service)
+
+
+PATIENT_PACK_DATA_KEY = "patient-packs"
+
+
+def appointment_status_value(value: AppointmentStatus | str | None) -> str:
+    if isinstance(value, AppointmentStatus):
+        return value.value
+    return str(value or "").strip().lower()
+
+
+def appointment_is_completed(value: AppointmentStatus | str | None) -> bool:
+    return appointment_status_value(value) == AppointmentStatus.completed.value
+
+
+def patient_pack_blob_for_update(db: Session, clinic_id: str) -> tuple[ClinicDataBlob | None, list[dict]]:
+    blob = db.scalar(
+        select(ClinicDataBlob)
+        .where(ClinicDataBlob.clinic_id == clinic_id, ClinicDataBlob.key == PATIENT_PACK_DATA_KEY)
+        .with_for_update()
+    )
+    if not blob:
+        return None, []
+    try:
+        packs = json.loads(blob.data_json or "[]")
+    except (TypeError, json.JSONDecodeError):
+        packs = []
+    return blob, packs if isinstance(packs, list) else []
+
+
+def patient_pack_by_id(packs: list[dict], pack_id: str) -> dict | None:
+    return next((pack for pack in packs if str(pack.get("id") or "") == str(pack_id)), None)
+
+
+def patient_pack_int(pack: dict, *keys: str, default: int = 0) -> int:
+    for key in keys:
+        value = pack.get(key)
+        if value not in (None, ""):
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                continue
+    return default
+
+
+def patient_pack_payment_status(pack: dict) -> str:
+    explicit = str(pack.get("paymentStatus") or pack.get("payment_status") or "").strip().lower()
+    if explicit:
+        return explicit
+    if pack.get("invoiceGenerated"):
+        return "paid"
+    if pack.get("paymentAuthorized"):
+        return "authorized"
+    return "pending"
+
+
+def patient_pack_is_expired(pack: dict) -> bool:
+    expires_at = str(pack.get("expiresAt") or pack.get("expires_at") or "")[:10]
+    return bool(expires_at and expires_at < datetime.now(UTC).date().isoformat())
+
+
+def refresh_patient_pack_usage_state(pack: dict) -> None:
+    sessions = max(1, patient_pack_int(pack, "sessions", "totalSessions", "sessionCount", default=1))
+    used = max(0, min(sessions, patient_pack_int(pack, "used", "usedSessions", default=0)))
+    pack["sessions"] = sessions
+    pack["totalSessions"] = sessions
+    pack["used"] = used
+    pack["paymentStatus"] = patient_pack_payment_status(pack)
+    current = str(pack.get("usageStatus") or pack.get("usage_status") or "").strip().lower()
+    if current == "cancelled" or pack.get("cancelled") is True:
+        usage_status = "cancelled"
+    elif patient_pack_is_expired(pack):
+        usage_status = "expired"
+    elif used >= sessions:
+        usage_status = "used"
+    elif used > 0:
+        usage_status = "partially_used"
+    else:
+        usage_status = "available"
+    pack["usageStatus"] = usage_status
+
+
+def patient_pack_unit_value_cents(pack: dict, consumption_index: int) -> int:
+    sessions = max(1, patient_pack_int(pack, "sessions", "totalSessions", "sessionCount", default=1))
+    try:
+        total_cents = max(0, round(float(pack.get("price") or 0) * 100))
+    except (TypeError, ValueError):
+        total_cents = 0
+    base, remainder = divmod(total_cents, sessions)
+    index = max(1, min(sessions, int(consumption_index or 1)))
+    return base + (1 if remainder and index > sessions - remainder else 0)
+
+
+def practitioner_service_commission_rate(
+    db: Session,
+    clinic_id: str,
+    practitioner_id: str,
+    service_id: str,
+) -> float:
+    practitioner = db.scalar(
+        select(Practitioner).where(
+            Practitioner.id == practitioner_id,
+            Practitioner.clinic_id == clinic_id,
+        )
+    )
+    metadata = parse_metadata_json(practitioner.metadata_json if practitioner else None)
+    config = metadata.get("serviceCommissions") or metadata.get("service_commissions") or {}
+    item = config.get(service_id) if isinstance(config, dict) else None
+    if isinstance(item, dict):
+        if item.get("enabled") is False:
+            return 0.0
+        raw_rate = item.get("rate", item.get("commission", 0))
+    else:
+        raw_rate = item or 0
+    try:
+        rate = float(raw_rate)
+    except (TypeError, ValueError):
+        return 0.0
+    if rate > 1:
+        rate /= 100
+    return max(0.0, min(1.0, rate))
+
+
+def append_pack_consumption_history(item: PatientPackConsumption, event: dict) -> None:
+    metadata = parse_metadata_json(item.metadata_json)
+    history = metadata.get("history")
+    if not isinstance(history, list):
+        history = []
+    history.append(event)
+    metadata["history"] = history[-50:]
+    item.metadata_json = json.dumps(metadata, ensure_ascii=True)
+
+
+def next_patient_pack_consumption_index(
+    db: Session,
+    clinic_id: str,
+    patient_pack_id: str,
+    sessions: int,
+    used: int,
+    current: PatientPackConsumption | None,
+    *,
+    legacy_current: bool,
+) -> int:
+    active_rows = list(
+        db.execute(
+            select(PatientPackConsumption.id, PatientPackConsumption.consumption_index).where(
+                PatientPackConsumption.clinic_id == clinic_id,
+                PatientPackConsumption.patient_pack_id == patient_pack_id,
+                PatientPackConsumption.status == "active",
+            )
+        )
+    )
+    occupied = {
+        int(index)
+        for row_id, index in active_rows
+        if (not current or row_id != current.id) and index and 1 <= int(index) <= sessions
+    }
+    legacy_slots = max(0, used - len(occupied) - 1)
+    if legacy_current:
+        legacy_slots = max(0, legacy_slots)
+    occupied.update(range(1, min(sessions, legacy_slots) + 1))
+    for index in range(1, sessions + 1):
+        if index not in occupied:
+            return index
+    return sessions
+
+
+def reconcile_appointment_patient_pack(
+    db: Session,
+    user: User,
+    appointment: Appointment,
+    *,
+    force_revert: bool = False,
+) -> None:
+    # Serializes concurrent updates for the same appointment before checking the unique consumption.
+    db.execute(
+        select(Appointment.id)
+        .where(Appointment.id == appointment.id, Appointment.clinic_id == appointment.clinic_id)
+        .with_for_update()
+    )
+    metadata = parse_metadata_json(appointment.metadata_json)
+    selected_pack_id = str(metadata.get("patientPackId") or metadata.get("plannedPatientPackId") or "").strip()
+    should_consume = bool(selected_pack_id and appointment_is_completed(appointment.status) and not force_revert)
+    existing = db.scalar(
+        select(PatientPackConsumption)
+        .where(
+            PatientPackConsumption.clinic_id == appointment.clinic_id,
+            PatientPackConsumption.appointment_id == appointment.id,
+        )
+        .with_for_update()
+    )
+    blob, packs = patient_pack_blob_for_update(db, appointment.clinic_id)
+    packs_changed = False
+    now = datetime.now(UTC)
+    legacy_consumed = bool(
+        not existing
+        and should_consume
+        and metadata.get("patientPackId")
+        and metadata.get("patientPackUsedAt")
+        and str(metadata.get("patientPackId")) == selected_pack_id
+    )
+
+    if existing and existing.status == "active" and (
+        not should_consume or existing.patient_pack_id != selected_pack_id
+    ):
+        old_pack = patient_pack_by_id(packs, existing.patient_pack_id)
+        if old_pack:
+            old_pack["used"] = max(0, patient_pack_int(old_pack, "used", "usedSessions", default=0) - 1)
+            refresh_patient_pack_usage_state(old_pack)
+            old_pack["updatedAt"] = now.isoformat()
+            packs_changed = True
+        append_pack_consumption_history(
+            existing,
+            {
+                "event": "reverted",
+                "at": now.isoformat(),
+                "patientPackId": existing.patient_pack_id,
+                "reason": "appointment-deleted" if force_revert else appointment_status_value(appointment.status),
+                "by": user.id,
+            },
+        )
+        existing.status = "reverted"
+        existing.reverted_at = now
+        audit_action(
+            db,
+            user,
+            "revert-patient-pack-consumption",
+            "patient-pack-consumption",
+            existing.id,
+            {"appointment_id": appointment.id, "patient_pack_id": existing.patient_pack_id},
+        )
+
+    if should_consume:
+        pack = patient_pack_by_id(packs, selected_pack_id)
+        if not pack:
+            raise HTTPException(status_code=409, detail="The selected patient pack no longer exists")
+        if str(pack.get("patientId") or "") != str(appointment.patient_id):
+            raise HTTPException(status_code=409, detail="The selected patient pack belongs to another patient")
+        if pack.get("serviceId") and str(pack.get("serviceId")) != str(appointment.service_id):
+            raise HTTPException(status_code=409, detail="The selected patient pack is not valid for this service")
+        refresh_patient_pack_usage_state(pack)
+        if patient_pack_payment_status(pack) not in {"paid", "authorized"}:
+            raise HTTPException(status_code=409, detail="The selected patient pack has not been paid or authorized")
+        if pack.get("usageStatus") in {"cancelled", "expired"}:
+            raise HTTPException(status_code=409, detail=f"The selected patient pack is {pack.get('usageStatus')}")
+        sessions = max(1, patient_pack_int(pack, "sessions", "totalSessions", default=1))
+        used = max(0, patient_pack_int(pack, "used", "usedSessions", default=0))
+        same_active_consumption = bool(
+            existing
+            and existing.status == "active"
+            and existing.patient_pack_id == selected_pack_id
+        )
+        if not same_active_consumption and not legacy_consumed:
+            if used >= sessions:
+                raise HTTPException(status_code=409, detail="The selected patient pack has no remaining sessions")
+            used += 1
+            pack["used"] = used
+            refresh_patient_pack_usage_state(pack)
+            pack["lastConsumedAt"] = now.isoformat()
+            pack["lastConsumedBy"] = user.name
+            pack["lastAppointmentId"] = appointment.id
+            pack["updatedAt"] = now.isoformat()
+            packs_changed = True
+
+        consumption_index = (
+            existing.consumption_index
+            if same_active_consumption and existing and existing.consumption_index
+            else next_patient_pack_consumption_index(
+                db,
+                appointment.clinic_id,
+                selected_pack_id,
+                sessions,
+                used,
+                existing,
+                legacy_current=legacy_consumed,
+            )
+        )
+        unit_value_cents = (
+            existing.unit_value_cents
+            if same_active_consumption and existing and existing.unit_value_cents >= 0
+            else patient_pack_unit_value_cents(pack, consumption_index)
+        )
+        commission_rate = practitioner_service_commission_rate(
+            db,
+            appointment.clinic_id,
+            appointment.practitioner_id,
+            appointment.service_id,
+        )
+        commission_cents = round(unit_value_cents * commission_rate)
+
+        if not existing:
+            existing = PatientPackConsumption(
+                clinic_id=appointment.clinic_id,
+                patient_id=appointment.patient_id,
+                patient_pack_id=selected_pack_id,
+                appointment_id=appointment.id,
+                service_id=appointment.service_id,
+                practitioner_id=appointment.practitioner_id,
+                appointment_date=appointment.date,
+                consumption_index=consumption_index,
+                unit_value_cents=unit_value_cents,
+                commission_rate=commission_rate,
+                commission_cents=commission_cents,
+                status="active",
+                created_by_id=user.id,
+                created_by_name=user.name,
+                metadata_json="{}",
+            )
+            db.add(existing)
+            db.flush()
+        else:
+            existing.patient_id = appointment.patient_id
+            existing.patient_pack_id = selected_pack_id
+            existing.service_id = appointment.service_id
+            existing.practitioner_id = appointment.practitioner_id
+            existing.appointment_date = appointment.date
+            existing.consumption_index = consumption_index
+            existing.unit_value_cents = unit_value_cents
+            existing.commission_rate = commission_rate
+            existing.commission_cents = commission_cents
+            existing.status = "active"
+            existing.reverted_at = None
+            existing.created_by_id = existing.created_by_id or user.id
+            existing.created_by_name = existing.created_by_name or user.name
+
+        append_pack_consumption_history(
+            existing,
+            {
+                "event": "confirmed",
+                "at": now.isoformat(),
+                "patientPackId": selected_pack_id,
+                "consumptionIndex": consumption_index,
+                "unitValueCents": unit_value_cents,
+                "commissionCents": commission_cents,
+                "by": user.id,
+                "legacy": legacy_consumed,
+            },
+        )
+        metadata.update(
+            {
+                "patientPackId": selected_pack_id,
+                "plannedPatientPackId": "",
+                "patientPackUsedAt": str(metadata.get("patientPackUsedAt") or now.isoformat()),
+                "patientPackConsumptionId": existing.id,
+                "patientPackConsumptionIndex": consumption_index,
+                "patientPackUnitValueCents": unit_value_cents,
+                "patientPackCommissionRate": commission_rate,
+                "patientPackCommissionCents": commission_cents,
+            }
+        )
+        audit_action(
+            db,
+            user,
+            "consume-patient-pack-session",
+            "patient-pack-consumption",
+            existing.id,
+            {
+                "appointment_id": appointment.id,
+                "patient_pack_id": selected_pack_id,
+                "unit_value_cents": unit_value_cents,
+                "commission_cents": commission_cents,
+                "idempotent": same_active_consumption,
+            },
+        )
+    else:
+        planned_pack_id = "" if force_revert or status_is_cancelled(appointment.status) else selected_pack_id
+        metadata.update(
+            {
+                "patientPackId": "",
+                "plannedPatientPackId": planned_pack_id,
+                "patientPackUsedAt": "",
+                "patientPackConsumptionId": "",
+                "patientPackConsumptionIndex": 0,
+                "patientPackUnitValueCents": 0,
+                "patientPackCommissionRate": 0,
+                "patientPackCommissionCents": 0,
+            }
+        )
+
+    if packs_changed and blob:
+        blob.data_json = json.dumps(packs, ensure_ascii=True)
+    appointment.metadata_json = json.dumps(metadata, ensure_ascii=True)
 
 
 CLINIC_DATA_DEFAULTS = {
@@ -3805,6 +4188,7 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
     appointment = Appointment(clinic_id=user.clinic_id, **values)
     db.add(appointment)
     db.flush()
+    reconcile_appointment_patient_pack(db, user, appointment)
     sync_appointment_payment_movement(db, user, appointment, service)
     audit_action(db, user, "create-appointment", "appointment", appointment.id)
     db.commit()
@@ -3866,6 +4250,7 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
     previous_status = appointment.status
     for field, value in data.items():
         setattr(appointment, field, value)
+    reconcile_appointment_patient_pack(db, user, appointment)
     sync_appointment_payment_movement(db, user, appointment, service)
     action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
     audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
@@ -3919,6 +4304,7 @@ def delete_appointment(appointment_id: str, user: User = Depends(require_subscri
             raise HTTPException(status_code=403, detail="Practitioner user is not linked to a worker")
         if appointment.practitioner_id != user.practitioner.id:
             raise HTTPException(status_code=403, detail="Practitioners can only delete their own appointments")
+    reconcile_appointment_patient_pack(db, user, appointment, force_revert=True)
     audit_action(db, user, "delete-appointment", "appointment", appointment.id)
     db.delete(appointment)
     db.commit()
