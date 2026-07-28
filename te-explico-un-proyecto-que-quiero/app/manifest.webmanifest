@@ -1,50 +1,69 @@
 {
-  "name": "Klinia Clinic OS",
+  "name": "Klinia",
   "short_name": "Klinia",
   "description": "Agenda, pacientes, facturación y recordatorios para clínicas privadas.",
   "lang": "es",
-  "start_url": "./",
+  "start_url": "/",
   "id": "/",
-  "scope": "./",
+  "scope": "/",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone", "browser"],
-  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "browser"
+  ],
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
   "orientation": "any",
   "background_color": "#f4f5f1",
   "theme_color": "#10231f",
-  "categories": ["medical", "productivity", "business"],
+  "categories": [
+    "medical",
+    "productivity",
+    "business"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "./assets/klinia-logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./assets/klinia-icon-192.png",
+      "src": "/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "./assets/klinia-icon-512.png",
+      "src": "/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
     {
       "name": "Agenda",
       "short_name": "Agenda",
-      "url": "./#agenda",
-      "description": "Abrir agenda de la clinica"
+      "url": "/#agenda",
+      "description": "Abrir agenda de la clínica"
     },
     {
       "name": "Recordatorios",
       "short_name": "Recordatorios",
-      "url": "./#automatizaciones",
+      "url": "/#automatizaciones",
       "description": "Ver cola de recordatorios"
     }
   ]

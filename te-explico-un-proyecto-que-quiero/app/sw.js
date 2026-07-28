@@ -1,25 +1,45 @@
 const KLINIA_CACHE = "klinia-20260728-bonos-lifecycle";
+const KLINIA_PWA_ASSET_CACHE = "klinia-pwa-assets-20260728-icons-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260722-agenda-bonos-logo-google",
   "./app.js?v=20260728-bonos-lifecycle",
-  "./manifest.webmanifest",
   "./offline.html",
-  "./assets/klinia-logo.svg",
-  "./assets/klinia-icon-192.png",
-  "./assets/klinia-icon-512.png"
+  "./assets/klinia-logo.svg"
+];
+const PWA_ASSETS = [
+  "/manifest.webmanifest?v=20260728-pwa-icons-v2",
+  "/favicon.ico?v=20260728-pwa-icons-v2",
+  "/icons/favicon-16x16.png?v=20260728-pwa-icons-v2",
+  "/icons/favicon-32x32.png?v=20260728-pwa-icons-v2",
+  "/icons/favicon-48x48.png?v=20260728-pwa-icons-v2",
+  "/icons/apple-touch-icon.png?v=20260728-pwa-icons-v2",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/icon-maskable-192.png",
+  "/icons/icon-maskable-512.png",
+  "/icons/mstile-150x150.png?v=20260728-pwa-icons-v2"
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(KLINIA_CACHE).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil(
+    Promise.all([
+      caches.open(KLINIA_CACHE).then((cache) => cache.addAll(APP_SHELL)),
+      caches.open(KLINIA_PWA_ASSET_CACHE).then((cache) => cache.addAll(PWA_ASSETS))
+    ])
+  );
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== KLINIA_CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(
+        keys
+          .filter((key) => key.startsWith("klinia-pwa-assets-") && key !== KLINIA_PWA_ASSET_CACHE)
+          .map((key) => caches.delete(key))
+      ))
       .then(() => self.clients.claim())
   );
 });
@@ -39,6 +59,23 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => caches.match("./index.html").then((cached) => cached || caches.match("./offline.html")))
+    );
+    return;
+  }
+
+  if (
+    requestUrl.pathname === "/manifest.webmanifest" ||
+    requestUrl.pathname === "/favicon.ico" ||
+    requestUrl.pathname.startsWith("/icons/")
+  ) {
+    event.respondWith(
+      fetch(event.request, { cache: "no-store" })
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(KLINIA_PWA_ASSET_CACHE).then((cache) => cache.put(event.request, copy)).catch(() => null);
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
@@ -69,5 +106,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-
-

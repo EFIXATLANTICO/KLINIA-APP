@@ -315,7 +315,7 @@ function saveSyncedClinicState(key, value) {
   saveClinicDataToBackend(key, value).catch((error) => {
     console.warn(`Klinia backend sync failed for ${key}`, error);
     if (!isBackendPermissionError(error)) {
-      showToast("No se pudieron guardar algunos datos en la nube. Intï¿½ntalo de nuevo.", "warning");
+      showToast("No se pudieron guardar algunos datos en la nube. Inténtalo de nuevo.", "warning");
     }
   });
 }
