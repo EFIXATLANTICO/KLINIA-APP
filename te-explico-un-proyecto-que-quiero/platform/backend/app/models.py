@@ -197,6 +197,31 @@ class ClinicDataBlob(TimestampMixin, Base):
     data_json: Mapped[str] = mapped_column(Text, default="null", nullable=False)
 
 
+class PatientPackConsumption(TimestampMixin, Base):
+    __tablename__ = "patient_pack_consumptions"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "appointment_id", name="uq_patient_pack_consumption_clinic_appointment"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True, nullable=False)
+    patient_pack_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    appointment_id: Mapped[str] = mapped_column(ForeignKey("appointments.id", ondelete="CASCADE"), index=True, nullable=False)
+    service_id: Mapped[str] = mapped_column(ForeignKey("services.id", ondelete="RESTRICT"), index=True, nullable=False)
+    practitioner_id: Mapped[str] = mapped_column(ForeignKey("practitioners.id", ondelete="RESTRICT"), index=True, nullable=False)
+    appointment_date: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    consumption_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    unit_value_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    commission_rate: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    commission_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True, nullable=False)
+    created_by_id: Mapped[str | None] = mapped_column(String(36))
+    created_by_name: Mapped[str | None] = mapped_column(String(160))
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+
+
 class ReminderStatus(TimestampMixin, Base):
     __tablename__ = "reminder_statuses"
     __table_args__ = (UniqueConstraint("clinic_id", "reminder_key", name="uq_reminder_status_clinic_key"),)
