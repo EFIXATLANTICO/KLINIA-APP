@@ -966,6 +966,12 @@ let backendActiveHydrationPromise = null;
 let backendActiveHydrationClinicKey = "";
 let backendInitialLoadPending = isAuthenticated;
 let backendInitialLoadError = false;
+let agendaPractitionerRequestSequence = 0;
+let agendaPractitionerLoadState = {
+  status: isAuthenticated ? "loading" : "idle",
+  clinicKey: activeClinicKey,
+  requestId: 0
+};
 let backendLastSyncAt = 0;
 const backendAutoSyncIntervalMs = 30000;
 const backendAutoSyncMinIntervalMs = 8000;
@@ -6292,6 +6298,46 @@ function activePractitioners() {
   return practitioners.filter((practitioner) => practitioner.active !== false);
 }
 
+function beginAgendaPractitionerLoad(clinicKey = activeClinicKey) {
+  const requestId = ++agendaPractitionerRequestSequence;
+  agendaPractitionerLoadState = {
+    status: "loading",
+    clinicKey,
+    requestId
+  };
+  return requestId;
+}
+
+function isCurrentAgendaPractitionerRequest(clinicKey, requestId) {
+  return activeClinicKey === clinicKey
+    && agendaPractitionerLoadState.clinicKey === clinicKey
+    && agendaPractitionerLoadState.requestId === requestId;
+}
+
+function setAgendaPractitionerLoadState(status, clinicKey, requestId) {
+  if (!isCurrentAgendaPractitionerRequest(clinicKey, requestId)) {
+    return false;
+  }
+  agendaPractitionerLoadState = {
+    status,
+    clinicKey,
+    requestId
+  };
+  return true;
+}
+
+function currentAgendaPractitionerLoadStatus() {
+  if (!backendDataEnabled()) {
+    return activePractitioners().length ? "success" : "empty";
+  }
+  if (agendaPractitionerLoadState.clinicKey !== activeClinicKey) {
+    return "loading";
+  }
+  return agendaPractitionerLoadState.status === "idle"
+    ? "loading"
+    : agendaPractitionerLoadState.status;
+}
+
 function normalizeAgendaPractitionerSelection({ persist = true } = {}) {
   const previous = [...selectedPractitionerIds];
   const source = activePractitioners();
@@ -6348,8 +6394,9 @@ function renderFilters() {
   const visibleCount = selectedPractitionerIds.includes("all")
     ? reportPractitioners.length
     : selectedPractitionerIds.filter((id) => reportPractitioners.some((item) => String(item.id) === String(id))).length;
-  const loadingPractitioners = backendInitialLoadPending && backendDataEnabled() && !reportPractitioners.length;
-  const practitionerLoadFailed = backendInitialLoadError && !reportPractitioners.length;
+  const practitionerLoadStatus = currentAgendaPractitionerLoadStatus();
+  const loadingPractitioners = ["idle", "loading"].includes(practitionerLoadStatus) && !reportPractitioners.length;
+  const practitionerLoadFailed = practitionerLoadStatus === "error" && !reportPractitioners.length;
   workerFilter.querySelector("summary").textContent = loadingPractitioners
     ? "Cargando profesionales..."
     : practitionerLoadFailed
@@ -6389,7 +6436,7 @@ function renderWorkerColorLegend() {
   }
   const source = activePractitioners();
   const visibleIds = selectedAgendaPractitioners().map((item) => String(item.id));
-  const loading = backendInitialLoadPending && backendDataEnabled();
+  const loading = ["idle", "loading"].includes(currentAgendaPractitionerLoadStatus());
   legend.innerHTML = source.length
     ? source.map((practitioner) => {
       const selected = visibleIds.includes(String(practitioner.id));
@@ -6711,8 +6758,9 @@ function renderSchedule() {
     : "1fr";
 
   if (!visiblePractitioners.length) {
-    const loading = backendInitialLoadPending && backendDataEnabled();
-    const loadFailed = backendInitialLoadError && backendDataEnabled();
+    const practitionerLoadStatus = currentAgendaPractitionerLoadStatus();
+    const loading = ["idle", "loading"].includes(practitionerLoadStatus);
+    const loadFailed = practitionerLoadStatus === "error";
     const hasConfiguredPractitioners = activePractitioners().length > 0;
     schedule.innerHTML = `
       <div class="empty-schedule">
@@ -6952,8 +7000,9 @@ function renderWeekSchedule(schedule, days) {
   schedule.style.gridTemplateColumns = `72px repeat(${days.length}, minmax(190px, 1fr))`;
 
   if (!visiblePractitioners.length) {
-    const loading = backendInitialLoadPending && backendDataEnabled();
-    const loadFailed = backendInitialLoadError && backendDataEnabled();
+    const practitionerLoadStatus = currentAgendaPractitionerLoadStatus();
+    const loading = ["idle", "loading"].includes(practitionerLoadStatus);
+    const loadFailed = practitionerLoadStatus === "error";
     const hasConfiguredPractitioners = activePractitioners().length > 0;
     schedule.innerHTML = `
       <div class="empty-schedule">
@@ -11784,23 +11833,67 @@ async function hydrateFromApi(options = {}) {
 
   const hydrationClinicKey = activeClinicKey;
   const hydrationClinicId = String(currentClinicAccount()?.backendClinicId || "");
+  const practitionerRequestId = options.practitionerRequestId || beginAgendaPractitionerLoad(hydrationClinicKey);
   let coreDataApplied = false;
+  let practitionerDataApplied = false;
+  const settleBackendRequest = (promise) => promise.then(
+    (value) => ({ value, error: null }),
+    (error) => ({ value: null, error })
+  );
 
   try {
-    let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments] = await Promise.all([
-      backendRequest("/me"),
-      backendRequest("/patients"),
-      backendRequest("/practitioners"),
-      backendRequest("/rooms"),
-      backendRequest("/services"),
-      backendRequest("/appointments")
-    ]);
+    const apiMePending = settleBackendRequest(backendRequest("/me"));
+    const apiPatientsPending = settleBackendRequest(backendRequest("/patients"));
+    const apiPractitionersPending = settleBackendRequest(backendRequest("/practitioners"));
+    const apiRoomsPending = settleBackendRequest(backendRequest("/rooms"));
+    const apiServicesPending = settleBackendRequest(backendRequest("/services"));
+    const apiAppointmentsPending = settleBackendRequest(backendRequest("/appointments"));
+
+    const [apiMeResult, apiPractitionersResult] = await Promise.all([apiMePending, apiPractitionersPending]);
+    if (apiMeResult.error) throw apiMeResult.error;
+    if (apiPractitionersResult.error) throw apiPractitionersResult.error;
+
+    let apiMe = apiMeResult.value;
+    let apiPractitioners = apiPractitionersResult.value;
     const activeHydrationAccount = currentClinicAccount();
     const activeHydrationClinicId = String(activeHydrationAccount?.backendClinicId || "");
     if (activeClinicKey !== hydrationClinicKey || (hydrationClinicId && hydrationClinicId !== activeHydrationClinicId)) {
       return false;
     }
+
     applyBackendClinicSnapshot(apiMe?.clinic);
+    if (!isCurrentAgendaPractitionerRequest(hydrationClinicKey, practitionerRequestId)) {
+      return false;
+    }
+    if (apiPractitioners.length) {
+      practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
+      practitionerDataApplied = setAgendaPractitionerLoadState("success", hydrationClinicKey, practitionerRequestId);
+      normalizeAgendaPractitionerSelection();
+      renderFilters();
+      renderAppointmentFormOptions();
+      if (options.render !== false && activeSection === "agenda") {
+        renderSchedule();
+      }
+    }
+
+    const [apiPatientsResult, apiRoomsResult, apiServicesResult, apiAppointmentsResult] = await Promise.all([
+      apiPatientsPending,
+      apiRoomsPending,
+      apiServicesPending,
+      apiAppointmentsPending
+    ]);
+    const remainingError = [
+      apiPatientsResult,
+      apiRoomsResult,
+      apiServicesResult,
+      apiAppointmentsResult
+    ].find((result) => result.error)?.error;
+    if (remainingError) throw remainingError;
+
+    let apiPatients = apiPatientsResult.value;
+    let apiRooms = apiRoomsResult.value;
+    let apiServices = apiServicesResult.value;
+    let apiAppointments = apiAppointmentsResult.value;
     ({ apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = await bootstrapBackendDataIfNeeded({
       apiPatients,
       apiPractitioners,
@@ -11808,11 +11901,21 @@ async function hydrateFromApi(options = {}) {
       apiServices,
       apiAppointments
     }));
+    if (activeClinicKey !== hydrationClinicKey
+      || (hydrationClinicId && hydrationClinicId !== String(currentClinicAccount()?.backendClinicId || ""))
+      || !isCurrentAgendaPractitionerRequest(hydrationClinicKey, practitionerRequestId)) {
+      return false;
+    }
     patients = apiPatients.map((patient) => apiPatientToUi(patient, byId(patients, patient.id)));
     practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
     rooms = apiRooms.map((room) => apiRoomToUi(room));
     services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
+    practitionerDataApplied = setAgendaPractitionerLoadState(
+      practitioners.length ? "success" : "empty",
+      hydrationClinicKey,
+      practitionerRequestId
+    ) || practitionerDataApplied;
     coreDataApplied = true;
     backendInitialLoadPending = false;
     backendInitialLoadError = false;
@@ -11906,6 +12009,9 @@ async function hydrateFromApi(options = {}) {
     return true;
   } catch (error) {
     console.warn("Klinia backend data unavailable, keeping local cache.", error);
+    if (!practitionerDataApplied) {
+      setAgendaPractitionerLoadState("error", hydrationClinicKey, practitionerRequestId);
+    }
     backendInitialLoadPending = false;
     backendInitialLoadError = !coreDataApplied;
     renderFilters();
@@ -11941,9 +12047,11 @@ function runBackendHydration(options = {}) {
     if (backendActiveHydrationClinicKey === requestedClinicKey) {
       return backendActiveHydrationPromise;
     }
+    beginAgendaPractitionerLoad(requestedClinicKey);
     return backendActiveHydrationPromise.finally(() => runBackendHydration(options));
   }
 
+  const practitionerRequestId = beginAgendaPractitionerLoad(requestedClinicKey);
   backendAutoSyncInProgress = true;
   backendActiveHydrationClinicKey = requestedClinicKey;
   if (options.initial || !activePractitioners().length) {
@@ -11952,13 +12060,15 @@ function runBackendHydration(options = {}) {
   }
   backendActiveHydrationPromise = (async () => {
     try {
-      return await hydrateFromApi({ silent: true });
+      return await hydrateFromApi({ ...options, silent: true, practitionerRequestId });
     } finally {
       if (backendActiveHydrationClinicKey === requestedClinicKey) {
         backendAutoSyncInProgress = false;
         backendActiveHydrationPromise = null;
         backendActiveHydrationClinicKey = "";
-        backendInitialLoadPending = false;
+        if (activeClinicKey === requestedClinicKey) {
+          backendInitialLoadPending = false;
+        }
       }
     }
   })();
@@ -12221,6 +12331,7 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   saveState("authenticated-at", Date.now());
   applyLoginState();
   if (backendDataEnabled()) {
+    beginAgendaPractitionerLoad(activeClinicKey);
     backendInitialLoadPending = true;
     backendInitialLoadError = false;
   }
@@ -12276,7 +12387,8 @@ async function restoreAuthenticatedSessionOnLoad() {
     return;
   }
 
-  if (backendDataEnabled(account) && !activePractitioners().length) {
+  if (backendDataEnabled(account)) {
+    beginAgendaPractitionerLoad(activeClinicKey);
     backendInitialLoadPending = true;
     backendInitialLoadError = false;
   }
