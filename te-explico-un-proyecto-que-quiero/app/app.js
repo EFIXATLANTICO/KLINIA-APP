@@ -11787,16 +11787,13 @@ async function hydrateFromApi(options = {}) {
   let coreDataApplied = false;
 
   try {
-    let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiClinicalTemplates, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
+    let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments] = await Promise.all([
       backendRequest("/me"),
       backendRequest("/patients"),
       backendRequest("/practitioners"),
       backendRequest("/rooms"),
       backendRequest("/services"),
-      backendOptionalCollection("/clinical-templates"),
-      backendRequest("/appointments"),
-      backendOptionalCollection("/manual-billing-movements"),
-      backendOptionalCollection("/attendance-records")
+      backendRequest("/appointments")
     ]);
     const activeHydrationAccount = currentClinicAccount();
     const activeHydrationClinicId = String(activeHydrationAccount?.backendClinicId || "");
@@ -11811,17 +11808,11 @@ async function hydrateFromApi(options = {}) {
       apiServices,
       apiAppointments
     }));
-    if (!apiManualMovements.length && manualBillingMovements.length) {
-      apiManualMovements = await Promise.all(manualBillingMovements.map((item) => saveManualBillingMovementToBackend(item)));
-    }
     patients = apiPatients.map((patient) => apiPatientToUi(patient, byId(patients, patient.id)));
     practitioners = normalizePractitioners(apiPractitioners.map((practitioner) => apiPractitionerToUi(practitioner, byId(practitioners, practitioner.id))));
     rooms = apiRooms.map((room) => apiRoomToUi(room));
     services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
-    clinicalTemplates = normalizeClinicalTemplates(apiClinicalTemplates.map(apiClinicalTemplateToUi));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
-    manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
-    attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
     coreDataApplied = true;
     backendInitialLoadPending = false;
     backendInitialLoadError = false;
@@ -11833,6 +11824,21 @@ async function hydrateFromApi(options = {}) {
       renderLoginProfiles();
       renderAll();
     }
+
+    let [apiClinicalTemplates, apiManualMovements, apiAttendanceRecords] = await Promise.all([
+      backendOptionalCollection("/clinical-templates"),
+      backendOptionalCollection("/manual-billing-movements"),
+      backendOptionalCollection("/attendance-records")
+    ]);
+    if (activeClinicKey !== hydrationClinicKey) {
+      return coreDataApplied;
+    }
+    if (!apiManualMovements.length && manualBillingMovements.length) {
+      apiManualMovements = await Promise.all(manualBillingMovements.map((item) => saveManualBillingMovementToBackend(item)));
+    }
+    clinicalTemplates = normalizeClinicalTemplates(apiClinicalTemplates.map(apiClinicalTemplateToUi));
+    manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
+    attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
 
     groups = normalizeGroups(await syncClinicDataCollection("groups", groups, [], normalizeGroups));
     clinicalNotes = await syncClinicDataCollection("clinical-notes", clinicalNotes, [], (value) => Array.isArray(value) ? value : []);
