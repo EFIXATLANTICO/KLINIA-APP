@@ -962,7 +962,10 @@ let draggedAppointmentId = "";
 let suppressAppointmentClickUntil = 0;
 let backendAutoSyncTimer = null;
 let backendAutoSyncInProgress = false;
-let backendInitialLoadPending = false;
+let backendActiveHydrationPromise = null;
+let backendActiveHydrationClinicKey = "";
+let backendInitialLoadPending = isAuthenticated;
+let backendInitialLoadError = false;
 let backendLastSyncAt = 0;
 const backendAutoSyncIntervalMs = 30000;
 const backendAutoSyncMinIntervalMs = 8000;
@@ -6343,21 +6346,33 @@ function renderFilters() {
   const workerMenu = workerFilter.querySelector(".worker-filter-menu");
   normalizeAgendaPractitionerSelection();
   const visibleCount = selectedPractitionerIds.includes("all")
-    ? activePractitioners().length
-    : selectedPractitionerIds.filter((id) => activePractitioners().some((item) => String(item.id) === String(id))).length;
-  workerFilter.querySelector("summary").textContent = `Profesionales (${visibleCount || 0})`;
-  workerMenu.innerHTML = `
-    <label class="filter-chip">
-      <input type="checkbox" value="all" ${selectedPractitionerIds.includes("all") ? "checked" : ""} />
-      <span>Todos</span>
-    </label>
-    ${activePractitioners().map((practitioner) => `
-      <label class="filter-chip">
-        <input type="checkbox" value="${practitioner.id}" ${selectedPractitionerIds.includes("all") || selectedPractitionerIds.some((id) => String(id) === String(practitioner.id)) ? "checked" : ""} />
-        <span>${practitioner.name}</span>
-      </label>
-    `).join("")}
-  `;
+    ? reportPractitioners.length
+    : selectedPractitionerIds.filter((id) => reportPractitioners.some((item) => String(item.id) === String(id))).length;
+  const loadingPractitioners = backendInitialLoadPending && backendDataEnabled() && !reportPractitioners.length;
+  const practitionerLoadFailed = backendInitialLoadError && !reportPractitioners.length;
+  workerFilter.querySelector("summary").textContent = loadingPractitioners
+    ? "Cargando profesionales..."
+    : practitionerLoadFailed
+      ? "Profesionales no disponibles"
+      : `Profesionales (${visibleCount || 0})`;
+  workerMenu.innerHTML = loadingPractitioners
+    ? `<span class="muted-text">Cargando profesionales...</span>`
+    : practitionerLoadFailed
+      ? `<span class="muted-text">No se pudieron cargar los profesionales. Reintentar.</span>`
+      : reportPractitioners.length
+        ? `
+          <label class="filter-chip">
+            <input type="checkbox" value="all" ${selectedPractitionerIds.includes("all") ? "checked" : ""} />
+            <span>Todos</span>
+          </label>
+          ${reportPractitioners.map((practitioner) => `
+            <label class="filter-chip">
+              <input type="checkbox" value="${practitioner.id}" ${selectedPractitionerIds.includes("all") || selectedPractitionerIds.some((id) => String(id) === String(practitioner.id)) ? "checked" : ""} />
+              <span>${practitioner.name}</span>
+            </label>
+          `).join("")}
+        `
+        : `<span class="muted-text">No hay profesionales configurados en esta clínica.</span>`;
   const session = $("#session-select");
   session.innerHTML = "";
   const sessionValue = isPractitionerSession() ? currentSession.practitionerId : currentSession.role;
@@ -6697,10 +6712,24 @@ function renderSchedule() {
 
   if (!visiblePractitioners.length) {
     const loading = backendInitialLoadPending && backendDataEnabled();
+    const loadFailed = backendInitialLoadError && backendDataEnabled();
+    const hasConfiguredPractitioners = activePractitioners().length > 0;
     schedule.innerHTML = `
       <div class="empty-schedule">
-        <strong>${loading ? "Cargando..." : "Sin profesionales visibles"}</strong>
-        <span>${loading ? "Estamos cargando agenda, trabajadores y salas." : "Marca al menos un trabajador para ver su agenda."}</span>
+        <strong>${loading
+          ? "Cargando profesionales..."
+          : loadFailed
+            ? "No se pudieron cargar los profesionales"
+            : hasConfiguredPractitioners
+              ? "Sin profesionales visibles"
+              : "No hay profesionales configurados en esta clínica."}</strong>
+        <span>${loading
+          ? "La agenda aparecerá en cuanto responda el servidor."
+          : loadFailed
+            ? "Reintentar."
+            : hasConfiguredPractitioners
+              ? "Marca al menos un trabajador para ver su agenda."
+              : "Añade un trabajador desde Configuración para empezar a usar la agenda."}</span>
       </div>
     `;
     return;
@@ -6923,10 +6952,25 @@ function renderWeekSchedule(schedule, days) {
   schedule.style.gridTemplateColumns = `72px repeat(${days.length}, minmax(190px, 1fr))`;
 
   if (!visiblePractitioners.length) {
+    const loading = backendInitialLoadPending && backendDataEnabled();
+    const loadFailed = backendInitialLoadError && backendDataEnabled();
+    const hasConfiguredPractitioners = activePractitioners().length > 0;
     schedule.innerHTML = `
       <div class="empty-schedule">
-        <strong>Sin profesionales visibles</strong>
-        <span>Marca al menos un trabajador para ver su semana.</span>
+        <strong>${loading
+          ? "Cargando profesionales..."
+          : loadFailed
+            ? "No se pudieron cargar los profesionales"
+            : hasConfiguredPractitioners
+              ? "Sin profesionales visibles"
+              : "No hay profesionales configurados en esta clínica."}</strong>
+        <span>${loading
+          ? "La agenda semanal aparecerá en cuanto responda el servidor."
+          : loadFailed
+            ? "Reintentar."
+            : hasConfiguredPractitioners
+              ? "Marca al menos un trabajador para ver su semana."
+              : "Añade un trabajador desde Configuración para empezar a usar la agenda."}</span>
       </div>
     `;
     return;
@@ -11738,6 +11782,10 @@ async function hydrateFromApi(options = {}) {
     return false;
   }
 
+  const hydrationClinicKey = activeClinicKey;
+  const hydrationClinicId = String(currentClinicAccount()?.backendClinicId || "");
+  let coreDataApplied = false;
+
   try {
     let [apiMe, apiPatients, apiPractitioners, apiRooms, apiServices, apiClinicalTemplates, apiAppointments, apiManualMovements, apiAttendanceRecords] = await Promise.all([
       backendRequest("/me"),
@@ -11750,6 +11798,11 @@ async function hydrateFromApi(options = {}) {
       backendOptionalCollection("/manual-billing-movements"),
       backendOptionalCollection("/attendance-records")
     ]);
+    const activeHydrationAccount = currentClinicAccount();
+    const activeHydrationClinicId = String(activeHydrationAccount?.backendClinicId || "");
+    if (activeClinicKey !== hydrationClinicKey || (hydrationClinicId && hydrationClinicId !== activeHydrationClinicId)) {
+      return false;
+    }
     applyBackendClinicSnapshot(apiMe?.clinic);
     ({ apiPatients, apiPractitioners, apiRooms, apiServices, apiAppointments } = await bootstrapBackendDataIfNeeded({
       apiPatients,
@@ -11769,6 +11822,18 @@ async function hydrateFromApi(options = {}) {
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
     manualBillingMovements = apiManualMovements.map(apiManualBillingMovementToUi);
     attendanceRecords = apiAttendanceRecords.map(apiAttendanceRecordToUi);
+    coreDataApplied = true;
+    backendInitialLoadPending = false;
+    backendInitialLoadError = false;
+    normalizeAgendaPractitionerSelection();
+    renderFilters();
+    renderAppointmentFormOptions();
+    renderSession();
+    if (options.render !== false) {
+      renderLoginProfiles();
+      renderAll();
+    }
+
     groups = normalizeGroups(await syncClinicDataCollection("groups", groups, [], normalizeGroups));
     clinicalNotes = await syncClinicDataCollection("clinical-notes", clinicalNotes, [], (value) => Array.isArray(value) ? value : []);
     groupDropIns = await syncClinicDataCollection("group-dropins", groupDropIns, [], (value) => Array.isArray(value) ? value : []);
@@ -11823,6 +11888,8 @@ async function hydrateFromApi(options = {}) {
     saveSyncedClinicState("availability-blocks", availabilityBlocks);
     saveClinicState("clinic-logo", clinicLogo);
     backendLastSyncAt = Date.now();
+    backendInitialLoadPending = false;
+    backendInitialLoadError = false;
     renderFilters();
     renderAppointmentFormOptions();
     renderSession();
@@ -11833,10 +11900,19 @@ async function hydrateFromApi(options = {}) {
     return true;
   } catch (error) {
     console.warn("Klinia backend data unavailable, keeping local cache.", error);
+    backendInitialLoadPending = false;
+    backendInitialLoadError = !coreDataApplied;
+    renderFilters();
+    renderAppointmentFormOptions();
+    renderSession();
+    if (options.render !== false) {
+      renderLoginProfiles();
+      renderAll();
+    }
     if (!options.silent && !isBackendPermissionError(error)) {
       showToast("No se pudieron actualizar algunos datos. Inténtalo de nuevo en unos segundos.", "warning");
     }
-    return false;
+    return coreDataApplied;
   }
 }
 
@@ -11853,22 +11929,48 @@ function shouldAutoSyncBackend(options = {}) {
   return true;
 }
 
+function runBackendHydration(options = {}) {
+  const requestedClinicKey = activeClinicKey;
+  if (backendActiveHydrationPromise) {
+    if (backendActiveHydrationClinicKey === requestedClinicKey) {
+      return backendActiveHydrationPromise;
+    }
+    return backendActiveHydrationPromise.finally(() => runBackendHydration(options));
+  }
+
+  backendAutoSyncInProgress = true;
+  backendActiveHydrationClinicKey = requestedClinicKey;
+  if (options.initial || !activePractitioners().length) {
+    backendInitialLoadPending = true;
+    backendInitialLoadError = false;
+  }
+  backendActiveHydrationPromise = (async () => {
+    try {
+      return await hydrateFromApi({ silent: true });
+    } finally {
+      if (backendActiveHydrationClinicKey === requestedClinicKey) {
+        backendAutoSyncInProgress = false;
+        backendActiveHydrationPromise = null;
+        backendActiveHydrationClinicKey = "";
+        backendInitialLoadPending = false;
+      }
+    }
+  })();
+  return backendActiveHydrationPromise;
+}
+
 async function syncCurrentClinicFromBackend(options = {}) {
-  if (isSuperadminSession() || !shouldAutoSyncBackend(options) || backendAutoSyncInProgress) {
+  if (isSuperadminSession() || !shouldAutoSyncBackend(options)) {
     return false;
+  }
+  if (backendActiveHydrationPromise) {
+    return await runBackendHydration(options);
   }
   const minInterval = Number(options.minIntervalMs ?? backendAutoSyncMinIntervalMs);
   if (!options.force && Date.now() - backendLastSyncAt < minInterval) {
     return false;
   }
-  backendAutoSyncInProgress = true;
-  backendInitialLoadPending = true;
-  try {
-    return await hydrateFromApi({ silent: true });
-  } finally {
-    backendAutoSyncInProgress = false;
-    backendInitialLoadPending = false;
-  }
+  return await runBackendHydration({ initial: !activePractitioners().length });
 }
 
 function stopBackendAutoSync() {
@@ -11883,21 +11985,17 @@ function isBackendRealtimeSection(section = activeSection) {
 }
 
 async function refreshRealtimeClinicData(reason = "manual") {
-  if (isSuperadminSession() || !shouldAutoSyncBackend({ force: true }) || backendAutoSyncInProgress) {
+  if (isSuperadminSession() || !shouldAutoSyncBackend({ force: true })) {
     return false;
   }
-  backendAutoSyncInProgress = true;
   try {
-    return await hydrateFromApi({ silent: true });
+    return await runBackendHydration({ initial: !activePractitioners().length });
   } catch (error) {
     console.warn(`Klinia realtime refresh failed (${reason}).`, error);
     if (!isBackendPermissionError(error)) {
       showToast("No se pudieron actualizar algunos datos. Inténtalo de nuevo en unos segundos.", "warning");
     }
     return false;
-  } finally {
-    backendAutoSyncInProgress = false;
-    backendInitialLoadPending = false;
   }
 }
 
@@ -12116,13 +12214,14 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   saveState("authenticated", true);
   saveState("authenticated-at", Date.now());
   applyLoginState();
+  if (backendDataEnabled()) {
+    backendInitialLoadPending = true;
+    backendInitialLoadError = false;
+  }
   renderFilters();
   renderAppointmentFormOptions();
   renderSession();
   setEntrySection(true);
-  if (backendDataEnabled()) {
-    backendInitialLoadPending = true;
-  }
   renderAll();
   if (blocked) {
     showToast(subscriptionBlockMessage(account), "warning");
@@ -12171,6 +12270,10 @@ async function restoreAuthenticatedSessionOnLoad() {
     return;
   }
 
+  if (backendDataEnabled(account) && !activePractitioners().length) {
+    backendInitialLoadPending = true;
+    backendInitialLoadError = false;
+  }
   setEntrySection(true);
 
   if (!backendAuthoritativeMode(account)) {
