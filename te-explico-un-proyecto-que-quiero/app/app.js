@@ -321,6 +321,35 @@ function saveSyncedClinicState(key, value) {
 }
 
 
+async function persistPatientPacksState(options = {}) {
+  if (isSuperadminSession()) return true;
+  patientPacks = normalizePatientPacks(patientPacks);
+  saveClinicState("patient-packs", patientPacks);
+  if (!canWriteSyncedClinicDataKey("patient-packs")) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("Tu usuario no tiene permiso para gestionar bonos.");
+    }
+    return true;
+  }
+  try {
+    await saveClinicDataToBackend("patient-packs", patientPacks);
+    return true;
+  } catch (error) {
+    console.warn("Klinia patient packs sync failed", error);
+    if (options.toast !== false) {
+      showToast("No se pudo guardar el bono. Inténtalo de nuevo.", "error");
+    }
+    throw error;
+  }
+}
+
+async function refreshPatientPacksFromBackend() {
+  if (!backendDataEnabled()) return patientPacks;
+  patientPacks = normalizePatientPacks(await loadClinicDataFromBackend("patient-packs", []));
+  saveClinicState("patient-packs", patientPacks);
+  return patientPacks;
+}
+
 function clinicalNotesSaveErrorMessage(error) {
   if (error?.status === 403) {
     return "Tu usuario no tiene permiso para guardar el historial de este paciente.";
@@ -741,7 +770,23 @@ function normalizeSessionPacks(savedPacks) {
 function normalizePatientPacks(savedPacks) {
   return (Array.isArray(savedPacks) ? savedPacks : []).map((pack) => {
     const sessions = Math.max(1, Number(pack?.sessions ?? pack?.totalSessions ?? pack?.sessionCount ?? 1));
-    const used = Math.max(0, Number(pack?.used ?? pack?.usedSessions ?? 0));
+    const used = Math.max(0, Math.min(sessions, Number(pack?.used ?? pack?.usedSessions ?? 0)));
+    const explicitPaymentStatus = String(pack?.paymentStatus || pack?.payment_status || "").toLowerCase();
+    const paymentStatus = pack?.invoiceGenerated && !["refunded", "cancelled"].includes(explicitPaymentStatus)
+      ? "paid"
+      : (explicitPaymentStatus || (pack?.paymentAuthorized ? "authorized" : "pending"));
+    let usageStatus = String(pack?.usageStatus || pack?.usage_status || "").toLowerCase();
+    if (pack?.cancelled === true || usageStatus === "cancelled") {
+      usageStatus = "cancelled";
+    } else if (pack?.expiresAt && String(pack.expiresAt).slice(0, 10) < todayIso()) {
+      usageStatus = "expired";
+    } else if (used >= sessions) {
+      usageStatus = "used";
+    } else if (used > 0) {
+      usageStatus = "partially_used";
+    } else {
+      usageStatus = "available";
+    }
     return {
       id: `patient-pack-${Date.now()}`,
       patientId: "",
@@ -749,16 +794,20 @@ function normalizePatientPacks(savedPacks) {
       name: "Bono",
       sessions,
       totalSessions: sessions,
-      used: Math.min(sessions, used),
+      used,
       price: 0,
       expiresAt: "",
       serviceId: "",
       invoice: true,
+      paymentStatus,
+      usageStatus,
       createdAt: new Date().toLocaleString("es-ES"),
       ...pack,
       sessions,
       totalSessions: sessions,
-      used: Math.min(sessions, used)
+      used,
+      paymentStatus,
+      usageStatus
     };
   });
 }
@@ -4212,9 +4261,6 @@ function uiAppointmentToApi(candidate) {
       "paymentAmountCents",
       "paymentCollectedBy",
       "paymentCollectedByUserId",
-      "patientPackId",
-      "plannedPatientPackId",
-      "patientPackUsedAt",
       "invoiceGenerated",
       "invoiceGeneratedAt",
       "invoiceNumber",
@@ -5038,16 +5084,30 @@ function formDurationMinutes(form, fallback = 60) {
 
 function statusLabel(status) {
   return {
+    pending: "Pendiente",
     confirmed: "Confirmada",
+    completed: "Completada",
     cancelled: "Cancelada",
-    pending: "Confirmada",
-    completed: "Confirmada",
-    no_show: "Cancelada"
+    no_show: "No asistió"
   }[status] || status;
 }
 
 function normalizeAppointmentStatus(status) {
-  return ["cancelled", "no_show"].includes(status) ? "cancelled" : "confirmed";
+  const normalized = String(status || "confirmed").toLowerCase();
+  if (normalized === "no_show") return "cancelled";
+  return ["pending", "confirmed", "completed", "cancelled"].includes(normalized)
+    ? normalized
+    : "confirmed";
+}
+
+function appointmentIsCompleted(appointmentOrStatus) {
+  const status = typeof appointmentOrStatus === "object" ? appointmentOrStatus?.status : appointmentOrStatus;
+  return normalizeAppointmentStatus(status) === "completed";
+}
+
+function appointmentIsActive(appointmentOrStatus) {
+  const status = typeof appointmentOrStatus === "object" ? appointmentOrStatus?.status : appointmentOrStatus;
+  return ["pending", "confirmed", "completed"].includes(normalizeAppointmentStatus(status));
 }
 
 function servicePrice(appointment) {
@@ -5070,10 +5130,17 @@ function patientPackSessionCount(pack) {
   return Math.max(1, Number(pack?.sessions ?? pack?.totalSessions ?? pack?.sessionCount ?? 1));
 }
 
-function patientPackUnitValue(pack) {
+function patientPackUnitValueCents(pack, consumptionIndex = 1) {
   const sessions = patientPackSessionCount(pack);
-  const price = Number(pack?.price || 0);
-  return Math.round((price / sessions) * 100) / 100;
+  const totalCents = Math.max(0, Math.round(Number(pack?.price || 0) * 100));
+  const base = Math.floor(totalCents / sessions);
+  const remainder = totalCents % sessions;
+  const index = Math.max(1, Math.min(sessions, Number(consumptionIndex || 1)));
+  return base + (remainder > 0 && index > sessions - remainder ? 1 : 0);
+}
+
+function patientPackUnitValue(pack, consumptionIndex = 1) {
+  return patientPackUnitValueCents(pack, consumptionIndex) / 100;
 }
 
 function appointmentPaymentMovementFor(appointmentId) {
@@ -5087,16 +5154,17 @@ function appointmentPaymentMovementFor(appointmentId) {
 }
 
 function appointmentRevenueAmount(appointment) {
-  const packId = appointment?.patientPackId || appointment?.plannedPatientPackId || "";
-  if (packId) {
-    const pack = byId(patientPacks, packId);
-    const unitValue = patientPackUnitValue(pack);
-    if (unitValue > 0) {
-      return unitValue;
+  if (appointment?.patientPackId) {
+    const persistedCents = Number(appointment.patientPackUnitValueCents);
+    if (Number.isFinite(persistedCents) && persistedCents >= 0) {
+      return persistedCents / 100;
     }
-    const service = byId(services, appointment.serviceId);
-    return Number(service?.price || 0);
+    const pack = byId(patientPacks, appointment.patientPackId);
+    const unitValue = patientPackUnitValue(pack, appointment.patientPackConsumptionIndex || 1);
+    if (unitValue > 0) return unitValue;
+    return Number(byId(services, appointment.serviceId)?.price || 0);
   }
+  if (appointment?.plannedPatientPackId) return 0;
   const paymentMovement = appointmentPaymentMovementFor(appointment?.id);
   if (paymentMovement && Number(paymentMovement.amount) > 0) {
     return Number(paymentMovement.amount);
@@ -5169,12 +5237,9 @@ function paymentStatusLabel(value) {
 }
 
 function appointmentIsCharged(appointment) {
-  if (normalizeAppointmentStatus(appointment?.status) !== "confirmed") {
-    return false;
-  }
-  if (appointment?.patientPackId || appointment?.plannedPatientPackId) {
-    return true;
-  }
+  if (!appointmentIsActive(appointment)) return false;
+  if (appointment?.patientPackId) return appointmentIsCompleted(appointment);
+  if (appointment?.plannedPatientPackId) return false;
   return ["cash", "card", "transfer"].includes(appointmentPaymentStatus(appointment));
 }
 
@@ -5259,6 +5324,39 @@ function patientPackRemaining(pack) {
   return Math.max(0, patientPackSessionCount(pack) - Number(pack?.used || 0));
 }
 
+function patientPackPaymentStatus(pack) {
+  const explicit = String(pack?.paymentStatus || pack?.payment_status || "").toLowerCase();
+  if (pack?.invoiceGenerated && !["refunded", "cancelled"].includes(explicit)) return "paid";
+  return explicit || (pack?.paymentAuthorized ? "authorized" : "pending");
+}
+
+function patientPackUsageStatus(pack) {
+  const explicit = String(pack?.usageStatus || pack?.usage_status || "").toLowerCase();
+  if (explicit === "cancelled" || pack?.cancelled === true) return "cancelled";
+  if (isPatientPackExpired(pack)) return "expired";
+  const remaining = patientPackRemaining(pack);
+  if (remaining <= 0) return "used";
+  return Number(pack?.used || 0) > 0 ? "partially_used" : "available";
+}
+
+function patientPackIsAvailableForAppointment(pack, appointment = {}) {
+  return Boolean(
+    pack
+      && String(pack.patientId || "") === String(appointment.patientId || "")
+      && ["paid", "authorized"].includes(patientPackPaymentStatus(pack))
+      && ["available", "partially_used"].includes(patientPackUsageStatus(pack))
+      && patientPackRemaining(pack) > 0
+      && !isPatientPackExpired(pack)
+      && (!pack.serviceId || String(pack.serviceId) === String(appointment.serviceId || ""))
+  );
+}
+
+function patientPackAppointmentLabel(pack) {
+  const remaining = patientPackRemaining(pack);
+  const total = patientPackSessionCount(pack);
+  return `${pack?.name || "Bono"} · ${remaining} de ${total} disponibles · ${patientPackExpiryLabel(pack)}`;
+}
+
 function patientPackCounters(pack) {
   const sessions = patientPackSessionCount(pack);
   const used = Math.max(0, Number(pack?.used || 0));
@@ -5335,29 +5433,26 @@ function refreshPatientPackTemplateSelector() {
 
 
 function patientPackActualUsedCount(pack) {
-  if (!pack?.id) {
-    return 0;
-  }
+  if (!pack?.id) return 0;
   return appointments.filter((appointment) => (
     String(appointment.patientPackId || "") === String(pack.id)
-      && normalizeAppointmentStatus(appointment.status) === "confirmed"
+      && appointmentIsCompleted(appointment)
   )).length;
 }
 
 function syncPatientPackUsageFromAppointments(options = {}) {
+  if (backendDataEnabled()) {
+    return false;
+  }
   let changed = false;
   patientPacks = patientPacks.map((pack) => {
     const actualUsed = Math.min(Math.max(0, Number(pack.sessions || 0)), patientPackActualUsedCount(pack));
     if (pack.usageSource === "manual-correction") {
-      if (Number(pack.linkedAppointmentUses || 0) === actualUsed) {
-        return pack;
-      }
+      if (Number(pack.linkedAppointmentUses || 0) === actualUsed) return pack;
       changed = true;
       return { ...pack, linkedAppointmentUses: actualUsed, updatedAt: new Date().toISOString() };
     }
-    if (Number(pack.used || 0) === actualUsed) {
-      return pack;
-    }
+    if (Number(pack.used || 0) === actualUsed) return pack;
     changed = true;
     return { ...pack, used: actualUsed, updatedAt: new Date().toISOString(), usageSource: "appointments" };
   });
@@ -5418,7 +5513,7 @@ function refreshPatientPacksForTransaction() {
 
 function validatePatientPackConsumption(pack, context = {}) {
   if (!pack) {
-    return "El bono seleccionado no existe o ya no esta asignado al paciente.";
+    return "El bono seleccionado no existe o ya no está asignado al paciente.";
   }
   if (context.patientId && String(pack.patientId) !== String(context.patientId)) {
     return "El bono seleccionado pertenece a otro paciente.";
@@ -5426,15 +5521,16 @@ function validatePatientPackConsumption(pack, context = {}) {
   if (context.serviceId && pack.serviceId && String(pack.serviceId) !== String(context.serviceId)) {
     return `Este bono solo es aplicable a ${packServiceLabel(pack)}.`;
   }
+  if (!["paid", "authorized"].includes(patientPackPaymentStatus(pack))) {
+    return "Este bono todavía no está pagado o autorizado.";
+  }
+  const usageStatus = patientPackUsageStatus(pack);
+  if (usageStatus === "cancelled") return "Este bono está cancelado.";
+  if (usageStatus === "expired") return `El bono ${pack.name || ""} está caducado desde ${formatShortDate(pack.expiresAt)}.`;
   const counters = patientPackCounters(pack);
-  if (counters.sessions <= 0) {
-    return "Este bono no tiene sesiones configuradas.";
-  }
-  if (counters.used >= counters.sessions) {
-    return `El bono ${pack.name || ""} esta agotado: ${counters.used}/${counters.sessions} sesiones consumidas. No se puede descontar otra sesion.`;
-  }
-  if (isPatientPackExpired(pack)) {
-    return `El bono ${pack.name || ""} esta caducado desde ${formatShortDate(pack.expiresAt)}.`;
+  if (counters.sessions <= 0) return "Este bono no tiene sesiones configuradas.";
+  if (counters.used >= counters.sessions || usageStatus === "used") {
+    return `El bono ${pack.name || ""} está agotado: ${counters.used}/${counters.sessions} sesiones consumidas.`;
   }
   return "";
 }
@@ -5482,12 +5578,7 @@ function consumePatientPackTransaction(packId, context = {}) {
 }
 
 function patientPacksForAppointment(appointment) {
-  return patientPacks.filter((pack) => (
-    String(pack.patientId) === String(appointment.patientId)
-      && patientPackRemaining(pack) > 0
-      && !isPatientPackExpired(pack)
-      && (!pack.serviceId || String(pack.serviceId) === String(appointment.serviceId))
-  ));
+  return patientPacks.filter((pack) => patientPackIsAvailableForAppointment(pack, appointment));
 }
 
 function usePatientPackForAppointment(appointment, packId) {
@@ -6480,16 +6571,17 @@ function updateAppointmentPackOptions(form = $("#appointment-form")) {
   if (!field || !select) return;
   const patientId = form.elements.patient?.value || "";
   const serviceId = form.elements.service?.value || "";
-  const packs = patientPacks.filter((pack) => (
-    String(pack.patientId) === String(patientId)
-      && patientPackRemaining(pack) > 0
-      && !isPatientPackExpired(pack)
-      && (!pack.serviceId || String(pack.serviceId) === String(serviceId))
-  ));
+  const packs = patientPacksForAppointment({ patientId, serviceId });
   select.innerHTML = "";
   select.append(new Option("No usar bono", ""));
-  packs.forEach((pack) => select.append(new Option(`${pack.name} - ${patientPackRemaining(pack)} disponibles - ${patientPackExpiryLabel(pack)}`, pack.id)));
-  field.classList.toggle("hidden", packs.length === 0);
+  packs.forEach((pack) => select.append(new Option(patientPackAppointmentLabel(pack), pack.id)));
+  field.classList.remove("hidden");
+  const emptyMessage = packs.length
+    ? ""
+    : "Este paciente no tiene bonos disponibles para este servicio.";
+  select.title = emptyMessage;
+  const hint = field.querySelector(".field-hint");
+  if (hint) hint.textContent = emptyMessage || "La sesión se descontará cuando la cita se marque como completada.";
 }
 
 function appointmentOutsideHoursMessage(form = $("#appointment-form")) {
@@ -7933,7 +8025,7 @@ function renderPatientDetail() {
       <article class="compact-item action-card patient-pack-card">
         <div>
           <strong>${escapeHtml(item.name)}</strong>
-          <span>${remaining} disponibles de ${item.sessions} (${Number(item.used || 0)} utilizadas) - ${expired ? "Caducado - " : remaining <= 0 ? "Agotado - " : ""}${item.price} EUR - ${packServiceLabel(item)} - ${patientPackExpiryLabel(item)} ${item.invoice ? "- Facturable" : ""}${item.invoiceGenerated ? ` - ${item.invoiceNumber || "Factura generada"}` : ""}</span>
+          <span>${remaining} disponibles de ${item.sessions} (${Number(item.used || 0)} utilizadas) · ${item.price} EUR · ${packServiceLabel(item)} · ${patientPackExpiryLabel(item)} · Pago: ${patientPackPaymentStatus(item) === "paid" ? "Pagado" : patientPackPaymentStatus(item) === "authorized" ? "Autorizado" : "Pendiente"} · Uso: ${expired ? "Caducado" : remaining <= 0 ? "Agotado" : Number(item.used || 0) > 0 ? "En uso" : "Disponible"}${item.invoiceGenerated ? ` · ${item.invoiceNumber || "Factura generada"}` : ""}</span>
         </div>
         <div class="compact-actions">
           <button class="secondary-button compact-inline-button" type="button" data-edit-patient-pack="${item.id}">Editar</button>
@@ -7949,7 +8041,7 @@ function renderPatientDetail() {
     .filter((appointment) => (
       appointment.patientId === patient.id
         && byId(services, appointment.serviceId)?.type !== "group"
-        && normalizeAppointmentStatus(appointment.status) === "confirmed"
+        && appointmentIsActive(appointment)
         && !appointment.patientPackId
         && !appointment.plannedPatientPackId
     ))
@@ -9352,7 +9444,7 @@ function practitionerOccupancyReport(practitioner, range = calendarRange()) {
     total + availableMinutesForPractitionerDay(practitioner, dateValue)
   ), 0);
   const appointmentMinutes = appointments
-    .filter((appointment) => normalizeAppointmentStatus(appointment.status) === "confirmed")
+    .filter((appointment) => appointmentIsActive(appointment))
     .filter((appointment) => String(appointment.practitionerId) === String(practitioner.id))
     .filter((appointment) => (appointment.date || selectedDate) >= range.start && (appointment.date || selectedDate) <= range.end)
     .reduce((total, appointment) => total + appointmentDurationMinutes(appointment), 0);
@@ -13744,7 +13836,7 @@ function openAppointmentDetail(appointmentId) {
   }
   if (productionText) {
     productionText.textContent = appointmentHasPack
-      ? `Esta cita está cubierta por bono. No genera un nuevo cobro ni pendiente de facturación; al guardarla como confirmada cuenta como producción interna (${productionAmount} EUR) para rendimiento.`
+      ? `Esta cita está cubierta por bono. No genera un nuevo cobro ni pendiente de facturación; al guardarla como completada cuenta como producción interna (${productionAmount} EUR) para rendimiento.`
       : "";
   }
   if (form.elements.cancelledBy) {
@@ -13758,13 +13850,19 @@ function openAppointmentDetail(appointmentId) {
     const availablePacks = patientPacksForAppointment(appointment);
     packSelect.innerHTML = "";
     packSelect.append(new Option("No usar bono", ""));
-    availablePacks.forEach((pack) => packSelect.append(new Option(`${pack.name} - ${patientPackRemaining(pack)} disponibles - ${patientPackExpiryLabel(pack)}`, pack.id)));
+    availablePacks.forEach((pack) => packSelect.append(new Option(patientPackAppointmentLabel(pack), pack.id)));
     if (selectedPackId && !availablePacks.some((pack) => String(pack.id) === String(selectedPackId))) {
       const usedPack = byId(patientPacks, selectedPackId);
-      if (usedPack) packSelect.append(new Option(`${usedPack.name} - ${appointment.patientPackId ? "aplicado" : "previsto"}`, usedPack.id));
+      if (usedPack) {
+        const appliedLabel = appointment.patientPackId ? "sesión consumida" : "previsto";
+        packSelect.append(new Option(`${usedPack.name} · ${appliedLabel} · ${patientPackRemaining(usedPack)} restantes`, usedPack.id));
+      }
     }
     packSelect.value = selectedPackId;
-    packField.classList.toggle("hidden", packSelect.options.length <= 1 && !selectedPackId);
+    packField.classList.remove("hidden");
+    packSelect.title = availablePacks.length || selectedPackId
+      ? ""
+      : "Este paciente no tiene bonos disponibles para este servicio.";
   }
   form.elements.internalNotes.value = appointment.internalNotes || "";
   updateAppointmentDetailDuration(form);
@@ -13868,41 +13966,15 @@ async function generateInvoiceForAppointment(appointment) {
 
   try {
     const hasPack = Boolean(appointment.patientPackId || appointment.plannedPatientPackId);
-    let invoiceAppointment = { ...appointment };
-    if (hasPack && !appointment.invoiceGenerated) {
-      const pack = byId(patientPacks, appointment.patientPackId || appointment.plannedPatientPackId);
-      if (!appointment.patientPackId) {
-        const validationMessage = validatePatientPackConsumption(pack, {
-          patientId: appointment.patientId,
-          serviceId: appointment.serviceId
-        });
-        if (validationMessage) {
-          await showNotice("Bono no disponible", `No se puede facturar esta cita como cubierta por bono. ${validationMessage}`, { variant: "warning" });
-          return;
-        }
-      }
-      const confirmed = await showConfirm({
-        title: "Confirmar facturacion con bono",
-        message: `Esta cita usa el bono ${pack?.name || "del paciente"}.`,
-        detail: "Solo se generara la factura si confirmas. El importe sera 0 EUR porque la sesion queda cubierta por el bono.",
-        confirmLabel: "Generar factura",
-        variant: "primary"
-      });
-      if (!confirmed) return;
-      if (!appointment.patientPackId && appointment.plannedPatientPackId) {
-        const consumeResult = usePatientPackForAppointment(appointment, appointment.plannedPatientPackId);
-        if (!consumeResult.ok) {
-          await showNotice("Bono no disponible", consumeResult.message || "No quedan sesiones disponibles en el bono seleccionado.", { variant: "warning" });
-          return;
-        }
-        invoiceAppointment = {
-          ...appointment,
-          patientPackId: appointment.plannedPatientPackId,
-          plannedPatientPackId: "",
-          patientPackUsedAt: consumeResult.consumedAt || new Date().toISOString()
-        };
-      }
+    if (hasPack) {
+      await showNotice(
+        "Cita cubierta por bono",
+        "La venta del bono ya se factura una sola vez desde la ficha del paciente. Esta sesión no genera un nuevo cobro.",
+        { variant: "warning" }
+      );
+      return;
     }
+    let invoiceAppointment = { ...appointment };
 
     const patient = byId(patients, invoiceAppointment.patientId);
     const practitioner = byId(practitioners, invoiceAppointment.practitionerId);
@@ -13978,6 +14050,7 @@ function setupAppointmentDetail() {
     if (detailError) detailError.textContent = "";
     const nextStatus = normalizeAppointmentStatus(form.elements.status.value);
     const finalStatusIsCancelled = nextStatus === "cancelled";
+    const finalStatusIsCompleted = nextStatus === "completed";
     const existingAppointment = byId(appointments, selectedAppointmentId);
     if (!existingAppointment) {
       if (detailError) {
@@ -14021,52 +14094,16 @@ function setupAppointmentDetail() {
       }
     }
     const selectedPackId = form.elements.patientPack?.value || "";
-    let nextPatientPackId = existingAppointment?.patientPackId || "";
-    let nextPlannedPatientPackId = existingAppointment?.plannedPatientPackId || "";
-    let nextPatientPackUsedAt = existingAppointment?.patientPackUsedAt || "";
-    let restoredExistingPack = false;
-    let consumedPatientPackAt = "";
-    if (existingAppointment?.patientPackId && (finalStatusIsCancelled || existingAppointment.patientPackId !== selectedPackId)) {
-      restorePatientPackUse(existingAppointment.patientPackId);
-      nextPatientPackId = "";
-      nextPatientPackUsedAt = "";
-      restoredExistingPack = true;
-    }
-    if (!finalStatusIsCancelled && selectedPackId && String(existingAppointment?.patientPackId || "") !== String(selectedPackId || "")) {
-      const consumeResult = usePatientPackForAppointment(scheduleCandidate, selectedPackId);
-      if (!consumeResult.ok) {
-        if (restoredExistingPack && existingAppointment?.patientPackId) {
-          usePatientPackForAppointment(scheduleCandidate, existingAppointment.patientPackId);
-          nextPatientPackId = existingAppointment.patientPackId;
-          nextPatientPackUsedAt = existingAppointment.patientPackUsedAt || new Date().toISOString();
-        }
-        const message = consumeResult.message || "El bono seleccionado no tiene sesiones disponibles. No se puede confirmar esta cita consumiendo ese bono.";
-        if (detailError) {
-          detailError.textContent = message;
-          detailError.classList.add("visible");
-        } else {
-          await showNotice("Bono agotado", message, { variant: "warning" });
-        }
-        return;
-      }
-      nextPatientPackId = selectedPackId;
-      nextPlannedPatientPackId = "";
-      consumedPatientPackAt = consumeResult.consumedAt || new Date().toISOString();
-      nextPatientPackUsedAt = consumedPatientPackAt;
-    }
-    if (!finalStatusIsCancelled && selectedPackId && String(existingAppointment?.patientPackId || "") === String(selectedPackId || "")) {
-      nextPatientPackId = selectedPackId;
-      nextPlannedPatientPackId = "";
-      nextPatientPackUsedAt = existingAppointment.patientPackUsedAt || new Date().toISOString();
-    }
-    if (!finalStatusIsCancelled && !selectedPackId) {
-      nextPlannedPatientPackId = "";
-      nextPatientPackId = "";
-      nextPatientPackUsedAt = "";
-    }
-    if (finalStatusIsCancelled) {
-      nextPlannedPatientPackId = "";
-    }
+    const sameExistingConsumption = Boolean(
+      finalStatusIsCompleted
+        && selectedPackId
+        && String(existingAppointment?.patientPackId || "") === String(selectedPackId)
+    );
+    const nextPatientPackId = finalStatusIsCompleted ? selectedPackId : "";
+    const nextPlannedPatientPackId = !finalStatusIsCancelled && !finalStatusIsCompleted ? selectedPackId : "";
+    const nextPatientPackUsedAt = sameExistingConsumption
+      ? (existingAppointment?.patientPackUsedAt || "")
+      : "";
     const cancelledBy = finalStatusIsCancelled
       ? (form.elements.cancelledBy?.value.trim() || currentSessionName())
       : "";
@@ -14095,7 +14132,6 @@ function setupAppointmentDetail() {
       saveClinicState("appointments", appointments);
       syncReminderLinksForAppointments([updatedAppointment]);
       await flushReminderActionsSync();
-      syncPatientPackUsageFromAppointments({ persist: true });
       $("#appointment-detail-dialog")?.close();
       try {
         renderAll();
@@ -14118,7 +14154,7 @@ function setupAppointmentDetail() {
       ...paymentFields,
       patientPackId: nextPatientPackId,
       plannedPatientPackId: nextPlannedPatientPackId,
-      patientPackUsedAt: nextPatientPackId ? (nextPatientPackUsedAt || consumedPatientPackAt || new Date().toISOString()) : "",
+      patientPackUsedAt: nextPatientPackUsedAt,
       outsideHours: !finalStatusIsCancelled && isOutsidePractitionerHours(byId(practitioners, nextPractitionerId), scheduleCandidate.start, scheduleCandidate.end, scheduleCandidate.date),
       outsideHoursNotice: !finalStatusIsCancelled && isOutsidePractitionerHours(byId(practitioners, nextPractitionerId), scheduleCandidate.start, scheduleCandidate.end, scheduleCandidate.date)
         ? "Está creando una cita fuera de horario"
@@ -14136,13 +14172,16 @@ function setupAppointmentDetail() {
     if (backendDataEnabled()) {
       try {
         let savedAppointment = await saveAppointmentToBackend(localUpdate, selectedAppointmentId);
-        savedAppointment = await saveAppointmentPaymentToBackend(
-          {
-            ...savedAppointment,
-            ...paymentFields
-          },
-          requestedPaymentStatus
-        );
+        if (!nextPatientPackId && !nextPlannedPatientPackId) {
+          savedAppointment = await saveAppointmentPaymentToBackend(
+            {
+              ...savedAppointment,
+              ...paymentFields
+            },
+            requestedPaymentStatus
+          );
+        }
+        await refreshPatientPacksFromBackend();
         await finish(savedAppointment);
         if (isBackendRealtimeSection()) {
           await refreshRealtimeClinicData("appointment-payment-save");
@@ -14166,6 +14205,24 @@ function setupAppointmentDetail() {
       return;
     }
 
+    if (existingAppointment?.patientPackId && (
+      !finalStatusIsCompleted || String(existingAppointment.patientPackId) !== String(selectedPackId)
+    )) {
+      restorePatientPackUse(existingAppointment.patientPackId);
+    }
+    if (finalStatusIsCompleted && selectedPackId && !sameExistingConsumption) {
+      const consumeResult = usePatientPackForAppointment(scheduleCandidate, selectedPackId);
+      if (!consumeResult.ok) {
+        if (detailError) {
+          detailError.textContent = consumeResult.message || "No se pudo descontar la sesión del bono.";
+          detailError.classList.add("visible");
+        }
+        form.dataset.saving = "";
+        if (submitButton) submitButton.disabled = false;
+        return;
+      }
+      localUpdate.patientPackUsedAt = consumeResult.consumedAt || new Date().toISOString();
+    }
     await finish(localUpdate);
     form.dataset.saving = "";
     if (submitButton) submitButton.disabled = false;
@@ -16124,14 +16181,14 @@ function setupPatientConsentsAndPacks() {
     openPatientConsentDialog();
   });
 
-  $("#assign-patient-pack")?.addEventListener("click", () => {
+  $("#assign-patient-pack")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (button?.dataset.saving === "true") return;
     refreshPatientPackTemplateSelector();
     const patient = byId(patients, selectedPatientId);
     const selectedPackId = $("#patient-pack-template")?.value || "";
     const pack = byId(availableSessionPacksForAssignment(), selectedPackId);
-    if (!patient) {
-      return;
-    }
+    if (!patient) return;
     if (!pack) {
       const list = $("#patient-packs");
       if (list) {
@@ -16139,21 +16196,44 @@ function setupPatientConsentsAndPacks() {
       }
       return;
     }
-    patientPacks = [...patientPacks, {
-      id: `patient-pack-${Date.now()}`,
+
+    const previousPacks = patientPacks;
+    const assignedPack = {
+      id: `patient-pack-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       patientId: patient.id,
       packId: pack.id,
       name: pack.name,
-      sessions: pack.sessions,
+      sessions: Math.max(1, Number(pack.sessions || 1)),
+      totalSessions: Math.max(1, Number(pack.sessions || 1)),
       used: 0,
-      price: pack.price,
+      price: Math.max(0, Number(pack.price || 0)),
       serviceId: pack.serviceId || "",
       invoice: pack.invoice,
+      paymentStatus: "pending",
+      usageStatus: "available",
       expiresAt: sessionPackExpiryDate(pack),
-      createdAt: new Date().toLocaleString("es-ES")
-    }];
-    saveSyncedClinicState("patient-packs", patientPacks);
-    renderPatientDetail();
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    patientPacks = normalizePatientPacks([...patientPacks, assignedPack]);
+    if (button) {
+      button.dataset.saving = "true";
+      button.disabled = true;
+    }
+    try {
+      await persistPatientPacksState();
+      renderPatientDetail();
+      renderBilling();
+      showToast("Bono asignado. Factúralo para poder utilizarlo en citas.");
+    } catch (error) {
+      patientPacks = previousPacks;
+      renderPatientDetail();
+    } finally {
+      if (button) {
+        button.dataset.saving = "";
+        button.disabled = false;
+      }
+    }
   });
 
   $("#patient-pack-form")?.addEventListener("submit", async (event) => {
@@ -16212,7 +16292,7 @@ function setupPatientConsentsAndPacks() {
         linkedAppointmentUses: actualUsed
       });
     }
-    saveSyncedClinicState("patient-packs", patientPacks);
+    await persistPatientPacksState();
     $("#patient-pack-dialog").close();
     renderPatientDetail();
     renderBilling();
@@ -16223,9 +16303,9 @@ function setupPatientConsentsAndPacks() {
     });
   });
 
-  $("#invoice-patient-pack")?.addEventListener("click", () => {
+  $("#invoice-patient-pack")?.addEventListener("click", async () => {
     const packId = $("#patient-pack-form")?.dataset.editingPatientPackId;
-    if (packId) generateInvoiceForPatientPack(packId);
+    if (packId) await generateInvoiceForPatientPack(packId);
   });
 }
 
@@ -16315,7 +16395,7 @@ function openPatientPackDialog(packId) {
   $("#patient-pack-dialog").showModal();
 }
 
-function generateInvoiceForPatientPack(packId) {
+async function generateInvoiceForPatientPack(packId) {
   const pack = byId(patientPacks, packId);
   if (!pack) return;
   const form = $("#patient-pack-form");
@@ -16344,14 +16424,34 @@ function generateInvoiceForPatientPack(packId) {
 <table><thead><tr><th>Concepto</th><th>Servicio</th><th>Sesiones</th><th>Importe</th></tr></thead><tbody><tr><td>${pack.name}</td><td>${packServiceLabel(pack)}</td><td>${pack.sessions}</td><td>${pack.price} EUR</td></tr></tbody></table>
 <p class="total">Total: ${pack.price} EUR</p>
 </body></html>`;
-  downloadTextFile(`factura-${invoiceNumber}.html`, html, "text/html");
-  patientPacks = patientPacks.map((item) => String(item.id) === String(pack.id)
-    ? { ...item, invoice: true, invoiceGenerated: true, invoiceGeneratedAt: new Date().toISOString(), invoiceNumber, paymentMethod: selectedPaymentMethod }
+  const previousPacks = patientPacks;
+  const paidAt = pack.invoiceGeneratedAt || new Date().toISOString();
+  patientPacks = normalizePatientPacks(patientPacks.map((item) => String(item.id) === String(pack.id)
+    ? {
+        ...item,
+        invoice: true,
+        invoiceGenerated: true,
+        invoiceGeneratedAt: paidAt,
+        invoiceNumber,
+        paymentMethod: selectedPaymentMethod,
+        paymentStatus: "paid",
+        usageStatus: patientPackUsageStatus(item),
+        updatedAt: new Date().toISOString()
+      }
     : item
-  );
-  saveSyncedClinicState("patient-packs", patientPacks);
+  ));
+  try {
+    await persistPatientPacksState();
+  } catch (error) {
+    patientPacks = previousPacks;
+    renderPatientDetail();
+    renderBilling();
+    return;
+  }
+  downloadTextFile(`factura-${invoiceNumber}.html`, html, "text/html");
   renderPatientDetail();
   renderBilling();
+  showToast("Bono facturado. Sigue disponible hasta agotar sus sesiones.");
 }
 
 
@@ -16831,13 +16931,23 @@ function setupMobileNavigation() {
 
 function setupPwaInstall() {
   const installButton = $("#install-app");
+  const standalone = window.matchMedia?.("(display-mode: standalone)")?.matches
+    || window.navigator.standalone === true;
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
 
   if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js").catch((error) => {
+    window.addEventListener("load", async () => {
+      try {
+        const registration = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+        await registration.update();
+      } catch (error) {
         console.warn("Klinia PWA service worker unavailable.", error);
-      });
+      }
     });
+  }
+
+  if (installButton && !standalone && isIos) {
+    installButton.classList.remove("hidden");
   }
 
   window.addEventListener("beforeinstallprompt", (event) => {
@@ -16847,13 +16957,26 @@ function setupPwaInstall() {
   });
 
   installButton?.addEventListener("click", async () => {
-    if (!deferredInstallPrompt) {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice.catch(() => null);
+      deferredInstallPrompt = null;
+      installButton.classList.add("hidden");
       return;
     }
-    deferredInstallPrompt.prompt();
-    await deferredInstallPrompt.userChoice.catch(() => null);
-    deferredInstallPrompt = null;
-    installButton.classList.add("hidden");
+    if (isIos) {
+      await showNotice(
+        "Instalar Klinia",
+        "En Safari, pulsa Compartir y después Añadir a pantalla de inicio.",
+        { variant: "primary" }
+      );
+      return;
+    }
+    await showNotice(
+      "Instalar Klinia",
+      "Abre el menú del navegador y selecciona Instalar aplicación o Añadir a pantalla de inicio.",
+      { variant: "primary" }
+    );
   });
 
   window.addEventListener("appinstalled", () => {
