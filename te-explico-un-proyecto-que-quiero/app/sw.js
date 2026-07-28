@@ -1,9 +1,9 @@
-const KLINIA_CACHE = "klinia-20260723-bonos-native";
+const KLINIA_CACHE = "klinia-20260728-bonos-lifecycle";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260723-bonos-native",
-  "./app.js?v=20260723-bonos-native",
+  "./styles.css?v=20260722-agenda-bonos-logo-google",
+  "./app.js?v=20260728-bonos-lifecycle",
   "./manifest.webmanifest",
   "./offline.html",
   "./assets/klinia-logo.svg",
