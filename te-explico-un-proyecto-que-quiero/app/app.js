@@ -961,6 +961,7 @@ const appointmentDragMime = "application/x-klinia-appointment";
 let draggedAppointmentId = "";
 let suppressAppointmentClickUntil = 0;
 let backendAutoSyncTimer = null;
+let backendRealtimeRefreshTimer = null;
 let backendAutoSyncInProgress = false;
 let backendActiveHydrationPromise = null;
 let backendActiveHydrationClinicKey = "";
@@ -6298,10 +6299,11 @@ function activePractitioners() {
   return practitioners.filter((practitioner) => practitioner.active !== false);
 }
 
-function beginAgendaPractitionerLoad(clinicKey = activeClinicKey) {
+function beginAgendaPractitionerLoad(clinicKey = activeClinicKey, options = {}) {
   const requestId = ++agendaPractitionerRequestSequence;
+  const hasValidPractitioners = clinicKey === activeClinicKey && activePractitioners().length > 0;
   agendaPractitionerLoadState = {
-    status: "loading",
+    status: !options.initial && hasValidPractitioners ? "refreshing" : "loading",
     clinicKey,
     requestId
   };
@@ -12047,11 +12049,13 @@ function runBackendHydration(options = {}) {
     if (backendActiveHydrationClinicKey === requestedClinicKey) {
       return backendActiveHydrationPromise;
     }
-    beginAgendaPractitionerLoad(requestedClinicKey);
+    beginAgendaPractitionerLoad(requestedClinicKey, { initial: !activePractitioners().length });
     return backendActiveHydrationPromise.finally(() => runBackendHydration(options));
   }
 
-  const practitionerRequestId = beginAgendaPractitionerLoad(requestedClinicKey);
+  const practitionerRequestId = beginAgendaPractitionerLoad(requestedClinicKey, {
+    initial: Boolean(options.initial || !activePractitioners().length)
+  });
   backendAutoSyncInProgress = true;
   backendActiveHydrationClinicKey = requestedClinicKey;
   if (options.initial || !activePractitioners().length) {
@@ -12094,6 +12098,10 @@ function stopBackendAutoSync() {
     window.clearInterval(backendAutoSyncTimer);
     backendAutoSyncTimer = null;
   }
+  if (backendRealtimeRefreshTimer) {
+    window.clearTimeout(backendRealtimeRefreshTimer);
+    backendRealtimeRefreshTimer = null;
+  }
 }
 
 function isBackendRealtimeSection(section = activeSection) {
@@ -12101,6 +12109,10 @@ function isBackendRealtimeSection(section = activeSection) {
 }
 
 async function refreshRealtimeClinicData(reason = "manual") {
+  if (backendRealtimeRefreshTimer) {
+    window.clearTimeout(backendRealtimeRefreshTimer);
+    backendRealtimeRefreshTimer = null;
+  }
   if (isSuperadminSession() || !shouldAutoSyncBackend({ force: true })) {
     return false;
   }
@@ -12119,7 +12131,11 @@ function requestRealtimeRefresh(reason = "navigation") {
   if (!isBackendRealtimeSection()) {
     return;
   }
-  window.setTimeout(() => {
+  if (backendRealtimeRefreshTimer) {
+    window.clearTimeout(backendRealtimeRefreshTimer);
+  }
+  backendRealtimeRefreshTimer = window.setTimeout(() => {
+    backendRealtimeRefreshTimer = null;
     refreshRealtimeClinicData(reason);
   }, 0);
 }
@@ -12177,7 +12193,7 @@ function setupNavigation() {
   });
 }
 
-function setActiveSection(section, persist = true) {
+function setActiveSection(section, persist = true, options = {}) {
   if (!visibleSectionIds.includes(section)) {
     section = "agenda";
   }
@@ -12212,7 +12228,7 @@ function setActiveSection(section, persist = true) {
         console.warn("Klinia reminder statuses load failed on section open", error);
       });
   }
-  if (isBackendRealtimeSection(activeSection)) {
+  if (options.refresh !== false && isBackendRealtimeSection(activeSection)) {
     requestRealtimeRefresh(`section:${activeSection}`);
   }
   return true;
@@ -12232,10 +12248,10 @@ function entrySectionForCurrentSession() {
   return allowedSections.find((section) => visibleSectionIds.includes(section) && canAccessSection(section)) || "agenda";
 }
 
-function setEntrySection(persist = true) {
+function setEntrySection(persist = true, options = {}) {
   const targetSection = entrySectionForCurrentSession();
-  if (!setActiveSection(targetSection, persist) && targetSection !== "agenda") {
-    setActiveSection("agenda", persist);
+  if (!setActiveSection(targetSection, persist, options) && targetSection !== "agenda") {
+    setActiveSection("agenda", persist, options);
   }
 }
 
@@ -12331,14 +12347,14 @@ function enterPlatform(profile, clinicKey = demoClinicKey) {
   saveState("authenticated-at", Date.now());
   applyLoginState();
   if (backendDataEnabled()) {
-    beginAgendaPractitionerLoad(activeClinicKey);
+    beginAgendaPractitionerLoad(activeClinicKey, { initial: !activePractitioners().length });
     backendInitialLoadPending = true;
     backendInitialLoadError = false;
   }
   renderFilters();
   renderAppointmentFormOptions();
   renderSession();
-  setEntrySection(true);
+  setEntrySection(true, { refresh: false });
   renderAll();
   if (blocked) {
     showToast(subscriptionBlockMessage(account), "warning");
@@ -12388,11 +12404,11 @@ async function restoreAuthenticatedSessionOnLoad() {
   }
 
   if (backendDataEnabled(account)) {
-    beginAgendaPractitionerLoad(activeClinicKey);
+    beginAgendaPractitionerLoad(activeClinicKey, { initial: !activePractitioners().length });
     backendInitialLoadPending = true;
     backendInitialLoadError = false;
   }
-  setEntrySection(true);
+  setEntrySection(true, { refresh: false });
 
   if (!backendAuthoritativeMode(account)) {
     startBackendAutoSync();
