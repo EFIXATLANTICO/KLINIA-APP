@@ -8721,6 +8721,7 @@ function renderPatientDetail() {
         <div>
           <strong>${escapeHtml(item.templateName || "Consentimiento")}</strong>
           <span>${escapeHtml(item.createdAt)} - ${escapeHtml(patientConsentStatusText(item))}${item.city ? ` - ${escapeHtml(item.city)}` : ""}${item.signatureDate ? ` - ${escapeHtml(formatConsentDate(item.signatureDate))}` : ""}</span>
+          ${item.signerType === "representative" ? `<span>Consentimiento firmado por ${escapeHtml(item.signerName || "Representante legal")}, ${escapeHtml(item.signerRelationship || "representante legal")} y representante legal del paciente.</span>` : ""}
           ${item.fileData ? `
             <div class="signed-consent-file">
               <strong>${escapeHtml(item.fileName || "consentimiento-firmado.html")}</strong>
@@ -16708,6 +16709,9 @@ function buildPatientConsentFile(consent, patient = null) {
   const patientData = consent?.fiscalData || {};
   const patientName = patient?.name || patientData.name || "Paciente";
   const signatureDate = consent?.signatureDateLabel || formatConsentDate(consent?.signatureDate) || "";
+  const signerName = consent?.signerName || patientName;
+  const signerRelationship = consent?.signerRelationship || "paciente";
+  const signerHeading = consent?.signerType === "representative" ? "Firma del representante legal" : "Firma del paciente";
   const revokedInfo = consent?.revoked
     ? `Revocado el ${consent.revokedAt ? new Date(consent.revokedAt).toLocaleString("es-ES") : ""}${consent.revokedBy ? ` por ${escapeHtml(consent.revokedBy)}` : ""}.`
     : "Sin revocacion registrada.";
@@ -16732,11 +16736,12 @@ function buildPatientConsentFile(consent, patient = null) {
     <span class="label">Email</span><span>${escapeHtml(patient?.email || patientData.email || "No indicado")}</span>
     <span class="label">Telefono</span><span>${escapeHtml(patient?.phone || patientData.phone || "No indicado")}</span>
     <span class="label">Direccion</span><span>${escapeHtml(patientLocationLine(patient) || patientData.address || "No indicada")}</span>
+    <span class="label">Firmante</span><span>${escapeHtml(signerName)}${consent?.signerType === "representative" ? ` · ${escapeHtml(signerRelationship)} y representante legal` : ""}</span>
   </section>
   <section class="document">${escapeHtml(consent?.body || "")}</section>
   <section class="signature">
-    <h2>Firma del paciente</h2>
-    ${consent?.signatureData ? `<img src="${consent.signatureData}" alt="Firma del paciente">` : `<p class="muted">Sin firma registrada.</p>`}
+    <h2>${escapeHtml(signerHeading)}</h2>
+    ${consent?.signatureData ? `<img src="${consent.signatureData}" alt="${escapeHtml(signerHeading)}">` : `<p class="muted">Sin firma registrada.</p>`}
   </section>
   <section class="revocation">
     <h2>Revocacion de consentimiento</h2>
@@ -16991,6 +16996,67 @@ function renderPatientConsentTemplateList(selectedTemplateId = "", locked = fals
   });
 }
 
+
+function populatePatientConsentSignerOptions(patient, existing = null) {
+  const form = $("#patient-consent-form");
+  const select = form?.elements.signer;
+  const help = $("#patient-consent-signer-help");
+  if (!select || !patient) return;
+  const representatives = legalRepresentativesForPatient(patient.id, { activeOnly: true })
+    .filter((item) => item.canSignConsents);
+  select.innerHTML = "";
+  select.append(new Option(patient.name || "Paciente", "patient"));
+  representatives.forEach((representative) => {
+    select.append(new Option(
+      `${legalRepresentativeName(representative)} · ${legalRelationshipLabel(representative)}`,
+      `representative:${representative.id}`
+    ));
+  });
+  const primary = representatives.find((item) => item.isPrimaryContact) || representatives[0];
+  const defaultValue = existing?.representativeId
+    ? `representative:${existing.representativeId}`
+    : (patientIsMinor(patient) && primary ? `representative:${primary.id}` : "patient");
+  select.value = [...select.options].some((option) => option.value === defaultValue) ? defaultValue : "patient";
+  if (help) {
+    help.textContent = patientIsMinor(patient) && !representatives.length
+      ? "No hay un representante activo con permiso para firmar. Puedes guardar la firma del paciente o completar primero su representante."
+      : "La firma directa del paciente sigue disponible.";
+  }
+}
+
+function consentSignerData(form, patient) {
+  const value = form?.elements.signer?.value || "patient";
+  if (!value.startsWith("representative:")) {
+    return {
+      signerType: "patient",
+      representativeId: "",
+      signerName: patient?.name || "Paciente",
+      signerRelationship: "paciente"
+    };
+  }
+  const representativeId = value.split(":").slice(1).join(":");
+  const representative = legalRepresentatives.find((item) =>
+    String(item.id) === String(representativeId)
+    && String(item.patientId) === String(patient?.id)
+    && item.isActive
+    && item.canSignConsents
+  );
+  if (!representative) {
+    return {
+      signerType: "patient",
+      representativeId: "",
+      signerName: patient?.name || "Paciente",
+      signerRelationship: "paciente"
+    };
+  }
+  return {
+    signerType: "representative",
+    representativeId: representative.id,
+    signerName: legalRepresentativeName(representative),
+    signerRelationship: legalRelationshipLabel(representative)
+  };
+}
+
 function renderPatientConsentDialogData(patient) {
   $("#patient-consent-patient-name").textContent = patient?.name || "Paciente";
   $("#patient-consent-patient-data").innerHTML = `
@@ -17029,6 +17095,7 @@ function openPatientConsentDialog(consentId = "") {
   const selectedTemplate = byId(consentTemplates, selectedTemplateId) || (existing ? { ...existing, id: existing.templateId, name: existing.templateName, body: existing.templateBody || existing.body || "" } : null);
   form.elements.body.value = existing?.body || (selectedTemplate ? consentBodyForPatient(selectedTemplate, patient, form.elements.city.value.trim(), form.elements.signatureDate.value) : "");
   renderPatientConsentDialogData(patient);
+  populatePatientConsentSignerOptions(patient, existing);
   renderPatientConsentTemplateList(selectedTemplateId, lockedConsent || Boolean(existing), existing);
   $("#patient-consent-dialog-title").textContent = existing?.revoked ? "Consentimiento revocado" : (existing?.signed ? "Revisar consentimiento firmado" : (existing ? "Editar consentimiento" : "Preparar consentimiento"));
   $("#save-patient-consent").textContent = existing?.signed ? "Documento firmado" : "Guardar consentimiento firmado";
@@ -17040,6 +17107,7 @@ function openPatientConsentDialog(consentId = "") {
   form.elements.city.readOnly = lockedConsent;
   form.elements.signatureDate.readOnly = lockedConsent;
   form.elements.body.readOnly = lockedConsent;
+  if (form.elements.signer) form.elements.signer.disabled = lockedConsent;
   $("#clear-patient-consent-signature").disabled = lockedConsent;
   $("#save-patient-consent").disabled = lockedConsent || (!consentTemplates.length && !existing);
   setupPatientConsentSignatureCanvas();
@@ -17086,6 +17154,7 @@ function setupPatientConsentsAndPacks() {
       return;
     }
     const now = new Date().toISOString();
+    const signer = consentSignerData(form, patient);
     const nextBase = {
       ...(existing || {}),
       id: existing?.id || `patient-consent-${Date.now()}`,
@@ -17101,6 +17170,10 @@ function setupPatientConsentsAndPacks() {
       signed: true,
       signedAt: existing?.signedAt || now,
       updatedAt: now,
+      signerType: signer.signerType,
+      representativeId: signer.representativeId,
+      signerName: signer.signerName,
+      signerRelationship: signer.signerRelationship,
       signatureData: drawing.canvas.toDataURL("image/png"),
       fiscalData: {
         name: patient.name,
