@@ -11009,10 +11009,16 @@ function prepareReminderWhatsApp(reminder, options = {}) {
     saveReminderAction(reminder, "failed");
     return false;
   }
+  const additionalUrls = (reminder.additionalRecipients || [])
+    .filter((recipient) => cleanPhone(recipient.phone))
+    .map((recipient) => whatsappReminderUrl({ ...reminder, phone: recipient.phone }));
   if (openWindow) {
     window.open(url, "_blank", "noopener");
+    if (!auto) {
+      additionalUrls.filter(Boolean).forEach((additionalUrl) => window.open(additionalUrl, "_blank", "noopener"));
+    }
   }
-  saveReminderAction({ ...reminder, message, whatsappUrl: url, autoPrepared: auto }, "prepared");
+  saveReminderAction({ ...reminder, message, whatsappUrl: url, additionalWhatsappUrls: additionalUrls, autoPrepared: auto }, "prepared");
   return true;
 }
 
@@ -11088,7 +11094,7 @@ function renderReminderCard(reminder, mode = "pending") {
       <span class="status-pill ${reminder.status}">${statusText}</span>
     </div>
     <p>${reminder.message || reminderMessage(reminder)}</p>
-    <small>Enviar: ${sendAt} - Cita: ${reminder.date}, ${reminder.start} - Tel: ${phone}</small>
+    <small>Enviar: ${sendAt} - Cita: ${reminder.date}, ${reminder.start} - Destinatario: ${escapeHtml(reminder.recipientName || patient?.name || "Paciente")} - Tel: ${escapeHtml(phone)}${reminder.additionalRecipients?.length ? ` · También: ${reminder.additionalRecipients.map((item) => escapeHtml(item.name || "Paciente")).join(", ")}` : ""}</small>
   `;
 
   if (mode === "pending") {
@@ -12634,6 +12640,7 @@ async function hydrateFromApi(options = {}) {
     const apiRoomsPending = settleBackendRequest(backendRequest("/rooms"));
     const apiServicesPending = settleBackendRequest(backendRequest("/services"));
     const apiAppointmentsPending = settleBackendRequest(backendRequest("/appointments"));
+    const apiLegalRepresentativesPending = settleBackendRequest(backendRequest("/legal-representatives"));
 
     const [apiMeResult, apiPractitionersResult] = await Promise.all([apiMePending, apiPractitionersPending]);
     if (apiMeResult.error) throw apiMeResult.error;
@@ -12662,17 +12669,19 @@ async function hydrateFromApi(options = {}) {
       }
     }
 
-    const [apiPatientsResult, apiRoomsResult, apiServicesResult, apiAppointmentsResult] = await Promise.all([
+    const [apiPatientsResult, apiRoomsResult, apiServicesResult, apiAppointmentsResult, apiLegalRepresentativesResult] = await Promise.all([
       apiPatientsPending,
       apiRoomsPending,
       apiServicesPending,
-      apiAppointmentsPending
+      apiAppointmentsPending,
+      apiLegalRepresentativesPending
     ]);
     const remainingError = [
       apiPatientsResult,
       apiRoomsResult,
       apiServicesResult,
-      apiAppointmentsResult
+      apiAppointmentsResult,
+      apiLegalRepresentativesResult
     ].find((result) => result.error)?.error;
     if (remainingError) throw remainingError;
 
@@ -12697,6 +12706,9 @@ async function hydrateFromApi(options = {}) {
     rooms = apiRooms.map((room) => apiRoomToUi(room));
     services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
+    legalRepresentatives = (apiLegalRepresentativesResult.value || []).map(apiLegalRepresentativeToUi);
+    loadedLegalRepresentativePatientIds.clear();
+    patients.forEach((patient) => loadedLegalRepresentativePatientIds.add(String(patient.id)));
     practitionerDataApplied = setAgendaPractitionerLoadState(
       practitioners.length ? "success" : "empty",
       hydrationClinicKey,
