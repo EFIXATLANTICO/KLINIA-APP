@@ -903,6 +903,10 @@ function missingReminderTemplateVariables(template = "") {
 }
 
 let patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
+let legalRepresentatives = [];
+let legalRepresentativeDocuments = [];
+let selectedLegalRepresentativeId = "";
+const loadedLegalRepresentativePatientIds = new Set();
 let appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
 let clinicalNotes = loadClinicState("clinical-notes", isDemoClinic() ? defaultClinicalNotes : []);
 let clinicalTemplates = loadClinicState("clinical-templates", []);
@@ -4097,6 +4101,198 @@ function uiPatientToApi(patient) {
       "last"
     ])
   };
+}
+
+
+function apiLegalRepresentativeToUi(item) {
+  return {
+    id: item.id,
+    patientId: item.patient_id,
+    firstName: item.first_name || "",
+    lastName: item.last_name || "",
+    documentType: item.document_type || "",
+    documentNumber: item.document_number || "",
+    birthDate: item.birth_date || "",
+    phone: item.phone || "",
+    email: item.email || "",
+    address: item.address || "",
+    relationshipType: item.relationship_type || "legal_guardian",
+    relationshipOther: item.relationship_other || "",
+    canSignConsents: Boolean(item.can_sign_consents),
+    receivesReminders: Boolean(item.receives_reminders),
+    receivesInvoices: Boolean(item.receives_invoices),
+    isFinancialResponsible: Boolean(item.is_financial_responsible),
+    isPrimaryContact: Boolean(item.is_primary_contact),
+    isActive: item.is_active !== false,
+    notes: item.notes || "",
+    createdAt: item.created_at || "",
+    updatedAt: item.updated_at || ""
+  };
+}
+
+function legalRepresentativeToApi(item) {
+  return {
+    first_name: item.firstName,
+    last_name: item.lastName,
+    document_type: item.documentType || null,
+    document_number: item.documentNumber || null,
+    birth_date: item.birthDate || null,
+    phone: item.phone || null,
+    email: item.email || null,
+    address: item.address || null,
+    relationship_type: item.relationshipType || "legal_guardian",
+    relationship_other: item.relationshipType === "other" ? (item.relationshipOther || null) : null,
+    can_sign_consents: Boolean(item.canSignConsents),
+    receives_reminders: Boolean(item.receivesReminders),
+    receives_invoices: Boolean(item.receivesInvoices),
+    is_financial_responsible: Boolean(item.isFinancialResponsible),
+    is_primary_contact: Boolean(item.isPrimaryContact),
+    is_active: item.isActive !== false,
+    notes: item.notes || null
+  };
+}
+
+function apiLegalRepresentativeDocumentToUi(item) {
+  return {
+    id: item.id,
+    patientId: item.patient_id,
+    representativeId: item.representative_id,
+    documentType: item.document_type || "other",
+    fileName: item.file_name || "Documento",
+    mimeType: item.mime_type || "application/octet-stream",
+    dataUrl: item.data_url || "",
+    createdAt: item.created_at || ""
+  };
+}
+
+async function refreshLegalRepresentativesForPatient(patientId) {
+  if (!patientId || !backendDataEnabled()) {
+    loadedLegalRepresentativePatientIds.add(String(patientId || ""));
+    return legalRepresentatives.filter((item) => String(item.patientId) === String(patientId));
+  }
+  const items = await backendRequest(`/patients/${encodeURIComponent(patientId)}/legal-representatives`);
+  legalRepresentatives = [
+    ...legalRepresentatives.filter((item) => String(item.patientId) !== String(patientId)),
+    ...items.map(apiLegalRepresentativeToUi)
+  ];
+  loadedLegalRepresentativePatientIds.add(String(patientId));
+  const representatives = legalRepresentatives.filter((item) => String(item.patientId) === String(patientId));
+  const documents = await Promise.all(representatives.map(async (representative) => {
+    const rows = await backendRequest(`/legal-representatives/${encodeURIComponent(representative.id)}/documents`);
+    return rows.map(apiLegalRepresentativeDocumentToUi);
+  }));
+  legalRepresentativeDocuments = [
+    ...legalRepresentativeDocuments.filter((item) => String(item.patientId) !== String(patientId)),
+    ...documents.flat()
+  ];
+  return representatives;
+}
+
+async function saveLegalRepresentativeToBackend(representative, previousId = "") {
+  if (!backendDataEnabled()) {
+    throw new Error("La sesión backend no está activa. Vuelve a iniciar sesión.");
+  }
+  const editing = looksLikeBackendId(previousId);
+  const saved = await backendRequest(
+    editing
+      ? `/legal-representatives/${encodeURIComponent(previousId)}`
+      : `/patients/${encodeURIComponent(representative.patientId)}/legal-representatives`,
+    {
+      method: editing ? "PATCH" : "POST",
+      body: JSON.stringify(legalRepresentativeToApi(representative))
+    }
+  );
+  return apiLegalRepresentativeToUi(saved);
+}
+
+async function uploadLegalRepresentativeDocument(representative, file, documentType) {
+  if (!representative || !file) throw new Error("Selecciona un archivo.");
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("El documento supera 2 MB.");
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  const saved = await backendRequest(
+    `/legal-representatives/${encodeURIComponent(representative.id)}/documents`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        document_type: documentType || "other",
+        file_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        data_url: dataUrl
+      })
+    }
+  );
+  const documentItem = apiLegalRepresentativeDocumentToUi(saved);
+  legalRepresentativeDocuments = [
+    documentItem,
+    ...legalRepresentativeDocuments.filter((item) => String(item.id) !== String(documentItem.id))
+  ];
+  return documentItem;
+}
+
+async function deleteLegalRepresentativeDocumentFromBackend(documentId) {
+  await backendRequest(`/legal-representative-documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+  legalRepresentativeDocuments = legalRepresentativeDocuments.filter((item) => String(item.id) !== String(documentId));
+}
+
+function legalRepresentativesForPatient(patientId, { activeOnly = false } = {}) {
+  return legalRepresentatives.filter((item) =>
+    String(item.patientId) === String(patientId)
+    && (!activeOnly || item.isActive)
+  );
+}
+
+function primaryLegalRepresentative(patientId, predicate = () => true) {
+  const items = legalRepresentativesForPatient(patientId, { activeOnly: true }).filter(predicate);
+  return items.find((item) => item.isPrimaryContact) || items[0] || null;
+}
+
+function financialLegalRepresentative(patientId) {
+  const items = legalRepresentativesForPatient(patientId, { activeOnly: true })
+    .filter((item) => item.isFinancialResponsible || item.receivesInvoices);
+  return items.find((item) => item.isFinancialResponsible) || items.find((item) => item.isPrimaryContact) || items[0] || null;
+}
+
+function legalRepresentativeName(item) {
+  return `${item?.firstName || ""} ${item?.lastName || ""}`.trim() || "Representante legal";
+}
+
+function legalRelationshipLabel(item) {
+  const labels = {
+    father: "padre",
+    mother: "madre",
+    legal_guardian: "tutor legal",
+    other: item?.relationshipOther || "otro"
+  };
+  return labels[item?.relationshipType] || "representante legal";
+}
+
+function patientAge(patient, referenceDate = new Date()) {
+  if (!patient?.birthDate) return null;
+  const birth = new Date(`${patient.birthDate}T12:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  let age = referenceDate.getFullYear() - birth.getFullYear();
+  const monthDelta = referenceDate.getMonth() - birth.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && referenceDate.getDate() < birth.getDate())) age -= 1;
+  return age;
+}
+
+function patientIsMinor(patient) {
+  const age = patientAge(patient);
+  return age !== null && age < 18;
+}
+
+function patientShowsLegalRepresentative(patient) {
+  return Boolean(patient && (patientIsMinor(patient) || patient.hasLegalRepresentative));
+}
+
+async function persistPatientLegalRepresentativeState(patient, changes) {
+  const nextPatient = { ...patient, ...changes };
+  const saved = await savePatientToBackend(nextPatient, patient.id);
+  patients = patients.map((item) => String(item.id) === String(patient.id) ? saved : item);
+  saveClinicState("patients", patients);
+  return saved;
 }
 
 function apiPractitionerToUi(practitioner, previous = {}) {
@@ -7935,6 +8131,18 @@ function openPatientProfile(patientId) {
   document.body.classList.add("patient-profile-open");
   renderPatientDetail();
   setPatientProfileTab("info");
+  refreshLegalRepresentativesForPatient(patientId)
+    .then(() => {
+      if (patientProfileOpen && String(selectedPatientId) === String(patientId)) {
+        renderPatientDetail();
+      }
+    })
+    .catch((error) => {
+      console.error("Klinia legal representative load failed", error);
+      if (patientProfileOpen && String(selectedPatientId) === String(patientId)) {
+        renderLegalRepresentativeSection(byId(patients, patientId), { error: true });
+      }
+    });
 }
 
 function closePatientProfile() {
@@ -8082,6 +8290,347 @@ function patientConsentStatusText(consent) {
     : "Pendiente de firma";
 }
 
+
+function legalRepresentativeFlagLabels(representative) {
+  return [
+    representative.canSignConsents ? "Firma consentimientos" : "",
+    representative.receivesReminders ? "Recibe recordatorios" : "",
+    representative.receivesInvoices ? "Recibe facturas" : "",
+    representative.isFinancialResponsible ? "Responsable económico" : "",
+    representative.isPrimaryContact ? "Contacto principal" : ""
+  ].filter(Boolean);
+}
+
+function legalDocumentTypeLabel(type) {
+  return {
+    identity: "Documento identificativo",
+    guardianship: "Documento de tutela",
+    judicial: "Resolución judicial",
+    other: "Otro documento"
+  }[type] || "Documento";
+}
+
+function renderLegalRepresentativeSection(patient, { error = false } = {}) {
+  const tab = $("#patient-legal-representative-tab");
+  const panel = $('[data-patient-panel="legal-representative"]');
+  const toggle = $("#patient-legal-representative-toggle");
+  const notice = $("#legal-representative-notice");
+  const review = $("#legal-representative-adult-review");
+  const list = $("#legal-representatives-list");
+  const addButton = $("#add-legal-representative");
+  if (!patient || !tab || !panel || !toggle || !notice || !review || !list) return;
+
+  const minor = patientIsMinor(patient);
+  const visible = patientShowsLegalRepresentative(patient);
+  tab.classList.toggle("hidden", !visible);
+  panel.classList.toggle("hidden", !visible);
+  if (!visible && tab.classList.contains("selected")) setPatientProfileTab("info");
+
+  toggle.innerHTML = minor
+    ? ""
+    : `<div class="patient-legal-toggle">
+        <label class="check-row">
+          <input id="patient-has-legal-representative" type="checkbox" ${patient.hasLegalRepresentative ? "checked" : ""} ${canManageOperations() ? "" : "disabled"} />
+          Este paciente tiene representante legal
+        </label>
+        <span class="form-help">Al desactivarlo se oculta la sección, pero no se elimina ningún dato.</span>
+      </div>`;
+
+  $("#patient-has-legal-representative")?.addEventListener("change", async (event) => {
+    const shouldEnable = event.currentTarget.checked;
+    if (!shouldEnable) {
+      const confirmed = await showConfirm({
+        title: "Desactivar representación",
+        message: "Los datos del representante no se eliminarán, pero dejarán de estar activos. ¿Deseas continuar?",
+        confirmLabel: "Desactivar",
+        variant: "danger"
+      });
+      if (!confirmed) {
+        event.currentTarget.checked = true;
+        return;
+      }
+    }
+    event.currentTarget.disabled = true;
+    try {
+      await persistPatientLegalRepresentativeState(patient, {
+        hasLegalRepresentative: shouldEnable,
+        legalRepresentativeAdultReview: shouldEnable ? patient.legalRepresentativeAdultReview || "" : "deactivated",
+        legalRepresentativeReviewedAt: shouldEnable ? patient.legalRepresentativeReviewedAt || "" : new Date().toISOString()
+      });
+      renderPatientDetail();
+      if (shouldEnable) setPatientProfileTab("legal-representative");
+    } catch (saveError) {
+      event.currentTarget.checked = !shouldEnable;
+      showToast(`No se pudo actualizar la representación: ${saveError.message}`, "error");
+    } finally {
+      event.currentTarget.disabled = false;
+    }
+  });
+
+  if (addButton) {
+    addButton.classList.toggle("hidden", !canManageOperations());
+    addButton.disabled = !canManageOperations();
+  }
+  if (!visible) {
+    notice.innerHTML = "";
+    review.innerHTML = "";
+    list.innerHTML = "";
+    return;
+  }
+
+  const loaded = loadedLegalRepresentativePatientIds.has(String(patient.id));
+  const activeItems = legalRepresentativesForPatient(patient.id, { activeOnly: true });
+  if (error) {
+    notice.innerHTML = '<div class="legal-representative-notice warning">No se pudieron cargar los representantes. Cierra y vuelve a abrir la ficha para reintentar.</div>';
+  } else if (!loaded) {
+    notice.innerHTML = '<div class="legal-representative-notice">Cargando representantes...</div>';
+  } else if (minor && !activeItems.length) {
+    notice.innerHTML = '<div class="legal-representative-notice warning">Este paciente es menor de edad y todavía no tiene un representante legal registrado.</div>';
+  } else {
+    notice.innerHTML = "";
+  }
+
+  const shouldReviewAdult = !minor
+    && patient.legalRepresentativeWasMinor
+    && activeItems.length
+    && patient.hasLegalRepresentative
+    && !["maintained", "deactivated", "later"].includes(patient.legalRepresentativeAdultReview);
+  review.innerHTML = shouldReviewAdult
+    ? `<div class="legal-representative-review">
+        <strong>Este paciente ya es mayor de edad.</strong>
+        <p>Revisa si deseas mantener activo a su representante legal.</p>
+        <div class="compact-actions">
+          <button class="primary-button compact-inline-button" type="button" data-legal-adult-review="maintained">Mantener activo</button>
+          <button class="danger-button compact-inline-button" type="button" data-legal-adult-review="deactivated">Desactivar</button>
+          <button class="secondary-button compact-inline-button" type="button" data-legal-adult-review="later">Decidir más tarde</button>
+        </div>
+      </div>`
+    : "";
+  $("[data-legal-adult-review]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const decision = button.dataset.legalAdultReview;
+      try {
+        await persistPatientLegalRepresentativeState(patient, {
+          hasLegalRepresentative: decision !== "deactivated",
+          legalRepresentativeAdultReview: decision,
+          legalRepresentativeReviewedAt: new Date().toISOString()
+        });
+        renderPatientDetail();
+      } catch (saveError) {
+        showToast(`No se pudo guardar la decisión: ${saveError.message}`, "error");
+      }
+    });
+  });
+
+  const items = legalRepresentativesForPatient(patient.id);
+  list.innerHTML = loaded && !items.length
+    ? '<article class="compact-item"><span>Sin representantes registrados.</span></article>'
+    : items.map((representative) => {
+      const documents = legalRepresentativeDocuments.filter((item) => String(item.representativeId) === String(representative.id));
+      const flags = legalRepresentativeFlagLabels(representative);
+      return `
+        <article class="legal-representative-card ${representative.isActive ? "" : "is-inactive"}">
+          <div class="legal-representative-card-head">
+            <div>
+              <strong>${escapeHtml(legalRepresentativeName(representative))}</strong>
+              <div class="legal-representative-card-meta">
+                <span>${escapeHtml(legalRelationshipLabel(representative))}</span>
+                <span>${representative.documentNumber ? escapeHtml(representative.documentNumber) : "Documento no indicado"}</span>
+                <span>${representative.phone ? escapeHtml(representative.phone) : "Teléfono no indicado"}</span>
+                <span>${representative.email ? escapeHtml(representative.email) : "Email no indicado"}</span>
+              </div>
+            </div>
+            <span class="status-pill ${representative.isActive ? "success" : ""}">${representative.isActive ? "Activo" : "Inactivo"}</span>
+          </div>
+          <div class="legal-representative-flags">
+            ${flags.length ? flags.map((flag) => `<span class="legal-representative-flag">${escapeHtml(flag)}</span>`).join("") : '<span class="muted-text">Sin funciones asignadas.</span>'}
+          </div>
+          ${representative.address ? `<p>${escapeHtml(representative.address)}</p>` : ""}
+          ${representative.notes ? `<p class="muted-text">${escapeHtml(representative.notes)}</p>` : ""}
+          <div class="compact-actions">
+            ${canManageOperations() ? `<button class="secondary-button compact-inline-button" type="button" data-edit-legal-representative="${representative.id}">Editar</button>
+            <button class="secondary-button compact-inline-button" type="button" data-toggle-legal-representative="${representative.id}">${representative.isActive ? "Desactivar" : "Activar"}</button>` : ""}
+          </div>
+          <div class="legal-representative-document-list">
+            <strong>Documentación</strong>
+            ${documents.length ? documents.map((documentItem) => `<div class="legal-representative-document-row">
+              <span>${escapeHtml(legalDocumentTypeLabel(documentItem.documentType))}: ${escapeHtml(documentItem.fileName)}</span>
+              <div class="compact-actions">
+                <button class="secondary-button compact-inline-button" type="button" data-open-legal-document="${documentItem.id}">Abrir</button>
+                ${isOwner() ? `<button class="danger-button compact-inline-button" type="button" data-delete-legal-document="${documentItem.id}">Eliminar</button>` : ""}
+              </div>
+            </div>`).join("") : '<span class="muted-text">Sin documentos adjuntos.</span>'}
+            ${isOwner() ? `<div class="legal-representative-document-upload">
+              <select data-legal-document-type="${representative.id}" aria-label="Tipo de documento">
+                <option value="identity">Documento identificativo</option>
+                <option value="guardianship">Documento de tutela</option>
+                <option value="judicial">Resolución judicial</option>
+                <option value="other">Otro documento</option>
+              </select>
+              <input type="file" data-legal-document-file="${representative.id}" accept="image/*,application/pdf" />
+              <button class="secondary-button" type="button" data-upload-legal-document="${representative.id}">Adjuntar</button>
+            </div>` : ""}
+          </div>
+        </article>`;
+    }).join("");
+
+  $("[data-edit-legal-representative]").forEach((button) => button.addEventListener("click", () => openLegalRepresentativeDialog(button.dataset.editLegalRepresentative)));
+  $("[data-toggle-legal-representative]").forEach((button) => button.addEventListener("click", async () => {
+    const representative = legalRepresentatives.find((item) => String(item.id) === String(button.dataset.toggleLegalRepresentative));
+    if (!representative) return;
+    if (representative.isActive) {
+      const confirmed = await showConfirm({
+        title: "Desactivar representante",
+        message: "Los datos del representante no se eliminarán, pero dejarán de estar activos. ¿Deseas continuar?",
+        confirmLabel: "Desactivar",
+        variant: "danger"
+      });
+      if (!confirmed) return;
+    }
+    button.disabled = true;
+    try {
+      await saveLegalRepresentativeToBackend({ ...representative, isActive: !representative.isActive }, representative.id);
+      await refreshLegalRepresentativesForPatient(patient.id);
+      renderPatientDetail();
+    } catch (saveError) {
+      showToast(`No se pudo actualizar el representante: ${saveError.message}`, "error");
+      button.disabled = false;
+    }
+  }));
+  $("[data-open-legal-document]").forEach((button) => button.addEventListener("click", () => {
+    const documentItem = legalRepresentativeDocuments.find((item) => String(item.id) === String(button.dataset.openLegalDocument));
+    if (documentItem?.dataUrl) openDataUrlDocument(documentItem.dataUrl, documentItem.fileName);
+  }));
+  $("[data-delete-legal-document]").forEach((button) => button.addEventListener("click", async () => {
+    const confirmed = await showConfirm({
+      title: "Eliminar documento",
+      message: "¿Deseas eliminar este documento acreditativo?",
+      confirmLabel: "Eliminar",
+      variant: "danger"
+    });
+    if (!confirmed) return;
+    try {
+      await deleteLegalRepresentativeDocumentFromBackend(button.dataset.deleteLegalDocument);
+      renderPatientDetail();
+    } catch (deleteError) {
+      showToast(`No se pudo eliminar el documento: ${deleteError.message}`, "error");
+    }
+  }));
+  $("[data-upload-legal-document]").forEach((button) => button.addEventListener("click", async () => {
+    const representative = legalRepresentatives.find((item) => String(item.id) === String(button.dataset.uploadLegalDocument));
+    const fileInput = document.querySelector(`[data-legal-document-file="${CSS.escape(button.dataset.uploadLegalDocument)}"]`);
+    const typeSelect = document.querySelector(`[data-legal-document-type="${CSS.escape(button.dataset.uploadLegalDocument)}"]`);
+    const file = fileInput?.files?.[0];
+    button.disabled = true;
+    try {
+      await uploadLegalRepresentativeDocument(representative, file, typeSelect?.value || "other");
+      renderPatientDetail();
+      showToast("Documento guardado.");
+    } catch (uploadError) {
+      showToast(`No se pudo guardar el documento: ${uploadError.message}`, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }));
+}
+
+function openLegalRepresentativeDialog(representativeId = "") {
+  if (!canManageOperations()) return;
+  const form = $("#legal-representative-form");
+  const dialog = $("#legal-representative-dialog");
+  if (!form || !dialog || !selectedPatientId) return;
+  const representative = legalRepresentatives.find((item) => String(item.id) === String(representativeId));
+  selectedLegalRepresentativeId = representative?.id || "";
+  form.reset();
+  form.elements.firstName.value = representative?.firstName || "";
+  form.elements.lastName.value = representative?.lastName || "";
+  form.elements.documentType.value = representative?.documentType || "";
+  form.elements.documentNumber.value = representative?.documentNumber || "";
+  form.elements.birthDate.value = representative?.birthDate || "";
+  form.elements.phone.value = representative?.phone || "";
+  form.elements.email.value = representative?.email || "";
+  form.elements.address.value = representative?.address || "";
+  form.elements.relationshipType.value = representative?.relationshipType || "father";
+  form.elements.relationshipOther.value = representative?.relationshipOther || "";
+  form.elements.canSignConsents.checked = Boolean(representative?.canSignConsents);
+  form.elements.receivesReminders.checked = Boolean(representative?.receivesReminders);
+  form.elements.receivesInvoices.checked = Boolean(representative?.receivesInvoices);
+  form.elements.isFinancialResponsible.checked = Boolean(representative?.isFinancialResponsible);
+  form.elements.isPrimaryContact.checked = Boolean(representative?.isPrimaryContact);
+  form.elements.isActive.checked = representative ? representative.isActive : true;
+  form.elements.notes.value = representative?.notes || "";
+  form.querySelector(".legal-relationship-other")?.classList.toggle("hidden", form.elements.relationshipType.value !== "other");
+  $("#legal-representative-dialog-title").textContent = representative ? "Editar representante legal" : "Añadir representante legal";
+  $("#legal-representative-error").textContent = "";
+  $("#legal-representative-error").classList.remove("visible");
+  dialog.showModal();
+}
+
+function setupLegalRepresentatives() {
+  $("#add-legal-representative")?.addEventListener("click", () => openLegalRepresentativeDialog());
+  $("#legal-representative-form")?.elements.relationshipType?.addEventListener("change", (event) => {
+    $("#legal-representative-form")?.querySelector(".legal-relationship-other")?.classList.toggle("hidden", event.target.value !== "other");
+  });
+  $("#legal-representative-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = $("#legal-representative-error");
+    if (!selectedPatientId) return;
+    const payload = {
+      id: selectedLegalRepresentativeId,
+      patientId: selectedPatientId,
+      firstName: form.elements.firstName.value.trim(),
+      lastName: form.elements.lastName.value.trim(),
+      documentType: form.elements.documentType.value,
+      documentNumber: form.elements.documentNumber.value.trim(),
+      birthDate: form.elements.birthDate.value,
+      phone: form.elements.phone.value.trim(),
+      email: form.elements.email.value.trim(),
+      address: form.elements.address.value.trim(),
+      relationshipType: form.elements.relationshipType.value,
+      relationshipOther: form.elements.relationshipOther.value.trim(),
+      canSignConsents: form.elements.canSignConsents.checked,
+      receivesReminders: form.elements.receivesReminders.checked,
+      receivesInvoices: form.elements.receivesInvoices.checked,
+      isFinancialResponsible: form.elements.isFinancialResponsible.checked,
+      isPrimaryContact: form.elements.isPrimaryContact.checked,
+      isActive: form.elements.isActive.checked,
+      notes: form.elements.notes.value.trim()
+    };
+    if (!payload.firstName || !payload.lastName) {
+      error.textContent = "Indica nombre y apellidos.";
+      error.classList.add("visible");
+      return;
+    }
+    if (payload.relationshipType === "other" && !payload.relationshipOther) {
+      error.textContent = "Especifica la relación con el paciente.";
+      error.classList.add("visible");
+      return;
+    }
+    const submitButton = $("#save-legal-representative");
+    submitButton.disabled = true;
+    try {
+      await saveLegalRepresentativeToBackend(payload, selectedLegalRepresentativeId);
+      const patient = byId(patients, selectedPatientId);
+      if (patient && (!patient.hasLegalRepresentative || (patientIsMinor(patient) && !patient.legalRepresentativeWasMinor))) {
+        await persistPatientLegalRepresentativeState(patient, {
+          hasLegalRepresentative: true,
+          legalRepresentativeWasMinor: patient.legalRepresentativeWasMinor || patientIsMinor(patient)
+        });
+      }
+      await refreshLegalRepresentativesForPatient(selectedPatientId);
+      $("#legal-representative-dialog").close();
+      renderPatientDetail();
+      showToast("Representante guardado.");
+    } catch (saveError) {
+      error.textContent = saveError.message;
+      error.classList.add("visible");
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+}
+
 function renderPatientDetail() {
   const detail = $("#patient-detail");
   const patient = byId(patients, selectedPatientId);
@@ -8130,6 +8679,7 @@ function renderPatientDetail() {
     <dt>Alerta interna</dt>
     <dd>${patient.alert || "Sin alertas"}</dd>
   `;
+  renderLegalRepresentativeSection(patient);
 
   const patientAppointments = appointments
     .filter((appointment) => appointment.patientId === patient.id)
@@ -16121,7 +16671,9 @@ function setupPatientTabs() {
 }
 
 function setPatientProfileTab(tabId = "info") {
-  const nextTab = tabId || "info";
+  const requestedTab = tabId || "info";
+  const requestedButton = document.querySelector(`[data-patient-tab="${CSS.escape(requestedTab)}"]`);
+  const nextTab = requestedButton?.classList.contains("hidden") ? "info" : requestedTab;
   $$(".patient-tab").forEach((item) => item.classList.toggle("selected", item.dataset.patientTab === nextTab));
   $$(".patient-tab-panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.patientPanel === nextTab));
 }
@@ -17423,6 +17975,7 @@ handleBillingReturnFromStripe();
 setupClinicalTemplates();
 setupAccessManagement();
 setupCommercialSettings();
+setupLegalRepresentatives();
 setupPatientDetail();
 setupPatientTabs();
 setupPatientConsentsAndPacks();
