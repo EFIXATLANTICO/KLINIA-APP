@@ -5365,11 +5365,18 @@ function practitionerCommissionRateForService(practitioner, service) {
 }
 
 function serviceCommissionAmount(appointment, practitioner) {
-  const service = byId(services, appointment.serviceId);
-  const revenue = appointmentRevenueAmount(appointment);
-  if (!appointmentIsCharged(appointment) || !practitionerCanPerformService(practitioner, appointment.serviceId)) {
+  if (!appointmentIsCharged(appointment)) {
     return 0;
   }
+  const persistedPackCommissionCents = Number(appointment?.patientPackCommissionCents);
+  if (appointment?.patientPackId && Number.isFinite(persistedPackCommissionCents) && persistedPackCommissionCents >= 0) {
+    return persistedPackCommissionCents / 100;
+  }
+  if (!practitionerCanPerformService(practitioner, appointment.serviceId)) {
+    return 0;
+  }
+  const service = byId(services, appointment.serviceId);
+  const revenue = appointmentRevenueAmount(appointment);
   return roundMoney(revenue * practitionerCommissionRateForService(practitioner, service));
 }
 
@@ -9558,11 +9565,14 @@ function groupCompletedSessionsForPractitioner(practitioner, range = performance
 }
 
 function appointmentCountsForPerformance(appointment) {
-  if (normalizeAppointmentStatus(appointment?.status) !== "confirmed") {
+  if (appointment?.patientPackId) {
+    return appointmentIsCompleted(appointment);
+  }
+  if (appointment?.plannedPatientPackId) {
     return false;
   }
-  if (appointment?.patientPackId || appointment?.plannedPatientPackId) {
-    return true;
+  if (normalizeAppointmentStatus(appointment?.status) !== "confirmed") {
+    return false;
   }
   return appointmentIsCharged(appointment);
 }
@@ -9582,12 +9592,14 @@ function addPerformanceServiceLine(lines, serviceId, values = {}) {
     serviceId: id,
     serviceName: values.serviceName || byId(services, id)?.name || "Servicio",
     revenue: 0,
+    payout: 0,
     operations: 0,
     sessions: 0,
     rate: 0
   };
   existing.serviceName = values.serviceName || existing.serviceName;
   existing.revenue = roundMoney(existing.revenue + Number(values.revenue || 0));
+  existing.payout = roundMoney(existing.payout + Number(values.payout || 0));
   existing.operations += Number(values.operations || 0);
   existing.sessions += Number(values.sessions || 0);
   existing.rate = Math.max(existing.rate, normalizeCommissionRate(values.rate));
@@ -9602,6 +9614,7 @@ function performanceLinesForPractitioner(practitioner, appointmentsForWorker, gr
     addPerformanceServiceLine(lines, appointment.serviceId, {
       serviceName: service?.name || "Servicio",
       revenue: appointmentRevenueAmount(appointment),
+      payout: serviceCommissionAmount(appointment, practitioner),
       operations: appointmentOperationUnits(appointment),
       sessions: 1,
       rate
@@ -9613,6 +9626,7 @@ function performanceLinesForPractitioner(practitioner, appointmentsForWorker, gr
     addPerformanceServiceLine(lines, session.serviceId, {
       serviceName: session.serviceName || service?.name || "Sesión grupal",
       revenue: Number(session.revenue || 0),
+      payout: roundMoney(Number(session.revenue || 0) * rate),
       operations: groupSessionOperationUnits(session),
       sessions: 1,
       rate
@@ -9620,7 +9634,7 @@ function performanceLinesForPractitioner(practitioner, appointmentsForWorker, gr
   });
   return [...lines.values()].map((line) => ({
     ...line,
-    payout: roundMoney(line.revenue * line.rate)
+    payout: roundMoney(line.payout)
   }));
 }
 
