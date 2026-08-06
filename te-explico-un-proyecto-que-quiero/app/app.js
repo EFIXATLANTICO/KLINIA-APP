@@ -4064,7 +4064,7 @@ function apiPatientToUi(patient, previous = {}) {
     name: patient.name || meta.name || `${meta.firstName || ""} ${meta.lastName || ""}`.trim(),
     phone: patient.phone || "",
     email: patient.email || "",
-    last: "API",
+    last: previous.last || "Sin citas",
     status: patient.status || (patient.active ? "Activo" : "Inactivo"),
     alert: patient.alert || patient.internal_alert || "Sin alertas relevantes"
   };
@@ -7830,6 +7830,35 @@ function formatDateLabel() {
   return `Planificador: ${formatMonthName(range.start)} y ${formatMonthYear(addMonthsIso(range.start, 1))}`;
 }
 
+function patientLastAppointment(patientId) {
+  const normalizedPatientId = String(patientId || "");
+  return appointments
+    .filter((appointment) => (
+      String(appointment?.patientId || "") === normalizedPatientId
+        && appointmentIsActive(appointment)
+        && !appointment.deletedAt
+        && !appointment.deleted_at
+        && !appointment.archivedAt
+        && !appointment.archived_at
+        && /^\d{4}-\d{2}-\d{2}$/.test(String(appointment.date || ""))
+    ))
+    .sort((first, second) => {
+      const firstKey = `${first.date}T${first.start || "00:00"}`;
+      const secondKey = `${second.date}T${second.start || "00:00"}`;
+      return secondKey.localeCompare(firstKey);
+    })[0] || null;
+}
+
+function patientLastAppointmentLabel(patientId) {
+  const appointment = patientLastAppointment(patientId);
+  if (!appointment) {
+    return "Sin citas";
+  }
+  const dateLabel = formatShortDate(appointment.date);
+  const start = String(appointment.start || "").trim();
+  return start ? `${dateLabel} · ${start}` : dateLabel;
+}
+
 function renderPatients() {
   $("#patients-table").innerHTML = patients
     .map((patient) => `
@@ -7837,7 +7866,7 @@ function renderPatients() {
         <td><button class="patient-link" type="button" data-patient-id="${patient.id}">${patient.name}</button></td>
         <td>${patient.phone}</td>
         <td>${patient.email || "No indicado"}</td>
-        <td>${patient.last}</td>
+        <td>${escapeHtml(patientLastAppointmentLabel(patient.id))}</td>
         <td>
           <details class="item-menu table-item-menu">
             <summary aria-label="Opciones de ${patient.name}">...</summary>
@@ -14700,8 +14729,13 @@ function setupPatientDialog() {
       patients = editingPatientId
         ? patients.map((item) => item.id === editingPatientId ? patient : item)
         : [...patients, patient];
-      selectedPatientId = patient.id;
-      patientProfileOpen = true;
+      if (editingPatientId) {
+        selectedPatientId = patient.id;
+        patientProfileOpen = true;
+      } else {
+        patientProfileOpen = false;
+        document.body.classList.remove("patient-profile-open");
+      }
       saveClinicState("patients", patients);
       renderAppointmentFormOptions();
       resetPatientForm(form);
@@ -14709,7 +14743,7 @@ function setupPatientDialog() {
       renderAll();
       const status = $("#patient-save-status");
       if (status) {
-        status.textContent = editingPatientId ? "Paciente actualizado correctamente." : "Paciente guardado correctamente.";
+        status.textContent = editingPatientId ? "Paciente actualizado correctamente." : "Paciente creado correctamente.";
         status.classList.remove("error");
         window.setTimeout(() => {
           if (status.textContent.includes("Paciente")) {
@@ -14717,6 +14751,7 @@ function setupPatientDialog() {
           }
         }, 3200);
       }
+      showToast(editingPatientId ? "Paciente actualizado correctamente." : "Paciente creado correctamente.", "success");
     };
 
     if (backendDataEnabled()) {
