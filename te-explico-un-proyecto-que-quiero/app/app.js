@@ -10604,7 +10604,7 @@ function reminderSlotsForAppointment(appointment) {
     return [];
   }
   const slots = reminderWindowSlots().map((slot) => reminderSlotFromAppointment(appointment, slot));
-  return slots.filter((slot) => Boolean(slot.phone));
+  return slots.filter((slot) => Boolean(slot.phone || slot.email));
 }
 
 function reminderWithCurrentAppointment(reminder) {
@@ -11026,6 +11026,24 @@ function openReminderWhatsApp(reminder) {
   prepareReminderWhatsApp(reminder, { openWindow: true });
 }
 
+function prepareReminderEmail(reminder, options = {}) {
+  const { openWindow = true, auto = false } = options;
+  const recipients = [
+    reminder.email,
+    ...(reminder.additionalRecipients || []).map((item) => item.email)
+  ].filter(Boolean);
+  if (!recipients.length) {
+    showNotice("Email no disponible", "El destinatario no tiene un email válido.", { variant: "warning" });
+    return false;
+  }
+  const message = reminderMessage(reminder);
+  const subject = `Recordatorio de cita - ${clinic?.name || "Klinia"}`;
+  const url = `mailto:${encodeURIComponent(recipients.join(","))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  if (openWindow) window.location.href = url;
+  saveReminderAction({ ...reminder, message, emailUrl: url, autoPrepared: auto }, "prepared");
+  return true;
+}
+
 function openAppointmentFromReminder(reminder) {
   const appointment = byId(appointments, reminder.appointmentId);
   if (!appointment) {
@@ -11059,9 +11077,10 @@ function runDueWhatsAppReminders(openWindows = true) {
   const due = dueReminderQueue();
   let prepared = 0;
   due.forEach((reminder, index) => {
-    if (prepareReminderWhatsApp(reminder, { openWindow: openWindows && index === 0, auto: true })) {
-      prepared += 1;
-    }
+    const didPrepare = reminder.phone
+      ? prepareReminderWhatsApp(reminder, { openWindow: openWindows && index === 0, auto: true })
+      : prepareReminderEmail(reminder, { openWindow: openWindows && index === 0, auto: true });
+    if (didPrepare) prepared += 1;
   });
   autoReminderRunning = false;
   const status = $("#automation-status");
@@ -11094,7 +11113,7 @@ function renderReminderCard(reminder, mode = "pending") {
       <span class="status-pill ${reminder.status}">${statusText}</span>
     </div>
     <p>${reminder.message || reminderMessage(reminder)}</p>
-    <small>Enviar: ${sendAt} - Cita: ${reminder.date}, ${reminder.start} - Destinatario: ${escapeHtml(reminder.recipientName || patient?.name || "Paciente")} - Tel: ${escapeHtml(phone)}${reminder.additionalRecipients?.length ? ` · También: ${reminder.additionalRecipients.map((item) => escapeHtml(item.name || "Paciente")).join(", ")}` : ""}</small>
+    <small>Enviar: ${sendAt} - Cita: ${reminder.date}, ${reminder.start} - Destinatario: ${escapeHtml(reminder.recipientName || patient?.name || "Paciente")} - Contacto: ${escapeHtml(reminder.phone || reminder.email || phone)}${reminder.additionalRecipients?.length ? ` · También: ${reminder.additionalRecipients.map((item) => escapeHtml(item.name || "Paciente")).join(", ")}` : ""}</small>
   `;
 
   if (mode === "pending") {
@@ -11103,7 +11122,8 @@ function renderReminderCard(reminder, mode = "pending") {
     const whatsappLabel = reminder.status === "prepared" ? "Abrir WhatsApp" : "Preparar WhatsApp";
     actions.innerHTML = `
       <button class="secondary-button" type="button" data-reminder-action="appointment">Abrir cita</button>
-      <button class="primary-button" type="button" data-reminder-action="whatsapp">${whatsappLabel}</button>
+      ${reminder.phone ? `<button class="primary-button" type="button" data-reminder-action="whatsapp">${whatsappLabel}</button>` : ""}
+      ${reminder.email ? '<button class="secondary-button" type="button" data-reminder-action="email">Preparar email</button>' : ""}
       <button class="secondary-button" type="button" data-reminder-action="sent">Enviado</button>
       <button class="secondary-button" type="button" data-reminder-action="handled">Gestionado</button>
       <button class="secondary-button danger" type="button" data-reminder-action="failed">Fallido</button>
@@ -11121,6 +11141,9 @@ function renderReminderCard(reminder, mode = "pending") {
         try {
           if (action === "whatsapp") {
             openReminderWhatsApp(reminder);
+            await flushReminderActionsSync();
+          } else if (action === "email") {
+            prepareReminderEmail(reminder, { openWindow: true });
             await flushReminderActionsSync();
           } else {
             await saveReminderAction(reminder, action);
@@ -17147,6 +17170,10 @@ function populatePatientConsentSignerOptions(patient, existing = null) {
     ? `representative:${existing.representativeId}`
     : (patientIsMinor(patient) && primary ? `representative:${primary.id}` : "patient");
   select.value = [...select.options].some((option) => option.value === defaultValue) ? defaultValue : "patient";
+  const signatureTitle = $("#patient-consent-signature-title");
+  if (signatureTitle) {
+    signatureTitle.textContent = select.value.startsWith("representative:") ? "Firma del representante legal" : "Firma del paciente";
+  }
   if (help) {
     help.textContent = patientIsMinor(patient) && !representatives.length
       ? "No hay un representante activo con permiso para firmar. Puedes guardar la firma del paciente o completar primero su representante."
@@ -17161,7 +17188,8 @@ function consentSignerData(form, patient) {
       signerType: "patient",
       representativeId: "",
       signerName: patient?.name || "Paciente",
-      signerRelationship: "paciente"
+      signerRelationship: "paciente",
+      signerDocumentId: ""
     };
   }
   const representativeId = value.split(":").slice(1).join(":");
@@ -17179,11 +17207,16 @@ function consentSignerData(form, patient) {
       signerRelationship: "paciente"
     };
   }
+  const representativeDocument = legalRepresentativeDocuments.find((item) =>
+    String(item.representativeId) === String(representative.id)
+    && ["identity", "guardianship", "judicial"].includes(item.documentType)
+  );
   return {
     signerType: "representative",
     representativeId: representative.id,
     signerName: legalRepresentativeName(representative),
-    signerRelationship: legalRelationshipLabel(representative)
+    signerRelationship: legalRelationshipLabel(representative),
+    signerDocumentId: representativeDocument?.id || ""
   };
 }
 
@@ -17304,6 +17337,7 @@ function setupPatientConsentsAndPacks() {
       representativeId: signer.representativeId,
       signerName: signer.signerName,
       signerRelationship: signer.signerRelationship,
+      signerDocumentId: signer.signerDocumentId || "",
       signatureData: drawing.canvas.toDataURL("image/png"),
       fiscalData: {
         name: patient.name,
@@ -17331,6 +17365,12 @@ function setupPatientConsentsAndPacks() {
   });
   $("#patient-consent-form input[name='city']")?.addEventListener("input", hydratePatientConsentBody);
   $("#patient-consent-form input[name='signatureDate']")?.addEventListener("change", hydratePatientConsentBody);
+  $("#patient-consent-form select[name='signer']")?.addEventListener("change", (event) => {
+    const signatureTitle = $("#patient-consent-signature-title");
+    if (signatureTitle) {
+      signatureTitle.textContent = event.target.value.startsWith("representative:") ? "Firma del representante legal" : "Firma del paciente";
+    }
+  });
 
   $("#add-patient-consent")?.addEventListener("click", () => {
     openPatientConsentDialog();
