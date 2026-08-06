@@ -320,6 +320,24 @@ function saveSyncedClinicState(key, value) {
   });
 }
 
+async function persistSyncedClinicStateStrict(key, value) {
+  if (isSuperadminSession()) {
+    throw new Error("Esta acción no está disponible desde Superadmin.");
+  }
+  saveClinicState(key, value);
+  if (!canWriteSyncedClinicDataKey(key)) {
+    if (backendAuthoritativeMode()) {
+      throw new Error("La sesión no permite guardar este dato. Vuelve a iniciar sesión.");
+    }
+    return value;
+  }
+  if (backendActiveHydrationPromise && backendActiveHydrationClinicKey === activeClinicKey) {
+    await backendActiveHydrationPromise;
+  }
+  await saveClinicDataToBackend(key, value);
+  return value;
+}
+
 
 async function persistPatientPacksState(options = {}) {
   if (isSuperadminSession()) return true;
@@ -754,6 +772,24 @@ function normalizePermissionSettings(savedPermissions) {
   };
 }
 
+function migrateLegacyStaffPermissionsToWorkers(savedPermissions) {
+  const normalized = normalizePermissionSettings(savedPermissions);
+  const practitionerPermissions = { ...normalized.practitioners };
+  let changed = false;
+  practitioners
+    .filter((practitioner) => practitioner.accessRole === "staff")
+    .forEach((practitioner) => {
+      if (!Object.prototype.hasOwnProperty.call(practitionerPermissions, practitioner.id)) {
+        practitionerPermissions[practitioner.id] = [...normalized.staff];
+        changed = true;
+      }
+    });
+  return {
+    changed,
+    settings: normalizePermissionSettings({ ...normalized, practitioners: practitionerPermissions })
+  };
+}
+
 function normalizeSessionPacks(savedPacks) {
   return (Array.isArray(savedPacks) ? savedPacks : []).map((pack) => ({
     id: `pack-${Date.now()}`,
@@ -853,10 +889,17 @@ function normalizePractitioners(savedPractitioners) {
     });
 }
 
+const requiredReminderTemplateVariables = ["{{paciente}}", "{{fecha}}", "{{hora}}"];
+
 function defaultReminderSettings() {
   return {
     reminderMessageTemplate: "Hola {{paciente}}, te recordamos tu cita en {{clinica}} el {{fecha}} a las {{hora}} con {{profesional}}. Si necesitas cambiarla, contacta con la clínica."
   };
+}
+
+function missingReminderTemplateVariables(template = "") {
+  const value = String(template || "");
+  return requiredReminderTemplateVariables.filter((variable) => !value.includes(variable));
 }
 
 let patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
@@ -3271,6 +3314,7 @@ async function applyBackendSession(session, me, options = {}) {
     password: options.account?.password || "",
     ownerEmail: me?.user?.role === "owner" ? me.user.email : (options.account?.ownerEmail || me?.clinic?.email || cleanIdentifier),
     ownerPassword: options.account?.ownerPassword || "",
+    staffEmail: me?.user?.role === "staff" ? me.user.email : (options.account?.staffEmail || ""),
     paymentPlan: normalizeSaasPlanId(me?.clinic?.subscription_plan || options.account?.paymentPlan || "trial"),
     subscriptionStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.subscriptionStatus || "trialing",
     billingStatus: session.subscription_status || me?.clinic?.subscription_status || options.account?.billingStatus || "trialing",
@@ -3291,6 +3335,11 @@ async function applyBackendSession(session, me, options = {}) {
   ensureClinicAccount(nextAccount);
   renderLoginClinics();
   enterPlatform(backendProfileForUser(me?.user), accountKey);
+  if (me?.user?.role === "staff") {
+    currentSession = { ...currentSession, email: me.user.email || "" };
+    saveState("session", currentSession);
+    applyRolePermissions();
+  }
   if (session.force_password_change || me?.user?.force_password_change) {
     showToast("Este usuario tiene pendiente cambiar la clave.", "warning");
     if (options.currentPassword) {
@@ -4952,12 +5001,25 @@ function canViewDirectionReports() {
   return isOwner();
 }
 
+function currentStaffPractitioner() {
+  const staffWorkers = practitioners.filter((practitioner) => practitioner.accessRole === "staff");
+  const account = currentClinicAccount();
+  const sessionEmail = String(currentSession?.email || account?.staffEmail || "").trim().toLowerCase();
+  const matchingWorker = sessionEmail
+    ? staffWorkers.find((practitioner) => String(practitioner.email || "").trim().toLowerCase() === sessionEmail)
+    : null;
+  return matchingWorker || (staffWorkers.length === 1 ? staffWorkers[0] : null);
+}
+
 function permissionsForCurrentSession() {
   if (isOwner()) {
     return [...permissionSections, "configuracion", "permisos"];
   }
   if (isStaff()) {
-    return permissionSettings.staff || [];
+    const staffWorker = currentStaffPractitioner();
+    return staffWorker
+      ? permissionSettings.practitioners?.[staffWorker.id] || permissionSettings.staff || []
+      : permissionSettings.staff || [];
   }
   if (isPractitionerSession()) {
     return permissionSettings.practitioners?.[currentSession.practitionerId] || ["agenda", "pacientes", "rendimiento"];
@@ -11109,24 +11171,44 @@ function setupCommercialSettings() {
     const file = event.target.files?.[0];
     const status = $("#clinic-logo-status");
     if (!file) return;
+    const previousLogo = clinicLogo;
     if (status) status.textContent = "Validando logo...";
     try {
-      clinicLogo = await readClinicLogoFile(file);
-      saveSyncedClinicState("clinic-logo", clinicLogo);
+      const nextLogo = await readClinicLogoFile(file);
+      clinicLogo = nextLogo;
       updateClinicLogoPreview();
+      if (status) status.textContent = "Guardando logo...";
+      await persistSyncedClinicStateStrict("clinic-logo", nextLogo);
       if (status) status.textContent = "Logo guardado para esta clínica.";
     } catch (error) {
+      console.error("Klinia clinic logo persistence failed", error);
+      clinicLogo = previousLogo;
+      updateClinicLogoPreview();
       event.target.value = "";
-      if (status) status.textContent = error.message || "No se pudo guardar el logo.";
-      showToast(error.message || "No se pudo guardar el logo.", "warning");
+      const message = error?.status === 413
+        ? "El logo es demasiado grande. Usa una imagen de hasta 2 MB."
+        : "No se pudo guardar el logo. Inténtalo de nuevo.";
+      if (status) status.textContent = message;
+      showToast(message, "warning");
     }
   });
-  $("#remove-clinic-logo")?.addEventListener("click", () => {
-    clinicLogo = "";
-    saveSyncedClinicState("clinic-logo", clinicLogo);
-    updateClinicLogoPreview();
+  $("#remove-clinic-logo")?.addEventListener("click", async () => {
+    const previousLogo = clinicLogo;
     const status = $("#clinic-logo-status");
-    if (status) status.textContent = "Logo eliminado. Se usará el logo de Klinia por defecto.";
+    clinicLogo = "";
+    updateClinicLogoPreview();
+    if (status) status.textContent = "Eliminando logo...";
+    try {
+      await persistSyncedClinicStateStrict("clinic-logo", "");
+      if (status) status.textContent = "Logo eliminado. Se usará el logo de Klinia por defecto.";
+    } catch (error) {
+      console.error("Klinia clinic logo removal failed", error);
+      clinicLogo = previousLogo;
+      updateClinicLogoPreview();
+      const message = "No se pudo eliminar el logo. Inténtalo de nuevo.";
+      if (status) status.textContent = message;
+      showToast(message, "warning");
+    }
   });
 }
 
@@ -11665,31 +11747,30 @@ function renderPermissions() {
   if (!list) {
     return;
   }
-  permissionSettings = normalizePermissionSettings(permissionSettings || defaultPermissionSettings);
+  const migration = migrateLegacyStaffPermissionsToWorkers(permissionSettings || defaultPermissionSettings);
+  permissionSettings = migration.settings;
+  if (migration.changed) {
+    saveSyncedClinicState("permissions", permissionSettings);
+  }
   const practitionerRows = practitioners.map((practitioner) => permissionRowHtml(
     `practitioner:${practitioner.id}`,
-    practitioner.name,
+    practitioner.accessRole === "staff" ? `${practitioner.name} · Recepción` : practitioner.name,
     permissionSettings.practitioners?.[practitioner.id] || defaultPractitionerPermissions()
   ));
   list.innerHTML = [
-    permissionRowHtml("staff", "Recepci\u00f3n / administraci\u00f3n", permissionSettings.staff),
     ...practitionerRows,
-    practitionerRows.length ? "" : `<article class="compact-item"><span>Los permisos de trabajadores aparecer\u00e1n aqu\u00ed cuando exista al menos un trabajador.</span></article>`
+    practitionerRows.length ? "" : `<article class="compact-item"><span>Los permisos de trabajadores aparecerán aquí cuando exista al menos un trabajador.</span></article>`
   ].join("");
 
   $$('[data-permission-target]').forEach((input) => {
     input.addEventListener("change", () => {
       const target = input.dataset.permissionTarget;
       const checkedSections = $$('[data-permission-target="' + target + '"]:checked').map((item) => item.value);
-      if (target === "staff") {
-        permissionSettings = normalizePermissionSettings({ ...permissionSettings, staff: checkedSections });
-      } else {
-        const practitionerId = target.replace("practitioner:", "");
-        permissionSettings = normalizePermissionSettings({
-          ...permissionSettings,
-          practitioners: { ...(permissionSettings.practitioners || {}), [practitionerId]: checkedSections }
-        });
-      }
+      const practitionerId = target.replace("practitioner:", "");
+      permissionSettings = normalizePermissionSettings({
+        ...permissionSettings,
+        practitioners: { ...(permissionSettings.practitioners || {}), [practitionerId]: checkedSections }
+      });
       saveSyncedClinicState("permissions", permissionSettings);
       renderPermissions();
       applyRolePermissions();
@@ -15686,7 +15767,13 @@ function setupConfiguration() {
       $("#clinic-save-status").classList.add("error");
       return;
     }
-    const reminderMessageTemplate = form.elements.reminderMessageTemplate?.value.trim() || defaultReminderSettings().reminderMessageTemplate;
+    const reminderMessageTemplate = form.elements.reminderMessageTemplate?.value.trim() || "";
+    if (!reminderMessageTemplate) {
+      $("#clinic-save-status").textContent = "Escribe un mensaje base de recordatorio antes de guardar.";
+      $("#clinic-save-status").classList.add("error");
+      return;
+    }
+    const missingReminderVariables = missingReminderTemplateVariables(reminderMessageTemplate);
     const nextClinic = {
       ...clinic,
       name: form.elements.name.value.trim() || defaultClinic.name,
@@ -15709,8 +15796,16 @@ function setupConfiguration() {
     backendLastSyncAt = Date.now();
     $("#clinic-save-status").classList.remove("error");
     saveClinicState("clinic", clinic);
-    reminderSettings = { ...reminderSettings, reminderMessageTemplate };
-    saveSyncedClinicState("reminder-settings", reminderSettings);
+    const nextReminderSettings = { ...reminderSettings, reminderMessageTemplate };
+    try {
+      await persistSyncedClinicStateStrict("reminder-settings", nextReminderSettings);
+      reminderSettings = nextReminderSettings;
+    } catch (error) {
+      console.error("Klinia reminder template persistence failed", error);
+      $("#clinic-save-status").textContent = "Los datos de la clínica se guardaron, pero el mensaje de recordatorio no pudo guardarse. Inténtalo de nuevo.";
+      $("#clinic-save-status").classList.add("error");
+      return;
+    }
     clinicAccounts = normalizeClinicAccounts(clinicAccounts.map((account) => (
       account.key === activeClinicKey
         ? { ...account, name: clinic.name, email: clinic.email, phone: clinic.phone, openingStart: clinic.openingStart, openingEnd: clinic.openingEnd, workingDays: clinic.workingDays }
@@ -15718,7 +15813,13 @@ function setupConfiguration() {
     )));
     saveClinicAccounts();
     renderLoginClinics();
-    $("#clinic-save-status").textContent = "Configuración guardada. Agenda actualizada.";
+    const reminderVariableWarning = missingReminderVariables.length
+      ? ` Aviso: el mensaje no incluye ${missingReminderVariables.join(", ")}.`
+      : "";
+    $("#clinic-save-status").textContent = `Configuración guardada. Agenda actualizada.${reminderVariableWarning}`;
+    if (missingReminderVariables.length) {
+      showToast(`Mensaje guardado. Revisa las variables no incluidas: ${missingReminderVariables.join(", ")}.`, "warning");
+    }
     window.setTimeout(() => {
       const status = $("#clinic-save-status");
       if (status && !status.classList.contains("error")) {
@@ -15869,6 +15970,19 @@ function setupConfiguration() {
     practitioners = editingPractitionerId
       ? practitioners.map((item) => item.id === editingPractitionerId ? savedPractitioner : item)
       : [...practitioners, savedPractitioner];
+    if (!Object.prototype.hasOwnProperty.call(permissionSettings.practitioners || {}, savedPractitioner.id)) {
+      const initialPermissions = savedPractitioner.accessRole === "staff"
+        ? permissionSettings.staff || defaultPermissionSettings.staff
+        : defaultPractitionerPermissions();
+      permissionSettings = normalizePermissionSettings({
+        ...permissionSettings,
+        practitioners: {
+          ...(permissionSettings.practitioners || {}),
+          [savedPractitioner.id]: [...initialPermissions]
+        }
+      });
+      saveSyncedClinicState("permissions", permissionSettings);
+    }
     if (savedPractitioner.email) {
       try {
         const syncedPractitioner = await syncPractitionerAccessUserIfAvailable(savedPractitioner, previousPractitioner, "");

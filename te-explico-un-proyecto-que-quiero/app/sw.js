@@ -1,10 +1,10 @@
-const KLINIA_CACHE = "klinia-20260728-bonos-lifecycle";
+const KLINIA_CACHE = "klinia-20260806-settings-permissions";
 const KLINIA_PWA_ASSET_CACHE = "klinia-pwa-assets-20260728-icons-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260722-agenda-bonos-logo-google",
-  "./app.js?v=20260728-bonos-lifecycle",
+  "./styles.css?v=20260806-settings-permissions",
+  "./app.js?v=20260806-settings-permissions",
   "./offline.html",
   "./assets/klinia-logo.svg"
 ];
@@ -37,7 +37,7 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key.startsWith("klinia-pwa-assets-") && key !== KLINIA_PWA_ASSET_CACHE)
+          .filter((key) => key.startsWith("klinia-") && ![KLINIA_CACHE, KLINIA_PWA_ASSET_CACHE].includes(key))
           .map((key) => caches.delete(key))
       ))
       .then(() => self.clients.claim())

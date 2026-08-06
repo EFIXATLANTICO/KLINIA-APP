@@ -1347,6 +1347,7 @@ CLINIC_DATA_DEFAULTS = {
     "reminder-settings": "{}",
     "availability-blocks": "[]",
     "permissions": "{}",
+    "clinic-logo": json.dumps(""),
 }
 PRACTITIONER_WRITABLE_CLINIC_DATA_KEYS = {"clinical-notes", "group-completions", "group-dropins", "reminder-actions"}
 
@@ -1364,7 +1365,8 @@ def validate_clinic_data_payload(key: str, data_json: str) -> str:
         json.loads(value)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail="Invalid clinic data JSON") from exc
-    if len(value.encode("utf-8")) > 2_000_000:
+    max_payload_bytes = 4_000_000 if key == "clinic-logo" else 2_000_000
+    if len(value.encode("utf-8")) > max_payload_bytes:
         raise HTTPException(status_code=413, detail="Clinic data payload is too large")
     return value
 
