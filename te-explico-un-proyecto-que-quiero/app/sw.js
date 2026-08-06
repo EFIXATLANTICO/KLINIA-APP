@@ -1,10 +1,10 @@
-const KLINIA_CACHE = "klinia-20260806-patient-list";
+const KLINIA_CACHE = "klinia-20260806-agenda-past-quick-patient";
 const KLINIA_PWA_ASSET_CACHE = "klinia-pwa-assets-20260728-icons-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=20260806-patient-list",
-  "./app.js?v=20260806-patient-list",
+  "./styles.css?v=20260806-agenda-past-quick-patient",
+  "./app.js?v=20260806-agenda-past-quick-patient",
   "./offline.html",
   "./assets/klinia-logo.svg"
 ];

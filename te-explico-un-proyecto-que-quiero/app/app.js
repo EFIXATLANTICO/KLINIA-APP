@@ -6669,7 +6669,8 @@ async function resolveAppointmentFormPatient(form = $("#appointment-form")) {
     patients = [...patients, savedPatient];
   }
   saveClinicState("patients", patients);
-  renderAppointmentFormOptions();
+  fillSelect(form.elements.patient, patients);
+  renderAppointmentPatientSuggestions(form);
   form.elements.patient.value = savedPatient.id;
   form.elements.patientSearch.value = savedPatient.name;
   form.dataset.quickPatientCreated = savedPatient.name;
@@ -6945,11 +6946,10 @@ function renderTwoMonthPlanner(schedule, range) {
       const groupCount = groupsForDate(dateValue)
         .filter(groupVisibleToCurrentSession)
         .filter(groupPassesAgendaFilters).length;
-      const canNavigate = dateValue >= todayIso();
+      const isPast = dateValue < todayIso();
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `two-month-day ${dateValue === todayIso() ? "today" : ""} ${!canNavigate ? "past" : ""} ${unpaidCount ? "has-unpaid-appointments" : ""}`;
-      button.disabled = !canNavigate;
+      button.className = `two-month-day ${dateValue === todayIso() ? "today" : ""} ${isPast ? "past" : ""} ${unpaidCount ? "has-unpaid-appointments" : ""}`;
       if (unpaidCount) {
         button.title = `${unpaidCount} cita(s) pendiente(s) de cobro`;
       }
