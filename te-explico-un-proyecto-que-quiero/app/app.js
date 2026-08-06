@@ -331,6 +331,9 @@ async function persistSyncedClinicStateStrict(key, value) {
     }
     return value;
   }
+  if (backendActiveHydrationPromise && backendActiveHydrationClinicKey === activeClinicKey) {
+    await backendActiveHydrationPromise;
+  }
   await saveClinicDataToBackend(key, value);
   return value;
 }
@@ -886,7 +889,7 @@ function normalizePractitioners(savedPractitioners) {
     });
 }
 
-const reminderTemplateVariables = ["{{paciente}}", "{{fecha}}", "{{hora}}", "{{clinica}}", "{{profesional}}", "{{servicio}}"];
+const requiredReminderTemplateVariables = ["{{paciente}}", "{{fecha}}", "{{hora}}"];
 
 function defaultReminderSettings() {
   return {
@@ -896,7 +899,7 @@ function defaultReminderSettings() {
 
 function missingReminderTemplateVariables(template = "") {
   const value = String(template || "");
-  return reminderTemplateVariables.filter((variable) => !value.includes(variable));
+  return requiredReminderTemplateVariables.filter((variable) => !value.includes(variable));
 }
 
 let patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
