@@ -117,6 +117,49 @@ class Patient(TimestampMixin, Base):
     metadata_json: Mapped[str | None] = mapped_column(Text)
 
 
+
+class LegalRepresentative(TimestampMixin, Base):
+    __tablename__ = "legal_representatives"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    first_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(180), nullable=False)
+    document_type: Mapped[str | None] = mapped_column(String(30))
+    document_number: Mapped[str | None] = mapped_column(String(80))
+    birth_date: Mapped[str | None] = mapped_column(String(10))
+    phone: Mapped[str | None] = mapped_column(String(40))
+    email: Mapped[str | None] = mapped_column(String(255))
+    address: Mapped[str | None] = mapped_column(Text)
+    relationship_type: Mapped[str] = mapped_column(String(40), default="legal_guardian")
+    relationship_other: Mapped[str | None] = mapped_column(String(120))
+    can_sign_consents: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    receives_reminders: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    receives_invoices: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_financial_responsible: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_primary_contact: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by_id: Mapped[str | None] = mapped_column(String(36))
+    created_by_name: Mapped[str | None] = mapped_column(String(180))
+
+
+class LegalRepresentativeDocument(TimestampMixin, Base):
+    __tablename__ = "legal_representative_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True)
+    representative_id: Mapped[str] = mapped_column(ForeignKey("legal_representatives.id", ondelete="CASCADE"), index=True)
+    document_type: Mapped[str] = mapped_column(String(40), default="other")
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    data_url: Mapped[str] = mapped_column(Text, nullable=False)
+    uploaded_by_id: Mapped[str | None] = mapped_column(String(36))
+    uploaded_by_name: Mapped[str | None] = mapped_column(String(180))
+
+
 class ClinicalTemplate(TimestampMixin, Base):
     __tablename__ = "clinical_templates"
     __table_args__ = (UniqueConstraint("clinic_id", "name", name="uq_clinical_template_clinic_name"),)
