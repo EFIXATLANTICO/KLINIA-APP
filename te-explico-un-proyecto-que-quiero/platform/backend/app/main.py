@@ -3847,6 +3847,25 @@ def normalize_representative_roles(
             item.is_financial_responsible = False
 
 
+@app.get("/legal-representatives", response_model=list[LegalRepresentativeOut])
+def list_clinic_legal_representatives(
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[LegalRepresentative]:
+    return list(
+        db.scalars(
+            select(LegalRepresentative)
+            .where(LegalRepresentative.clinic_id == user.clinic_id)
+            .order_by(
+                LegalRepresentative.patient_id,
+                LegalRepresentative.is_active.desc(),
+                LegalRepresentative.is_primary_contact.desc(),
+                LegalRepresentative.created_at,
+            )
+        )
+    )
+
+
 @app.get("/patients/{patient_id}/legal-representatives", response_model=list[LegalRepresentativeOut])
 def list_legal_representatives(
     patient_id: str,
