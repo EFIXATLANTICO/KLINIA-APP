@@ -4237,6 +4237,10 @@ async function deleteLegalRepresentativeDocumentFromBackend(documentId) {
 }
 
 function legalRepresentativesForPatient(patientId, { activeOnly = false } = {}) {
+  const patient = byId(patients, patientId);
+  if (activeOnly && patient && !patientShowsLegalRepresentative(patient)) {
+    return [];
+  }
   return legalRepresentatives.filter((item) =>
     String(item.patientId) === String(patientId)
     && (!activeOnly || item.isActive)
@@ -8609,6 +8613,19 @@ function setupLegalRepresentatives() {
       error.textContent = "Especifica la relación con el paciente.";
       error.classList.add("visible");
       return;
+    }
+    const existingPrimary = payload.isPrimaryContact
+      ? legalRepresentativesForPatient(selectedPatientId).find((item) =>
+          item.isPrimaryContact && String(item.id) !== String(selectedLegalRepresentativeId)
+        )
+      : null;
+    if (existingPrimary) {
+      const confirmed = await showConfirm({
+        title: "Cambiar contacto principal",
+        message: `${legalRepresentativeName(existingPrimary)} dejará de ser el contacto principal. ¿Deseas continuar?`,
+        confirmLabel: "Continuar"
+      });
+      if (!confirmed) return;
     }
     const submitButton = $("#save-legal-representative");
     submitButton.disabled = true;
