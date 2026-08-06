@@ -24,7 +24,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260722-agenda-bonos-logo-google" />
+    <link rel="stylesheet" href="./styles.css?v=20260806-settings-permissions" />
   </head>
   <body class="login-mode">
     <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
@@ -1439,7 +1439,6 @@
                 </label>
                 <p class="form-help">Variables disponibles: {{paciente}}, {{fecha}}, {{hora}}, {{clinica}}, {{profesional}}, {{servicio}}.</p>
                 <button class="primary-button" type="submit">Guardar configuración</button>
-                <button class="secondary-button" type="button" id="test-brevo">Probar Brevo API</button>
                 <button class="danger-button" type="button" id="delete-clinic">Resetear datos de esta clínica</button>
                 <p class="save-status" id="clinic-save-status"></p>
               </form>
@@ -2604,12 +2603,12 @@
                   <option selected value="Direccion">Dirección</option>
                 </select>
               </label>
-              <label>
+              <label class="register-password-field">
                 Contraseña
                 <input name="password" type="password" minlength="8" required />
                 <span class="field-hint">Mínimo 8 caracteres, con mayúscula, minúscula y un número o símbolo.</span>
               </label>
-              <label>
+              <label class="register-password-field">
                 Confirmar contraseña
                 <input name="confirmPassword" type="password" minlength="8" required />
               </label>
@@ -2922,7 +2921,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260728-bonos-lifecycle"></script>
+    <script src="./app.js?v=20260806-settings-permissions"></script>
   </body>
 </html>
 
