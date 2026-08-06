@@ -24,7 +24,7 @@
       body:not(.login-mode) .login-screen { display: none !important; }
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260806-agenda-past-quick-patient" />
+    <link rel="stylesheet" href="./styles.css?v=20260806-legal-representatives" />
   </head>
   <body class="login-mode">
     <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
@@ -844,6 +844,7 @@
             </div>
             <div class="patient-tabs" role="tablist" aria-label="Ficha de paciente">
               <button class="selected patient-tab" data-patient-tab="info" type="button">Información</button>
+              <button class="patient-tab" data-patient-tab="legal-representative" type="button" id="patient-legal-representative-tab">Representante legal</button>
               <button class="patient-tab" data-patient-tab="consents" type="button">Consentimientos</button>
               <button class="patient-tab" data-patient-tab="history" type="button">Historial</button>
               <button class="patient-tab" data-patient-tab="packs" type="button">Bonos</button>
@@ -854,12 +855,27 @@
                 <section>
                   <h3>Datos personales</h3>
                   <dl id="patient-detail-data"></dl>
+                  <div id="patient-legal-representative-toggle"></div>
                 </section>
                 <section>
                   <h3>Citas</h3>
                   <div class="compact-list" id="patient-appointments"></div>
                 </section>
               </div>
+            </div>
+            <div class="patient-tab-panel" data-patient-panel="legal-representative">
+              <section>
+                <div class="section-header compact-section-header">
+                  <div>
+                    <h3>Representante legal</h3>
+                    <p class="form-help">Datos asociados exclusivamente a este paciente y a esta clínica.</p>
+                  </div>
+                  <button class="primary-button" type="button" id="add-legal-representative">Añadir representante</button>
+                </div>
+                <div id="legal-representative-notice"></div>
+                <div id="legal-representative-adult-review"></div>
+                <div class="compact-list legal-representative-list" id="legal-representatives-list"></div>
+              </section>
             </div>
             <div class="patient-tab-panel" data-patient-panel="consents">
               <section>
@@ -1657,6 +1673,11 @@
               </label>
             </div>
             <label>
+              Firma
+              <select name="signer" id="patient-consent-signer"></select>
+              <span class="form-help" id="patient-consent-signer-help"></span>
+            </label>
+            <label>
               Documento
               <textarea name="body" rows="14" required></textarea>
             </label>
@@ -1674,6 +1695,65 @@
         <div class="modal-actions">
           <button class="secondary-button dialog-close" type="button" data-dialog-id="patient-consent-dialog">Cancelar</button>
           <button class="primary-button" type="submit" id="save-patient-consent">Guardar consentimiento firmado</button>
+        </div>
+      </form>
+    </dialog>
+
+
+    <dialog id="legal-representative-dialog">
+      <form method="dialog" class="modal-form legal-representative-form" id="legal-representative-form">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Ficha del paciente</p>
+            <h2 id="legal-representative-dialog-title">Añadir representante legal</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-dialog-id="legal-representative-dialog" title="Cerrar">x</button>
+        </div>
+        <div class="form-grid two legal-representative-grid">
+          <label>Nombre<input name="firstName" type="text" required maxlength="120" /></label>
+          <label>Apellidos<input name="lastName" type="text" required maxlength="180" /></label>
+          <label>
+            Documento
+            <select name="documentType">
+              <option value="">No indicado</option>
+              <option value="dni">DNI</option>
+              <option value="nie">NIE</option>
+              <option value="passport">Pasaporte</option>
+              <option value="other">Otro</option>
+            </select>
+          </label>
+          <label>Número de documento<input name="documentNumber" type="text" maxlength="80" /></label>
+          <label>Fecha de nacimiento<input name="birthDate" type="date" /></label>
+          <label>Teléfono<input name="phone" type="tel" maxlength="40" /></label>
+          <label>Email<input name="email" type="email" maxlength="255" /></label>
+          <label>
+            Relación
+            <select name="relationshipType" required>
+              <option value="father">Padre</option>
+              <option value="mother">Madre</option>
+              <option value="legal_guardian">Tutor legal</option>
+              <option value="other">Otro</option>
+            </select>
+          </label>
+          <label class="legal-relationship-other hidden">Especificar relación<input name="relationshipOther" type="text" maxlength="120" /></label>
+          <label class="wide-field">Dirección<textarea name="address" rows="2"></textarea></label>
+        </div>
+        <fieldset class="time-ranges-fieldset legal-representative-permissions">
+          <legend>Funciones del representante</legend>
+          <div class="legal-permission-grid">
+            <label class="check-row"><input name="canSignConsents" type="checkbox" /> Puede firmar consentimientos</label>
+            <label class="check-row"><input name="receivesReminders" type="checkbox" /> Recibe recordatorios</label>
+            <label class="check-row"><input name="receivesInvoices" type="checkbox" /> Recibe facturas</label>
+            <label class="check-row"><input name="isFinancialResponsible" type="checkbox" /> Responsable económico</label>
+            <label class="check-row"><input name="isPrimaryContact" type="checkbox" /> Contacto principal</label>
+            <label class="check-row"><input name="isActive" type="checkbox" checked /> Representación activa</label>
+          </div>
+        </fieldset>
+        <label>Observaciones<textarea name="notes" rows="3"></textarea></label>
+        <p class="form-error" id="legal-representative-error" role="alert"></p>
+        <div class="modal-actions">
+          <button class="secondary-button dialog-close" type="button" data-dialog-id="legal-representative-dialog">Cancelar</button>
+          <button class="primary-button" type="submit" id="save-legal-representative">Guardar representante</button>
         </div>
       </form>
     </dialog>
@@ -1711,6 +1791,14 @@
         <label class="appointment-create-pack-field hidden">
           Bono aplicable
           <select name="patientPack"></select>
+        </label>
+        <label class="appointment-reminder-recipient-field hidden">
+          Enviar recordatorio a
+          <select name="reminderRecipient"></select>
+        </label>
+        <label class="appointment-invoice-recipient-field hidden">
+          Facturar a
+          <select name="invoiceRecipient"></select>
         </label>
         <label>
           Asistentes (solo sesiones grupales)
@@ -1983,6 +2071,14 @@
         <label class="appointment-pack-field hidden">
           Bono del paciente
           <select name="patientPack"></select>
+        </label>
+        <label class="appointment-reminder-recipient-field hidden">
+          Enviar recordatorio a
+          <select name="reminderRecipient"></select>
+        </label>
+        <label class="appointment-invoice-recipient-field hidden">
+          Facturar a
+          <select name="invoiceRecipient"></select>
         </label>
         <label class="appointment-payment-field">
           Cobro
@@ -2921,7 +3017,7 @@
     </dialog>
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
-    <script src="./app.js?v=20260806-pack-performance"></script>
+    <script src="./app.js?v=20260806-legal-representatives"></script>
   </body>
 </html>
 
