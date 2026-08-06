@@ -6803,6 +6803,7 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
   const value = input.value.trim();
   if (!value) {
     if (form.elements.patient) form.elements.patient.value = "";
+    populateAppointmentRepresentativeOptions(form, "");
     hint.textContent = "Busca un paciente existente o escribe uno nuevo para crearlo al guardar.";
     hint.classList.remove("appointment-patient-create-ready");
     updateAppointmentPackOptions(form);
@@ -6814,6 +6815,7 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
     hint.classList.remove("appointment-patient-create-ready");
     form.elements.patient.value = exact.id;
     updateAppointmentPackOptions(form);
+    refreshAppointmentRepresentativeOptions(form, exact.id);
     return;
   }
   const similar = similarPatientsByName(value);
@@ -6878,6 +6880,7 @@ async function resolveAppointmentFormPatient(form = $("#appointment-form")) {
   form.elements.patientSearch.value = savedPatient.name;
   form.dataset.quickPatientCreated = savedPatient.name;
   updateAppointmentPackOptions(form);
+  populateAppointmentRepresentativeOptions(form, savedPatient.id);
   return savedPatient.id;
 }
 
@@ -10466,9 +10469,111 @@ function effectiveReminderSendAt(appointment, rawSendAt, appointmentAt) {
   return rawSendAt;
 }
 
+
+function legalRepresentativeFromRecipientValue(value, patientId, predicate = () => true) {
+  const parts = String(value || "").split(":");
+  if (!["representative", "both"].includes(parts[0]) || !parts[1]) return null;
+  return legalRepresentatives.find((item) =>
+    String(item.id) === String(parts.slice(1).join(":"))
+    && String(item.patientId) === String(patientId)
+    && item.isActive
+    && predicate(item)
+  ) || null;
+}
+
+function populateAppointmentRepresentativeOptions(form, patientId, appointment = null) {
+  if (!form) return;
+  const patient = byId(patients, patientId);
+  const reminderSelect = form.elements.reminderRecipient;
+  const invoiceSelect = form.elements.invoiceRecipient;
+  const reminderField = form.querySelector(".appointment-reminder-recipient-field");
+  const invoiceField = form.querySelector(".appointment-invoice-recipient-field");
+  const reminderRepresentatives = legalRepresentativesForPatient(patientId, { activeOnly: true })
+    .filter((item) => item.receivesReminders && (item.phone || item.email));
+  const invoiceRepresentatives = legalRepresentativesForPatient(patientId, { activeOnly: true })
+    .filter((item) => item.isFinancialResponsible || item.receivesInvoices);
+
+  if (reminderSelect) {
+    const previousValue = appointment?.reminderRecipient || reminderSelect.value || "";
+    reminderSelect.innerHTML = "";
+    reminderSelect.append(new Option(`Paciente${patient?.phone || patient?.email ? "" : " · sin contacto"}`, "patient"));
+    reminderRepresentatives.forEach((representative) => {
+      const label = `${legalRepresentativeName(representative)} · ${legalRelationshipLabel(representative)}`;
+      reminderSelect.append(new Option(label, `representative:${representative.id}`));
+      if (patient?.phone || patient?.email) {
+        reminderSelect.append(new Option(`Paciente y ${label}`, `both:${representative.id}`));
+      }
+    });
+    const primary = reminderRepresentatives.find((item) => item.isPrimaryContact) || reminderRepresentatives[0];
+    const defaultValue = patientIsMinor(patient) && primary ? `representative:${primary.id}` : "patient";
+    reminderSelect.value = [...reminderSelect.options].some((option) => option.value === previousValue)
+      ? previousValue
+      : defaultValue;
+    reminderField?.classList.toggle("hidden", !patientId || !reminderRepresentatives.length);
+  }
+
+  if (invoiceSelect) {
+    const previousValue = appointment?.invoiceRecipient || invoiceSelect.value || "";
+    invoiceSelect.innerHTML = "";
+    invoiceSelect.append(new Option("Paciente", "patient"));
+    invoiceRepresentatives.forEach((representative) => {
+      invoiceSelect.append(new Option(
+        `${legalRepresentativeName(representative)} · ${legalRelationshipLabel(representative)}`,
+        `representative:${representative.id}`
+      ));
+    });
+    const financial = invoiceRepresentatives.find((item) => item.isFinancialResponsible)
+      || invoiceRepresentatives.find((item) => item.isPrimaryContact)
+      || invoiceRepresentatives[0];
+    const defaultValue = financial ? `representative:${financial.id}` : "patient";
+    invoiceSelect.value = [...invoiceSelect.options].some((option) => option.value === previousValue)
+      ? previousValue
+      : defaultValue;
+    invoiceField?.classList.toggle("hidden", !patientId || !invoiceRepresentatives.length);
+  }
+}
+
+async function refreshAppointmentRepresentativeOptions(form, patientId, appointment = null) {
+  if (!patientId) {
+    populateAppointmentRepresentativeOptions(form, "", appointment);
+    return;
+  }
+  try {
+    if (!loadedLegalRepresentativePatientIds.has(String(patientId))) {
+      await refreshLegalRepresentativesForPatient(patientId);
+    }
+    populateAppointmentRepresentativeOptions(form, patientId, appointment);
+  } catch (error) {
+    console.error("Klinia appointment representative options failed", error);
+    populateAppointmentRepresentativeOptions(form, patientId, appointment);
+  }
+}
+
+function invoiceRepresentativeFor(patientId, selection = "") {
+  const selected = legalRepresentativeFromRecipientValue(
+    selection,
+    patientId,
+    (item) => item.isFinancialResponsible || item.receivesInvoices
+  );
+  if (selected) return selected;
+  if (selection === "patient") return null;
+  return financialLegalRepresentative(patientId);
+}
+
+function invoiceRepresentativeHtml(patient, representative) {
+  if (!representative) return "";
+  return `<section><h2>Facturado a</h2><p>${escapeHtml(legalRepresentativeName(representative))}<br>${escapeHtml(representative.documentNumber || "")}<br>${escapeHtml(representative.address || "")}<br>${escapeHtml(representative.email || representative.phone || "")}</p><p>${escapeHtml(legalRelationshipLabel(representative))} y representante legal de ${escapeHtml(patient?.name || "Paciente")}.</p></section>`;
+}
+
 function reminderSlotFromAppointment(appointment, slot) {
   const appointmentAt = appointmentDateTime(appointment);
   const patient = byId(patients, appointment.patientId);
+  const representative = legalRepresentativeFromRecipientValue(
+    appointment.reminderRecipient,
+    appointment.patientId,
+    (item) => item.receivesReminders
+  );
+  const useRepresentative = Boolean(representative && ["representative", "both"].includes(String(appointment.reminderRecipient || "").split(":")[0]));
   const rawSendAt = new Date(appointmentAt.getTime() - Number(slot.hoursBefore || 0) * 60 * 60 * 1000);
   const sendAt = effectiveReminderSendAt(appointment, rawSendAt, appointmentAt);
   return {
@@ -10482,8 +10587,15 @@ function reminderSlotFromAppointment(appointment, slot) {
     patientId: appointment.patientId,
     practitionerId: appointment.practitionerId,
     serviceId: appointment.serviceId,
-    phone: patient?.phone || "",
-    patientName: patient?.name || "Paciente"
+    phone: useRepresentative ? (representative.phone || patient?.phone || "") : (patient?.phone || ""),
+    email: useRepresentative ? (representative.email || patient?.email || "") : (patient?.email || ""),
+    patientName: patient?.name || "Paciente",
+    recipientType: useRepresentative ? "representative" : "patient",
+    recipientName: useRepresentative ? legalRepresentativeName(representative) : (patient?.name || "Paciente"),
+    representativeId: representative?.id || "",
+    additionalRecipients: String(appointment.reminderRecipient || "").startsWith("both:")
+      ? [{ type: "patient", name: patient?.name || "Paciente", phone: patient?.phone || "", email: patient?.email || "" }]
+      : []
   };
 }
 
@@ -10491,11 +10603,8 @@ function reminderSlotsForAppointment(appointment) {
   if (!appointmentAllowsPendingReminder(appointment)) {
     return [];
   }
-  const patient = byId(patients, appointment.patientId);
-  if (!patient?.phone) {
-    return [];
-  }
-  return reminderWindowSlots().map((slot) => reminderSlotFromAppointment(appointment, slot));
+  const slots = reminderWindowSlots().map((slot) => reminderSlotFromAppointment(appointment, slot));
+  return slots.filter((slot) => Boolean(slot.phone));
 }
 
 function reminderWithCurrentAppointment(reminder) {
@@ -14509,6 +14618,7 @@ function openAppointmentDialog(defaults = {}) {
   }
   updateAppointmentGroupAttendeesVisibility(form);
   updateAppointmentPackOptions(form);
+  populateAppointmentRepresentativeOptions(form, "");
   resetRecurrenceReview();
   $("#form-error").classList.remove("visible");
   $("#form-error").textContent = "";
@@ -14626,6 +14736,8 @@ function setupDialog() {
       paymentMethod: "",
       groupAttendees: Math.max(1, Number(form.elements.groupAttendees?.value || 1)),
       plannedPatientPackId: form.elements.patientPack?.value || "",
+      reminderRecipient: form.elements.reminderRecipient?.value || "patient",
+      invoiceRecipient: form.elements.invoiceRecipient?.value || "patient",
       internalNotes: "",
       createdBy: currentSessionName()
     };
@@ -14777,6 +14889,8 @@ function openAppointmentDetail(appointmentId) {
       : "Este paciente no tiene bonos disponibles para este servicio.";
   }
   form.elements.internalNotes.value = appointment.internalNotes || "";
+  populateAppointmentRepresentativeOptions(form, appointment.patientId, appointment);
+  refreshAppointmentRepresentativeOptions(form, appointment.patientId, appointment);
   updateAppointmentDetailDuration(form);
   const invoiceButton = $("#appointment-invoice-button");
   if (invoiceButton) {
@@ -14889,6 +15003,7 @@ async function generateInvoiceForAppointment(appointment) {
     let invoiceAppointment = { ...appointment };
 
     const patient = byId(patients, invoiceAppointment.patientId);
+    const invoiceRepresentative = invoiceRepresentativeFor(invoiceAppointment.patientId, invoiceAppointment.invoiceRecipient || "");
     const practitioner = byId(practitioners, invoiceAppointment.practitionerId);
     const service = byId(services, invoiceAppointment.serviceId);
     const amount = servicePrice(invoiceAppointment);
@@ -14899,7 +15014,8 @@ async function generateInvoiceForAppointment(appointment) {
 <style>body{font-family:Arial,sans-serif;margin:32px;color:#202621}header{display:flex;justify-content:space-between;gap:24px;border-bottom:1px solid #ddd;padding-bottom:18px}img{max-width:90px;max-height:90px}h1{margin:0 0 8px}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left}.total{text-align:right;font-size:22px;font-weight:700;margin-top:24px}</style></head>
 <body>
 <header><div>${clinicLogo ? `<img src="${clinicLogo}" alt="Logo">` : ""}<h1>${clinic.name || "Klinia"}</h1><p>${clinic.email || ""}<br>${clinic.phone || ""}</p></div><div><strong>Factura ${invoiceNumber}</strong><p>Fecha: ${new Date().toLocaleDateString("es-ES")}</p></div></header>
-<section><h2>Paciente</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+<section><h2>Paciente atendido</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+${invoiceRepresentativeHtml(patient, invoiceRepresentative)}
 <table><thead><tr><th>Fecha cita</th><th>Servicio</th><th>Profesional</th><th>Importe</th></tr></thead><tbody><tr><td>${invoiceAppointment.date || selectedDate} ${invoiceAppointment.start}</td><td>${service?.name || "Servicio"}</td><td>${practitioner?.name || "Profesional"}</td><td>${amount} EUR</td></tr></tbody></table>
 <p class="total">Total: ${amount} EUR</p>
 </body></html>`;
@@ -15072,7 +15188,9 @@ function setupAppointmentDetail() {
         ? "Está creando una cita fuera de horario"
         : "",
       cancelledBy,
-      cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : ""
+      cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : "",
+      reminderRecipient: form.elements.reminderRecipient?.value || existingAppointment.reminderRecipient || "patient",
+      invoiceRecipient: form.elements.invoiceRecipient?.value || existingAppointment.invoiceRecipient || "patient"
     };
 
     if (form.dataset.saving === "true") {
@@ -17438,6 +17556,7 @@ async function generateInvoiceForPatientPack(packId) {
     return;
   }
   const patient = byId(patients, pack.patientId);
+  const invoiceRepresentative = financialLegalRepresentative(pack.patientId);
   const invoiceNumber = pack.invoiceNumber || `KL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
   const html = `<!doctype html>
 <html lang="es">
@@ -17445,7 +17564,8 @@ async function generateInvoiceForPatientPack(packId) {
 <style>body{font-family:Arial,sans-serif;margin:32px;color:#202621}header{display:flex;justify-content:space-between;gap:24px;border-bottom:1px solid #ddd;padding-bottom:18px}img{max-width:90px;max-height:90px}h1{margin:0 0 8px}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left}.total{text-align:right;font-size:22px;font-weight:700;margin-top:24px}</style></head>
 <body>
 <header><div>${clinicLogo ? `<img src="${clinicLogo}" alt="Logo">` : ""}<h1>${clinic.name || "Klinia"}</h1><p>${clinic.email || ""}<br>${clinic.phone || ""}</p></div><div><strong>Factura ${invoiceNumber}</strong><p>Fecha: ${new Date().toLocaleDateString("es-ES")}</p></div></header>
-<section><h2>Paciente</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+<section><h2>Paciente atendido</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+${invoiceRepresentativeHtml(patient, invoiceRepresentative)}
 <table><thead><tr><th>Concepto</th><th>Servicio</th><th>Sesiones</th><th>Importe</th></tr></thead><tbody><tr><td>${pack.name}</td><td>${packServiceLabel(pack)}</td><td>${pack.sessions}</td><td>${pack.price} EUR</td></tr></tbody></table>
 <p class="total">Total: ${pack.price} EUR</p>
 </body></html>`;
