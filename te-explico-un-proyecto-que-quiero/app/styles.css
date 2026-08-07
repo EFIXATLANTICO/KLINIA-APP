@@ -7699,3 +7699,144 @@ body.superadmin-mode .public-view.active.superadmin-view {
   }
 }
 
+
+
+/* Representante legal: superficie aislada de la ficha del paciente. */
+.compact-section-header {
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.legal-representative-list {
+  display: grid;
+  gap: 10px;
+}
+
+.legal-representative-card {
+  border: 1px solid var(--line, #d7ded9);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface, #fff);
+}
+
+.legal-representative-card.is-inactive {
+  opacity: 0.72;
+}
+
+.legal-representative-card-head,
+.legal-representative-card-meta,
+.legal-representative-document-row,
+.legal-representative-document-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legal-representative-card-head {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.legal-representative-card-meta {
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.legal-representative-card-meta span {
+  color: var(--muted, #647069);
+  font-size: 0.9rem;
+}
+
+.legal-representative-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.legal-representative-flag {
+  border: 1px solid #cce1da;
+  border-radius: 999px;
+  background: #edf8f4;
+  color: #155f52;
+  font-size: 0.78rem;
+  padding: 3px 8px;
+}
+
+.legal-representative-document-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.legal-representative-document-row {
+  justify-content: space-between;
+  border-top: 1px solid var(--line, #d7ded9);
+  padding-top: 8px;
+}
+
+.legal-representative-document-upload {
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.legal-representative-document-upload select,
+.legal-representative-document-upload input[type="file"] {
+  min-width: 180px;
+  flex: 1 1 220px;
+}
+
+.legal-representative-notice,
+.legal-representative-review,
+.patient-legal-toggle {
+  border: 1px solid #d7ded9;
+  border-radius: 8px;
+  padding: 12px;
+  margin: 10px 0;
+  background: #f8fbfa;
+}
+
+.legal-representative-notice.warning,
+.legal-representative-review {
+  border-color: #e6c779;
+  background: #fff9e8;
+}
+
+.legal-representative-grid .wide-field {
+  grid-column: 1 / -1;
+}
+
+.legal-permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+
+@media (max-width: 720px) {
+  .legal-representative-grid,
+  .legal-permission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .legal-representative-grid .wide-field {
+    grid-column: auto;
+  }
+
+  .legal-representative-card-head,
+  .legal-representative-document-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .legal-representative-document-upload select,
+  .legal-representative-document-upload input[type="file"],
+  .legal-representative-document-upload button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #legal-representative-dialog {
+    width: min(100% - 16px, 640px);
+    max-height: calc(100dvh - 16px);
+  }
+}

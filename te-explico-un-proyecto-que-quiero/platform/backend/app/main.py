@@ -31,6 +31,8 @@ from .models import (
     ClinicDataBlob,
     ClinicalTemplate,
     DemoAccessSession,
+    LegalRepresentative,
+    LegalRepresentativeDocument,
     ManualBillingMovement,
     Patient,
     PatientPackConsumption,
@@ -64,6 +66,11 @@ from .schemas import (
     ClinicalTemplateCreate,
     ClinicalTemplateOut,
     ClinicalTemplateUpdate,
+    LegalRepresentativeCreate,
+    LegalRepresentativeDocumentCreate,
+    LegalRepresentativeDocumentOut,
+    LegalRepresentativeOut,
+    LegalRepresentativeUpdate,
     ClinicOut,
     ClinicRegisterIn,
     ClinicSettingsUpdate,
@@ -3792,6 +3799,241 @@ def delete_patient(patient_id: str, user: User = Depends(require_subscribed_role
     patient = clinic_item_or_404(db, Patient, patient_id, user.clinic_id)
     audit_action(db, user, "delete-patient", "patient", patient.id)
     db.delete(patient)
+    db.commit()
+
+
+def legal_representative_or_404(
+    db: Session,
+    representative_id: str,
+    clinic_id: str,
+) -> LegalRepresentative:
+    representative = db.scalar(
+        select(LegalRepresentative).where(
+            LegalRepresentative.id == representative_id,
+            LegalRepresentative.clinic_id == clinic_id,
+        )
+    )
+    if not representative:
+        raise HTTPException(status_code=404, detail="Legal representative not found")
+    return representative
+
+
+def normalize_representative_roles(
+    db: Session,
+    representative: LegalRepresentative,
+    *,
+    is_primary_contact: bool | None = None,
+    is_financial_responsible: bool | None = None,
+) -> None:
+    if is_primary_contact:
+        for item in db.scalars(
+            select(LegalRepresentative).where(
+                LegalRepresentative.clinic_id == representative.clinic_id,
+                LegalRepresentative.patient_id == representative.patient_id,
+                LegalRepresentative.id != representative.id,
+                LegalRepresentative.is_primary_contact.is_(True),
+            )
+        ):
+            item.is_primary_contact = False
+    if is_financial_responsible:
+        for item in db.scalars(
+            select(LegalRepresentative).where(
+                LegalRepresentative.clinic_id == representative.clinic_id,
+                LegalRepresentative.patient_id == representative.patient_id,
+                LegalRepresentative.id != representative.id,
+                LegalRepresentative.is_financial_responsible.is_(True),
+            )
+        ):
+            item.is_financial_responsible = False
+
+
+@app.get("/legal-representatives", response_model=list[LegalRepresentativeOut])
+def list_clinic_legal_representatives(
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[LegalRepresentative]:
+    return list(
+        db.scalars(
+            select(LegalRepresentative)
+            .where(LegalRepresentative.clinic_id == user.clinic_id)
+            .order_by(
+                LegalRepresentative.patient_id,
+                LegalRepresentative.is_active.desc(),
+                LegalRepresentative.is_primary_contact.desc(),
+                LegalRepresentative.created_at,
+            )
+        )
+    )
+
+
+@app.get("/patients/{patient_id}/legal-representatives", response_model=list[LegalRepresentativeOut])
+def list_legal_representatives(
+    patient_id: str,
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[LegalRepresentative]:
+    clinic_item_or_404(db, Patient, patient_id, user.clinic_id)
+    return list(
+        db.scalars(
+            select(LegalRepresentative)
+            .where(
+                LegalRepresentative.clinic_id == user.clinic_id,
+                LegalRepresentative.patient_id == patient_id,
+            )
+            .order_by(
+                LegalRepresentative.is_active.desc(),
+                LegalRepresentative.is_primary_contact.desc(),
+                LegalRepresentative.created_at,
+            )
+        )
+    )
+
+
+@app.post(
+    "/patients/{patient_id}/legal-representatives",
+    response_model=LegalRepresentativeOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_legal_representative(
+    patient_id: str,
+    payload: LegalRepresentativeCreate,
+    user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)),
+    db: Session = Depends(get_db),
+) -> LegalRepresentative:
+    clinic_item_or_404(db, Patient, patient_id, user.clinic_id)
+    values = payload.model_dump()
+    representative = LegalRepresentative(
+        clinic_id=user.clinic_id,
+        patient_id=patient_id,
+        created_by_id=user.id,
+        created_by_name=user.name,
+        **values,
+    )
+    db.add(representative)
+    db.flush()
+    normalize_representative_roles(
+        db,
+        representative,
+        is_primary_contact=values.get("is_primary_contact"),
+        is_financial_responsible=values.get("is_financial_responsible"),
+    )
+    audit_action(
+        db,
+        user,
+        "create-legal-representative",
+        "legal-representative",
+        representative.id,
+        {"patient_id": patient_id},
+    )
+    db.commit()
+    db.refresh(representative)
+    return representative
+
+
+@app.patch("/legal-representatives/{representative_id}", response_model=LegalRepresentativeOut)
+def update_legal_representative(
+    representative_id: str,
+    payload: LegalRepresentativeUpdate,
+    user: User = Depends(require_subscribed_roles(UserRole.owner, UserRole.staff)),
+    db: Session = Depends(get_db),
+) -> LegalRepresentative:
+    representative = legal_representative_or_404(db, representative_id, user.clinic_id)
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(representative, field, value)
+    normalize_representative_roles(
+        db,
+        representative,
+        is_primary_contact=data.get("is_primary_contact"),
+        is_financial_responsible=data.get("is_financial_responsible"),
+    )
+    audit_action(
+        db,
+        user,
+        "update-legal-representative",
+        "legal-representative",
+        representative.id,
+        {"patient_id": representative.patient_id, "fields": sorted(data.keys())},
+    )
+    db.commit()
+    db.refresh(representative)
+    return representative
+
+
+@app.get(
+    "/legal-representatives/{representative_id}/documents",
+    response_model=list[LegalRepresentativeDocumentOut],
+)
+def list_legal_representative_documents(
+    representative_id: str,
+    user: User = Depends(current_subscribed_user),
+    db: Session = Depends(get_db),
+) -> list[LegalRepresentativeDocument]:
+    representative = legal_representative_or_404(db, representative_id, user.clinic_id)
+    return list(
+        db.scalars(
+            select(LegalRepresentativeDocument)
+            .where(
+                LegalRepresentativeDocument.clinic_id == user.clinic_id,
+                LegalRepresentativeDocument.patient_id == representative.patient_id,
+                LegalRepresentativeDocument.representative_id == representative.id,
+            )
+            .order_by(LegalRepresentativeDocument.created_at.desc())
+        )
+    )
+
+
+@app.post(
+    "/legal-representatives/{representative_id}/documents",
+    response_model=LegalRepresentativeDocumentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_legal_representative_document(
+    representative_id: str,
+    payload: LegalRepresentativeDocumentCreate,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> LegalRepresentativeDocument:
+    representative = legal_representative_or_404(db, representative_id, user.clinic_id)
+    document = LegalRepresentativeDocument(
+        clinic_id=user.clinic_id,
+        patient_id=representative.patient_id,
+        representative_id=representative.id,
+        uploaded_by_id=user.id,
+        uploaded_by_name=user.name,
+        **payload.model_dump(),
+    )
+    db.add(document)
+    db.flush()
+    audit_action(
+        db,
+        user,
+        "create-legal-representative-document",
+        "legal-representative-document",
+        document.id,
+        {"patient_id": representative.patient_id, "representative_id": representative.id},
+    )
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+@app.delete("/legal-representative-documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_legal_representative_document(
+    document_id: str,
+    user: User = Depends(require_subscribed_roles(UserRole.owner)),
+    db: Session = Depends(get_db),
+) -> None:
+    document = clinic_item_or_404(db, LegalRepresentativeDocument, document_id, user.clinic_id)
+    audit_action(
+        db,
+        user,
+        "delete-legal-representative-document",
+        "legal-representative-document",
+        document.id,
+        {"patient_id": document.patient_id, "representative_id": document.representative_id},
+    )
+    db.delete(document)
     db.commit()
 
 

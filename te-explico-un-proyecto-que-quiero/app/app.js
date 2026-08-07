@@ -903,6 +903,10 @@ function missingReminderTemplateVariables(template = "") {
 }
 
 let patients = loadClinicState("patients", isDemoClinic() ? defaultPatients : []);
+let legalRepresentatives = [];
+let legalRepresentativeDocuments = [];
+let selectedLegalRepresentativeId = "";
+const loadedLegalRepresentativePatientIds = new Set();
 let appointments = normalizeAppointments(loadClinicState("appointments", isDemoClinic() ? defaultAppointments : []));
 let clinicalNotes = loadClinicState("clinical-notes", isDemoClinic() ? defaultClinicalNotes : []);
 let clinicalTemplates = loadClinicState("clinical-templates", []);
@@ -4099,6 +4103,202 @@ function uiPatientToApi(patient) {
   };
 }
 
+
+function apiLegalRepresentativeToUi(item) {
+  return {
+    id: item.id,
+    patientId: item.patient_id,
+    firstName: item.first_name || "",
+    lastName: item.last_name || "",
+    documentType: item.document_type || "",
+    documentNumber: item.document_number || "",
+    birthDate: item.birth_date || "",
+    phone: item.phone || "",
+    email: item.email || "",
+    address: item.address || "",
+    relationshipType: item.relationship_type || "legal_guardian",
+    relationshipOther: item.relationship_other || "",
+    canSignConsents: Boolean(item.can_sign_consents),
+    receivesReminders: Boolean(item.receives_reminders),
+    receivesInvoices: Boolean(item.receives_invoices),
+    isFinancialResponsible: Boolean(item.is_financial_responsible),
+    isPrimaryContact: Boolean(item.is_primary_contact),
+    isActive: item.is_active !== false,
+    notes: item.notes || "",
+    createdAt: item.created_at || "",
+    updatedAt: item.updated_at || ""
+  };
+}
+
+function legalRepresentativeToApi(item) {
+  return {
+    first_name: item.firstName,
+    last_name: item.lastName,
+    document_type: item.documentType || null,
+    document_number: item.documentNumber || null,
+    birth_date: item.birthDate || null,
+    phone: item.phone || null,
+    email: item.email || null,
+    address: item.address || null,
+    relationship_type: item.relationshipType || "legal_guardian",
+    relationship_other: item.relationshipType === "other" ? (item.relationshipOther || null) : null,
+    can_sign_consents: Boolean(item.canSignConsents),
+    receives_reminders: Boolean(item.receivesReminders),
+    receives_invoices: Boolean(item.receivesInvoices),
+    is_financial_responsible: Boolean(item.isFinancialResponsible),
+    is_primary_contact: Boolean(item.isPrimaryContact),
+    is_active: item.isActive !== false,
+    notes: item.notes || null
+  };
+}
+
+function apiLegalRepresentativeDocumentToUi(item) {
+  return {
+    id: item.id,
+    patientId: item.patient_id,
+    representativeId: item.representative_id,
+    documentType: item.document_type || "other",
+    fileName: item.file_name || "Documento",
+    mimeType: item.mime_type || "application/octet-stream",
+    dataUrl: item.data_url || "",
+    createdAt: item.created_at || ""
+  };
+}
+
+async function refreshLegalRepresentativesForPatient(patientId) {
+  if (!patientId || !backendDataEnabled()) {
+    loadedLegalRepresentativePatientIds.add(String(patientId || ""));
+    return legalRepresentatives.filter((item) => String(item.patientId) === String(patientId));
+  }
+  const items = await backendRequest(`/patients/${encodeURIComponent(patientId)}/legal-representatives`);
+  legalRepresentatives = [
+    ...legalRepresentatives.filter((item) => String(item.patientId) !== String(patientId)),
+    ...items.map(apiLegalRepresentativeToUi)
+  ];
+  loadedLegalRepresentativePatientIds.add(String(patientId));
+  const representatives = legalRepresentatives.filter((item) => String(item.patientId) === String(patientId));
+  const documents = await Promise.all(representatives.map(async (representative) => {
+    const rows = await backendRequest(`/legal-representatives/${encodeURIComponent(representative.id)}/documents`);
+    return rows.map(apiLegalRepresentativeDocumentToUi);
+  }));
+  legalRepresentativeDocuments = [
+    ...legalRepresentativeDocuments.filter((item) => String(item.patientId) !== String(patientId)),
+    ...documents.flat()
+  ];
+  return representatives;
+}
+
+async function saveLegalRepresentativeToBackend(representative, previousId = "") {
+  if (!backendDataEnabled()) {
+    throw new Error("La sesión backend no está activa. Vuelve a iniciar sesión.");
+  }
+  const editing = looksLikeBackendId(previousId);
+  const saved = await backendRequest(
+    editing
+      ? `/legal-representatives/${encodeURIComponent(previousId)}`
+      : `/patients/${encodeURIComponent(representative.patientId)}/legal-representatives`,
+    {
+      method: editing ? "PATCH" : "POST",
+      body: JSON.stringify(legalRepresentativeToApi(representative))
+    }
+  );
+  return apiLegalRepresentativeToUi(saved);
+}
+
+async function uploadLegalRepresentativeDocument(representative, file, documentType) {
+  if (!representative || !file) throw new Error("Selecciona un archivo.");
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("El documento supera 2 MB.");
+  }
+  const dataUrl = await readFileAsDataUrl(file);
+  const saved = await backendRequest(
+    `/legal-representatives/${encodeURIComponent(representative.id)}/documents`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        document_type: documentType || "other",
+        file_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        data_url: dataUrl
+      })
+    }
+  );
+  const documentItem = apiLegalRepresentativeDocumentToUi(saved);
+  legalRepresentativeDocuments = [
+    documentItem,
+    ...legalRepresentativeDocuments.filter((item) => String(item.id) !== String(documentItem.id))
+  ];
+  return documentItem;
+}
+
+async function deleteLegalRepresentativeDocumentFromBackend(documentId) {
+  await backendRequest(`/legal-representative-documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
+  legalRepresentativeDocuments = legalRepresentativeDocuments.filter((item) => String(item.id) !== String(documentId));
+}
+
+function legalRepresentativesForPatient(patientId, { activeOnly = false } = {}) {
+  const patient = byId(patients, patientId);
+  if (activeOnly && patient && !patientShowsLegalRepresentative(patient)) {
+    return [];
+  }
+  return legalRepresentatives.filter((item) =>
+    String(item.patientId) === String(patientId)
+    && (!activeOnly || item.isActive)
+  );
+}
+
+function primaryLegalRepresentative(patientId, predicate = () => true) {
+  const items = legalRepresentativesForPatient(patientId, { activeOnly: true }).filter(predicate);
+  return items.find((item) => item.isPrimaryContact) || items[0] || null;
+}
+
+function financialLegalRepresentative(patientId) {
+  const items = legalRepresentativesForPatient(patientId, { activeOnly: true })
+    .filter((item) => item.isFinancialResponsible || item.receivesInvoices);
+  return items.find((item) => item.isFinancialResponsible) || items.find((item) => item.isPrimaryContact) || items[0] || null;
+}
+
+function legalRepresentativeName(item) {
+  return `${item?.firstName || ""} ${item?.lastName || ""}`.trim() || "Representante legal";
+}
+
+function legalRelationshipLabel(item) {
+  const labels = {
+    father: "padre",
+    mother: "madre",
+    legal_guardian: "tutor legal",
+    other: item?.relationshipOther || "otro"
+  };
+  return labels[item?.relationshipType] || "representante legal";
+}
+
+function patientAge(patient, referenceDate = new Date()) {
+  if (!patient?.birthDate) return null;
+  const birth = new Date(`${patient.birthDate}T12:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  let age = referenceDate.getFullYear() - birth.getFullYear();
+  const monthDelta = referenceDate.getMonth() - birth.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && referenceDate.getDate() < birth.getDate())) age -= 1;
+  return age;
+}
+
+function patientIsMinor(patient) {
+  const age = patientAge(patient);
+  return age !== null && age < 18;
+}
+
+function patientShowsLegalRepresentative(patient) {
+  return Boolean(patient && (patientIsMinor(patient) || patient.hasLegalRepresentative));
+}
+
+async function persistPatientLegalRepresentativeState(patient, changes) {
+  const nextPatient = { ...patient, ...changes };
+  const saved = await savePatientToBackend(nextPatient, patient.id);
+  patients = patients.map((item) => String(item.id) === String(patient.id) ? saved : item);
+  saveClinicState("patients", patients);
+  return saved;
+}
+
 function apiPractitionerToUi(practitioner, previous = {}) {
   const meta = parseBackendMetadata(practitioner.metadata_json);
   return {
@@ -6607,6 +6807,7 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
   const value = input.value.trim();
   if (!value) {
     if (form.elements.patient) form.elements.patient.value = "";
+    populateAppointmentRepresentativeOptions(form, "");
     hint.textContent = "Busca un paciente existente o escribe uno nuevo para crearlo al guardar.";
     hint.classList.remove("appointment-patient-create-ready");
     updateAppointmentPackOptions(form);
@@ -6618,6 +6819,7 @@ function updateAppointmentPatientCreateHint(form = $("#appointment-form")) {
     hint.classList.remove("appointment-patient-create-ready");
     form.elements.patient.value = exact.id;
     updateAppointmentPackOptions(form);
+    refreshAppointmentRepresentativeOptions(form, exact.id);
     return;
   }
   const similar = similarPatientsByName(value);
@@ -6682,6 +6884,7 @@ async function resolveAppointmentFormPatient(form = $("#appointment-form")) {
   form.elements.patientSearch.value = savedPatient.name;
   form.dataset.quickPatientCreated = savedPatient.name;
   updateAppointmentPackOptions(form);
+  populateAppointmentRepresentativeOptions(form, savedPatient.id);
   return savedPatient.id;
 }
 
@@ -7935,6 +8138,18 @@ function openPatientProfile(patientId) {
   document.body.classList.add("patient-profile-open");
   renderPatientDetail();
   setPatientProfileTab("info");
+  refreshLegalRepresentativesForPatient(patientId)
+    .then(() => {
+      if (patientProfileOpen && String(selectedPatientId) === String(patientId)) {
+        renderPatientDetail();
+      }
+    })
+    .catch((error) => {
+      console.error("Klinia legal representative load failed", error);
+      if (patientProfileOpen && String(selectedPatientId) === String(patientId)) {
+        renderLegalRepresentativeSection(byId(patients, patientId), { error: true });
+      }
+    });
 }
 
 function closePatientProfile() {
@@ -8082,6 +8297,360 @@ function patientConsentStatusText(consent) {
     : "Pendiente de firma";
 }
 
+
+function legalRepresentativeFlagLabels(representative) {
+  return [
+    representative.canSignConsents ? "Firma consentimientos" : "",
+    representative.receivesReminders ? "Recibe recordatorios" : "",
+    representative.receivesInvoices ? "Recibe facturas" : "",
+    representative.isFinancialResponsible ? "Responsable económico" : "",
+    representative.isPrimaryContact ? "Contacto principal" : ""
+  ].filter(Boolean);
+}
+
+function legalDocumentTypeLabel(type) {
+  return {
+    identity: "Documento identificativo",
+    guardianship: "Documento de tutela",
+    judicial: "Resolución judicial",
+    other: "Otro documento"
+  }[type] || "Documento";
+}
+
+function renderLegalRepresentativeSection(patient, { error = false } = {}) {
+  const tab = $("#patient-legal-representative-tab");
+  const panel = $('[data-patient-panel="legal-representative"]');
+  const toggle = $("#patient-legal-representative-toggle");
+  const notice = $("#legal-representative-notice");
+  const review = $("#legal-representative-adult-review");
+  const list = $("#legal-representatives-list");
+  const addButton = $("#add-legal-representative");
+  if (!patient || !tab || !panel || !toggle || !notice || !review || !list) return;
+
+  const minor = patientIsMinor(patient);
+  const visible = patientShowsLegalRepresentative(patient);
+  tab.classList.toggle("hidden", !visible);
+  panel.classList.toggle("hidden", !visible);
+  if (!visible && tab.classList.contains("selected")) setPatientProfileTab("info");
+
+  toggle.innerHTML = minor
+    ? ""
+    : `<div class="patient-legal-toggle">
+        <label class="check-row">
+          <input id="patient-has-legal-representative" type="checkbox" ${patient.hasLegalRepresentative ? "checked" : ""} ${canManageOperations() ? "" : "disabled"} />
+          Este paciente tiene representante legal
+        </label>
+        <span class="form-help">Al desactivarlo se oculta la sección, pero no se elimina ningún dato.</span>
+      </div>`;
+
+  $("#patient-has-legal-representative")?.addEventListener("change", async (event) => {
+    const shouldEnable = event.currentTarget.checked;
+    if (!shouldEnable) {
+      const confirmed = await showConfirm({
+        title: "Desactivar representación",
+        message: "Los datos del representante no se eliminarán, pero dejarán de estar activos. ¿Deseas continuar?",
+        confirmLabel: "Desactivar",
+        variant: "danger"
+      });
+      if (!confirmed) {
+        event.currentTarget.checked = true;
+        return;
+      }
+    }
+    event.currentTarget.disabled = true;
+    try {
+      await persistPatientLegalRepresentativeState(patient, {
+        hasLegalRepresentative: shouldEnable,
+        legalRepresentativeAdultReview: shouldEnable ? patient.legalRepresentativeAdultReview || "" : "deactivated",
+        legalRepresentativeReviewedAt: shouldEnable ? patient.legalRepresentativeReviewedAt || "" : new Date().toISOString()
+      });
+      renderPatientDetail();
+      if (shouldEnable) setPatientProfileTab("legal-representative");
+    } catch (saveError) {
+      event.currentTarget.checked = !shouldEnable;
+      showToast(`No se pudo actualizar la representación: ${saveError.message}`, "error");
+    } finally {
+      event.currentTarget.disabled = false;
+    }
+  });
+
+  if (addButton) {
+    addButton.classList.toggle("hidden", !canManageOperations());
+    addButton.disabled = !canManageOperations();
+  }
+  if (!visible) {
+    notice.innerHTML = "";
+    review.innerHTML = "";
+    list.innerHTML = "";
+    return;
+  }
+
+  const loaded = loadedLegalRepresentativePatientIds.has(String(patient.id));
+  const activeItems = legalRepresentativesForPatient(patient.id, { activeOnly: true });
+  if (error) {
+    notice.innerHTML = '<div class="legal-representative-notice warning">No se pudieron cargar los representantes. Cierra y vuelve a abrir la ficha para reintentar.</div>';
+  } else if (!loaded) {
+    notice.innerHTML = '<div class="legal-representative-notice">Cargando representantes...</div>';
+  } else if (minor && !activeItems.length) {
+    notice.innerHTML = '<div class="legal-representative-notice warning">Este paciente es menor de edad y todavía no tiene un representante legal registrado.</div>';
+  } else {
+    notice.innerHTML = "";
+  }
+
+  const shouldReviewAdult = !minor
+    && patient.legalRepresentativeWasMinor
+    && activeItems.length
+    && patient.hasLegalRepresentative
+    && !["maintained", "deactivated", "later"].includes(patient.legalRepresentativeAdultReview);
+  review.innerHTML = shouldReviewAdult
+    ? `<div class="legal-representative-review">
+        <strong>Este paciente ya es mayor de edad.</strong>
+        <p>Revisa si deseas mantener activo a su representante legal.</p>
+        <div class="compact-actions">
+          <button class="primary-button compact-inline-button" type="button" data-legal-adult-review="maintained">Mantener activo</button>
+          <button class="danger-button compact-inline-button" type="button" data-legal-adult-review="deactivated">Desactivar</button>
+          <button class="secondary-button compact-inline-button" type="button" data-legal-adult-review="later">Decidir más tarde</button>
+        </div>
+      </div>`
+    : "";
+  $("[data-legal-adult-review]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const decision = button.dataset.legalAdultReview;
+      try {
+        await persistPatientLegalRepresentativeState(patient, {
+          hasLegalRepresentative: decision !== "deactivated",
+          legalRepresentativeAdultReview: decision,
+          legalRepresentativeReviewedAt: new Date().toISOString()
+        });
+        renderPatientDetail();
+      } catch (saveError) {
+        showToast(`No se pudo guardar la decisión: ${saveError.message}`, "error");
+      }
+    });
+  });
+
+  const items = legalRepresentativesForPatient(patient.id);
+  list.innerHTML = loaded && !items.length
+    ? '<article class="compact-item"><span>Sin representantes registrados.</span></article>'
+    : items.map((representative) => {
+      const documents = legalRepresentativeDocuments.filter((item) => String(item.representativeId) === String(representative.id));
+      const flags = legalRepresentativeFlagLabels(representative);
+      return `
+        <article class="legal-representative-card ${representative.isActive ? "" : "is-inactive"}">
+          <div class="legal-representative-card-head">
+            <div>
+              <strong>${escapeHtml(legalRepresentativeName(representative))}</strong>
+              <div class="legal-representative-card-meta">
+                <span>${escapeHtml(legalRelationshipLabel(representative))}</span>
+                <span>${representative.documentNumber ? escapeHtml(representative.documentNumber) : "Documento no indicado"}</span>
+                <span>${representative.phone ? escapeHtml(representative.phone) : "Teléfono no indicado"}</span>
+                <span>${representative.email ? escapeHtml(representative.email) : "Email no indicado"}</span>
+              </div>
+            </div>
+            <span class="status-pill ${representative.isActive ? "success" : ""}">${representative.isActive ? "Activo" : "Inactivo"}</span>
+          </div>
+          <div class="legal-representative-flags">
+            ${flags.length ? flags.map((flag) => `<span class="legal-representative-flag">${escapeHtml(flag)}</span>`).join("") : '<span class="muted-text">Sin funciones asignadas.</span>'}
+          </div>
+          ${representative.address ? `<p>${escapeHtml(representative.address)}</p>` : ""}
+          ${representative.notes ? `<p class="muted-text">${escapeHtml(representative.notes)}</p>` : ""}
+          <div class="compact-actions">
+            ${canManageOperations() ? `<button class="secondary-button compact-inline-button" type="button" data-edit-legal-representative="${representative.id}">Editar</button>
+            <button class="secondary-button compact-inline-button" type="button" data-toggle-legal-representative="${representative.id}">${representative.isActive ? "Desactivar" : "Activar"}</button>` : ""}
+          </div>
+          <div class="legal-representative-document-list">
+            <strong>Documentación</strong>
+            ${documents.length ? documents.map((documentItem) => `<div class="legal-representative-document-row">
+              <span>${escapeHtml(legalDocumentTypeLabel(documentItem.documentType))}: ${escapeHtml(documentItem.fileName)}</span>
+              <div class="compact-actions">
+                <button class="secondary-button compact-inline-button" type="button" data-open-legal-document="${documentItem.id}">Abrir</button>
+                ${isOwner() ? `<button class="danger-button compact-inline-button" type="button" data-delete-legal-document="${documentItem.id}">Eliminar</button>` : ""}
+              </div>
+            </div>`).join("") : '<span class="muted-text">Sin documentos adjuntos.</span>'}
+            ${isOwner() ? `<div class="legal-representative-document-upload">
+              <select data-legal-document-type="${representative.id}" aria-label="Tipo de documento">
+                <option value="identity">Documento identificativo</option>
+                <option value="guardianship">Documento de tutela</option>
+                <option value="judicial">Resolución judicial</option>
+                <option value="other">Otro documento</option>
+              </select>
+              <input type="file" data-legal-document-file="${representative.id}" accept="image/*,application/pdf" />
+              <button class="secondary-button" type="button" data-upload-legal-document="${representative.id}">Adjuntar</button>
+            </div>` : ""}
+          </div>
+        </article>`;
+    }).join("");
+
+  $("[data-edit-legal-representative]").forEach((button) => button.addEventListener("click", () => openLegalRepresentativeDialog(button.dataset.editLegalRepresentative)));
+  $("[data-toggle-legal-representative]").forEach((button) => button.addEventListener("click", async () => {
+    const representative = legalRepresentatives.find((item) => String(item.id) === String(button.dataset.toggleLegalRepresentative));
+    if (!representative) return;
+    if (representative.isActive) {
+      const confirmed = await showConfirm({
+        title: "Desactivar representante",
+        message: "Los datos del representante no se eliminarán, pero dejarán de estar activos. ¿Deseas continuar?",
+        confirmLabel: "Desactivar",
+        variant: "danger"
+      });
+      if (!confirmed) return;
+    }
+    button.disabled = true;
+    try {
+      await saveLegalRepresentativeToBackend({ ...representative, isActive: !representative.isActive }, representative.id);
+      await refreshLegalRepresentativesForPatient(patient.id);
+      renderPatientDetail();
+    } catch (saveError) {
+      showToast(`No se pudo actualizar el representante: ${saveError.message}`, "error");
+      button.disabled = false;
+    }
+  }));
+  $("[data-open-legal-document]").forEach((button) => button.addEventListener("click", () => {
+    const documentItem = legalRepresentativeDocuments.find((item) => String(item.id) === String(button.dataset.openLegalDocument));
+    if (documentItem?.dataUrl) openDataUrlDocument(documentItem.dataUrl, documentItem.fileName);
+  }));
+  $("[data-delete-legal-document]").forEach((button) => button.addEventListener("click", async () => {
+    const confirmed = await showConfirm({
+      title: "Eliminar documento",
+      message: "¿Deseas eliminar este documento acreditativo?",
+      confirmLabel: "Eliminar",
+      variant: "danger"
+    });
+    if (!confirmed) return;
+    try {
+      await deleteLegalRepresentativeDocumentFromBackend(button.dataset.deleteLegalDocument);
+      renderPatientDetail();
+    } catch (deleteError) {
+      showToast(`No se pudo eliminar el documento: ${deleteError.message}`, "error");
+    }
+  }));
+  $("[data-upload-legal-document]").forEach((button) => button.addEventListener("click", async () => {
+    const representative = legalRepresentatives.find((item) => String(item.id) === String(button.dataset.uploadLegalDocument));
+    const fileInput = document.querySelector(`[data-legal-document-file="${CSS.escape(button.dataset.uploadLegalDocument)}"]`);
+    const typeSelect = document.querySelector(`[data-legal-document-type="${CSS.escape(button.dataset.uploadLegalDocument)}"]`);
+    const file = fileInput?.files?.[0];
+    button.disabled = true;
+    try {
+      await uploadLegalRepresentativeDocument(representative, file, typeSelect?.value || "other");
+      renderPatientDetail();
+      showToast("Documento guardado.");
+    } catch (uploadError) {
+      showToast(`No se pudo guardar el documento: ${uploadError.message}`, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }));
+}
+
+function openLegalRepresentativeDialog(representativeId = "") {
+  if (!canManageOperations()) return;
+  const form = $("#legal-representative-form");
+  const dialog = $("#legal-representative-dialog");
+  if (!form || !dialog || !selectedPatientId) return;
+  const representative = legalRepresentatives.find((item) => String(item.id) === String(representativeId));
+  selectedLegalRepresentativeId = representative?.id || "";
+  form.reset();
+  form.elements.firstName.value = representative?.firstName || "";
+  form.elements.lastName.value = representative?.lastName || "";
+  form.elements.documentType.value = representative?.documentType || "";
+  form.elements.documentNumber.value = representative?.documentNumber || "";
+  form.elements.birthDate.value = representative?.birthDate || "";
+  form.elements.phone.value = representative?.phone || "";
+  form.elements.email.value = representative?.email || "";
+  form.elements.address.value = representative?.address || "";
+  form.elements.relationshipType.value = representative?.relationshipType || "father";
+  form.elements.relationshipOther.value = representative?.relationshipOther || "";
+  form.elements.canSignConsents.checked = Boolean(representative?.canSignConsents);
+  form.elements.receivesReminders.checked = Boolean(representative?.receivesReminders);
+  form.elements.receivesInvoices.checked = Boolean(representative?.receivesInvoices);
+  form.elements.isFinancialResponsible.checked = Boolean(representative?.isFinancialResponsible);
+  form.elements.isPrimaryContact.checked = Boolean(representative?.isPrimaryContact);
+  form.elements.isActive.checked = representative ? representative.isActive : true;
+  form.elements.notes.value = representative?.notes || "";
+  form.querySelector(".legal-relationship-other")?.classList.toggle("hidden", form.elements.relationshipType.value !== "other");
+  $("#legal-representative-dialog-title").textContent = representative ? "Editar representante legal" : "Añadir representante legal";
+  $("#legal-representative-error").textContent = "";
+  $("#legal-representative-error").classList.remove("visible");
+  dialog.showModal();
+}
+
+function setupLegalRepresentatives() {
+  $("#add-legal-representative")?.addEventListener("click", () => openLegalRepresentativeDialog());
+  $("#legal-representative-form")?.elements.relationshipType?.addEventListener("change", (event) => {
+    $("#legal-representative-form")?.querySelector(".legal-relationship-other")?.classList.toggle("hidden", event.target.value !== "other");
+  });
+  $("#legal-representative-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const error = $("#legal-representative-error");
+    if (!selectedPatientId) return;
+    const payload = {
+      id: selectedLegalRepresentativeId,
+      patientId: selectedPatientId,
+      firstName: form.elements.firstName.value.trim(),
+      lastName: form.elements.lastName.value.trim(),
+      documentType: form.elements.documentType.value,
+      documentNumber: form.elements.documentNumber.value.trim(),
+      birthDate: form.elements.birthDate.value,
+      phone: form.elements.phone.value.trim(),
+      email: form.elements.email.value.trim(),
+      address: form.elements.address.value.trim(),
+      relationshipType: form.elements.relationshipType.value,
+      relationshipOther: form.elements.relationshipOther.value.trim(),
+      canSignConsents: form.elements.canSignConsents.checked,
+      receivesReminders: form.elements.receivesReminders.checked,
+      receivesInvoices: form.elements.receivesInvoices.checked,
+      isFinancialResponsible: form.elements.isFinancialResponsible.checked,
+      isPrimaryContact: form.elements.isPrimaryContact.checked,
+      isActive: form.elements.isActive.checked,
+      notes: form.elements.notes.value.trim()
+    };
+    if (!payload.firstName || !payload.lastName) {
+      error.textContent = "Indica nombre y apellidos.";
+      error.classList.add("visible");
+      return;
+    }
+    if (payload.relationshipType === "other" && !payload.relationshipOther) {
+      error.textContent = "Especifica la relación con el paciente.";
+      error.classList.add("visible");
+      return;
+    }
+    const existingPrimary = payload.isPrimaryContact
+      ? legalRepresentativesForPatient(selectedPatientId).find((item) =>
+          item.isPrimaryContact && String(item.id) !== String(selectedLegalRepresentativeId)
+        )
+      : null;
+    if (existingPrimary) {
+      const confirmed = await showConfirm({
+        title: "Cambiar contacto principal",
+        message: `${legalRepresentativeName(existingPrimary)} dejará de ser el contacto principal. ¿Deseas continuar?`,
+        confirmLabel: "Continuar"
+      });
+      if (!confirmed) return;
+    }
+    const submitButton = $("#save-legal-representative");
+    submitButton.disabled = true;
+    try {
+      await saveLegalRepresentativeToBackend(payload, selectedLegalRepresentativeId);
+      const patient = byId(patients, selectedPatientId);
+      if (patient && (!patient.hasLegalRepresentative || (patientIsMinor(patient) && !patient.legalRepresentativeWasMinor))) {
+        await persistPatientLegalRepresentativeState(patient, {
+          hasLegalRepresentative: true,
+          legalRepresentativeWasMinor: patient.legalRepresentativeWasMinor || patientIsMinor(patient)
+        });
+      }
+      await refreshLegalRepresentativesForPatient(selectedPatientId);
+      $("#legal-representative-dialog").close();
+      renderPatientDetail();
+      showToast("Representante guardado.");
+    } catch (saveError) {
+      error.textContent = saveError.message;
+      error.classList.add("visible");
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+}
+
 function renderPatientDetail() {
   const detail = $("#patient-detail");
   const patient = byId(patients, selectedPatientId);
@@ -8130,6 +8699,7 @@ function renderPatientDetail() {
     <dt>Alerta interna</dt>
     <dd>${patient.alert || "Sin alertas"}</dd>
   `;
+  renderLegalRepresentativeSection(patient);
 
   const patientAppointments = appointments
     .filter((appointment) => appointment.patientId === patient.id)
@@ -8171,6 +8741,7 @@ function renderPatientDetail() {
         <div>
           <strong>${escapeHtml(item.templateName || "Consentimiento")}</strong>
           <span>${escapeHtml(item.createdAt)} - ${escapeHtml(patientConsentStatusText(item))}${item.city ? ` - ${escapeHtml(item.city)}` : ""}${item.signatureDate ? ` - ${escapeHtml(formatConsentDate(item.signatureDate))}` : ""}</span>
+          ${item.signerType === "representative" ? `<span>Consentimiento firmado por ${escapeHtml(item.signerName || "Representante legal")}, ${escapeHtml(item.signerRelationship || "representante legal")} y representante legal del paciente.</span>` : ""}
           ${item.fileData ? `
             <div class="signed-consent-file">
               <strong>${escapeHtml(item.fileName || "consentimiento-firmado.html")}</strong>
@@ -9915,9 +10486,111 @@ function effectiveReminderSendAt(appointment, rawSendAt, appointmentAt) {
   return rawSendAt;
 }
 
+
+function legalRepresentativeFromRecipientValue(value, patientId, predicate = () => true) {
+  const parts = String(value || "").split(":");
+  if (!["representative", "both"].includes(parts[0]) || !parts[1]) return null;
+  return legalRepresentatives.find((item) =>
+    String(item.id) === String(parts.slice(1).join(":"))
+    && String(item.patientId) === String(patientId)
+    && item.isActive
+    && predicate(item)
+  ) || null;
+}
+
+function populateAppointmentRepresentativeOptions(form, patientId, appointment = null) {
+  if (!form) return;
+  const patient = byId(patients, patientId);
+  const reminderSelect = form.elements.reminderRecipient;
+  const invoiceSelect = form.elements.invoiceRecipient;
+  const reminderField = form.querySelector(".appointment-reminder-recipient-field");
+  const invoiceField = form.querySelector(".appointment-invoice-recipient-field");
+  const reminderRepresentatives = legalRepresentativesForPatient(patientId, { activeOnly: true })
+    .filter((item) => item.receivesReminders && (item.phone || item.email));
+  const invoiceRepresentatives = legalRepresentativesForPatient(patientId, { activeOnly: true })
+    .filter((item) => item.isFinancialResponsible || item.receivesInvoices);
+
+  if (reminderSelect) {
+    const previousValue = appointment?.reminderRecipient || reminderSelect.value || "";
+    reminderSelect.innerHTML = "";
+    reminderSelect.append(new Option(`Paciente${patient?.phone || patient?.email ? "" : " · sin contacto"}`, "patient"));
+    reminderRepresentatives.forEach((representative) => {
+      const label = `${legalRepresentativeName(representative)} · ${legalRelationshipLabel(representative)}`;
+      reminderSelect.append(new Option(label, `representative:${representative.id}`));
+      if (patient?.phone || patient?.email) {
+        reminderSelect.append(new Option(`Paciente y ${label}`, `both:${representative.id}`));
+      }
+    });
+    const primary = reminderRepresentatives.find((item) => item.isPrimaryContact) || reminderRepresentatives[0];
+    const defaultValue = patientIsMinor(patient) && primary ? `representative:${primary.id}` : "patient";
+    reminderSelect.value = [...reminderSelect.options].some((option) => option.value === previousValue)
+      ? previousValue
+      : defaultValue;
+    reminderField?.classList.toggle("hidden", !patientId || !reminderRepresentatives.length);
+  }
+
+  if (invoiceSelect) {
+    const previousValue = appointment?.invoiceRecipient || invoiceSelect.value || "";
+    invoiceSelect.innerHTML = "";
+    invoiceSelect.append(new Option("Paciente", "patient"));
+    invoiceRepresentatives.forEach((representative) => {
+      invoiceSelect.append(new Option(
+        `${legalRepresentativeName(representative)} · ${legalRelationshipLabel(representative)}`,
+        `representative:${representative.id}`
+      ));
+    });
+    const financial = invoiceRepresentatives.find((item) => item.isFinancialResponsible)
+      || invoiceRepresentatives.find((item) => item.isPrimaryContact)
+      || invoiceRepresentatives[0];
+    const defaultValue = financial ? `representative:${financial.id}` : "patient";
+    invoiceSelect.value = [...invoiceSelect.options].some((option) => option.value === previousValue)
+      ? previousValue
+      : defaultValue;
+    invoiceField?.classList.toggle("hidden", !patientId || !invoiceRepresentatives.length);
+  }
+}
+
+async function refreshAppointmentRepresentativeOptions(form, patientId, appointment = null) {
+  if (!patientId) {
+    populateAppointmentRepresentativeOptions(form, "", appointment);
+    return;
+  }
+  try {
+    if (!loadedLegalRepresentativePatientIds.has(String(patientId))) {
+      await refreshLegalRepresentativesForPatient(patientId);
+    }
+    populateAppointmentRepresentativeOptions(form, patientId, appointment);
+  } catch (error) {
+    console.error("Klinia appointment representative options failed", error);
+    populateAppointmentRepresentativeOptions(form, patientId, appointment);
+  }
+}
+
+function invoiceRepresentativeFor(patientId, selection = "") {
+  const selected = legalRepresentativeFromRecipientValue(
+    selection,
+    patientId,
+    (item) => item.isFinancialResponsible || item.receivesInvoices
+  );
+  if (selected) return selected;
+  if (selection === "patient") return null;
+  return financialLegalRepresentative(patientId);
+}
+
+function invoiceRepresentativeHtml(patient, representative) {
+  if (!representative) return "";
+  return `<section><h2>Facturado a</h2><p>${escapeHtml(legalRepresentativeName(representative))}<br>${escapeHtml(representative.documentNumber || "")}<br>${escapeHtml(representative.address || "")}<br>${escapeHtml(representative.email || representative.phone || "")}</p><p>${escapeHtml(legalRelationshipLabel(representative))} y representante legal de ${escapeHtml(patient?.name || "Paciente")}.</p></section>`;
+}
+
 function reminderSlotFromAppointment(appointment, slot) {
   const appointmentAt = appointmentDateTime(appointment);
   const patient = byId(patients, appointment.patientId);
+  const representative = legalRepresentativeFromRecipientValue(
+    appointment.reminderRecipient,
+    appointment.patientId,
+    (item) => item.receivesReminders
+  );
+  const useRepresentative = Boolean(representative && ["representative", "both"].includes(String(appointment.reminderRecipient || "").split(":")[0]));
   const rawSendAt = new Date(appointmentAt.getTime() - Number(slot.hoursBefore || 0) * 60 * 60 * 1000);
   const sendAt = effectiveReminderSendAt(appointment, rawSendAt, appointmentAt);
   return {
@@ -9931,8 +10604,15 @@ function reminderSlotFromAppointment(appointment, slot) {
     patientId: appointment.patientId,
     practitionerId: appointment.practitionerId,
     serviceId: appointment.serviceId,
-    phone: patient?.phone || "",
-    patientName: patient?.name || "Paciente"
+    phone: useRepresentative ? (representative.phone || patient?.phone || "") : (patient?.phone || ""),
+    email: useRepresentative ? (representative.email || patient?.email || "") : (patient?.email || ""),
+    patientName: patient?.name || "Paciente",
+    recipientType: useRepresentative ? "representative" : "patient",
+    recipientName: useRepresentative ? legalRepresentativeName(representative) : (patient?.name || "Paciente"),
+    representativeId: representative?.id || "",
+    additionalRecipients: String(appointment.reminderRecipient || "").startsWith("both:")
+      ? [{ type: "patient", name: patient?.name || "Paciente", phone: patient?.phone || "", email: patient?.email || "" }]
+      : []
   };
 }
 
@@ -9940,11 +10620,8 @@ function reminderSlotsForAppointment(appointment) {
   if (!appointmentAllowsPendingReminder(appointment)) {
     return [];
   }
-  const patient = byId(patients, appointment.patientId);
-  if (!patient?.phone) {
-    return [];
-  }
-  return reminderWindowSlots().map((slot) => reminderSlotFromAppointment(appointment, slot));
+  const slots = reminderWindowSlots().map((slot) => reminderSlotFromAppointment(appointment, slot));
+  return slots.filter((slot) => Boolean(slot.phone || slot.email));
 }
 
 function reminderWithCurrentAppointment(reminder) {
@@ -10349,15 +11026,39 @@ function prepareReminderWhatsApp(reminder, options = {}) {
     saveReminderAction(reminder, "failed");
     return false;
   }
+  const additionalUrls = (reminder.additionalRecipients || [])
+    .filter((recipient) => cleanPhone(recipient.phone))
+    .map((recipient) => whatsappReminderUrl({ ...reminder, phone: recipient.phone }));
   if (openWindow) {
     window.open(url, "_blank", "noopener");
+    if (!auto) {
+      additionalUrls.filter(Boolean).forEach((additionalUrl) => window.open(additionalUrl, "_blank", "noopener"));
+    }
   }
-  saveReminderAction({ ...reminder, message, whatsappUrl: url, autoPrepared: auto }, "prepared");
+  saveReminderAction({ ...reminder, message, whatsappUrl: url, additionalWhatsappUrls: additionalUrls, autoPrepared: auto }, "prepared");
   return true;
 }
 
 function openReminderWhatsApp(reminder) {
   prepareReminderWhatsApp(reminder, { openWindow: true });
+}
+
+function prepareReminderEmail(reminder, options = {}) {
+  const { openWindow = true, auto = false } = options;
+  const recipients = [
+    reminder.email,
+    ...(reminder.additionalRecipients || []).map((item) => item.email)
+  ].filter(Boolean);
+  if (!recipients.length) {
+    showNotice("Email no disponible", "El destinatario no tiene un email válido.", { variant: "warning" });
+    return false;
+  }
+  const message = reminderMessage(reminder);
+  const subject = `Recordatorio de cita - ${clinic?.name || "Klinia"}`;
+  const url = `mailto:${encodeURIComponent(recipients.join(","))}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  if (openWindow) window.location.href = url;
+  saveReminderAction({ ...reminder, message, emailUrl: url, autoPrepared: auto }, "prepared");
+  return true;
 }
 
 function openAppointmentFromReminder(reminder) {
@@ -10393,9 +11094,10 @@ function runDueWhatsAppReminders(openWindows = true) {
   const due = dueReminderQueue();
   let prepared = 0;
   due.forEach((reminder, index) => {
-    if (prepareReminderWhatsApp(reminder, { openWindow: openWindows && index === 0, auto: true })) {
-      prepared += 1;
-    }
+    const didPrepare = reminder.phone
+      ? prepareReminderWhatsApp(reminder, { openWindow: openWindows && index === 0, auto: true })
+      : prepareReminderEmail(reminder, { openWindow: openWindows && index === 0, auto: true });
+    if (didPrepare) prepared += 1;
   });
   autoReminderRunning = false;
   const status = $("#automation-status");
@@ -10428,7 +11130,7 @@ function renderReminderCard(reminder, mode = "pending") {
       <span class="status-pill ${reminder.status}">${statusText}</span>
     </div>
     <p>${reminder.message || reminderMessage(reminder)}</p>
-    <small>Enviar: ${sendAt} - Cita: ${reminder.date}, ${reminder.start} - Tel: ${phone}</small>
+    <small>Enviar: ${sendAt} - Cita: ${reminder.date}, ${reminder.start} - Destinatario: ${escapeHtml(reminder.recipientName || patient?.name || "Paciente")} - Contacto: ${escapeHtml(reminder.phone || reminder.email || phone)}${reminder.additionalRecipients?.length ? ` · También: ${reminder.additionalRecipients.map((item) => escapeHtml(item.name || "Paciente")).join(", ")}` : ""}</small>
   `;
 
   if (mode === "pending") {
@@ -10437,7 +11139,8 @@ function renderReminderCard(reminder, mode = "pending") {
     const whatsappLabel = reminder.status === "prepared" ? "Abrir WhatsApp" : "Preparar WhatsApp";
     actions.innerHTML = `
       <button class="secondary-button" type="button" data-reminder-action="appointment">Abrir cita</button>
-      <button class="primary-button" type="button" data-reminder-action="whatsapp">${whatsappLabel}</button>
+      ${reminder.phone ? `<button class="primary-button" type="button" data-reminder-action="whatsapp">${whatsappLabel}</button>` : ""}
+      ${reminder.email ? '<button class="secondary-button" type="button" data-reminder-action="email">Preparar email</button>' : ""}
       <button class="secondary-button" type="button" data-reminder-action="sent">Enviado</button>
       <button class="secondary-button" type="button" data-reminder-action="handled">Gestionado</button>
       <button class="secondary-button danger" type="button" data-reminder-action="failed">Fallido</button>
@@ -10455,6 +11158,9 @@ function renderReminderCard(reminder, mode = "pending") {
         try {
           if (action === "whatsapp") {
             openReminderWhatsApp(reminder);
+            await flushReminderActionsSync();
+          } else if (action === "email") {
+            prepareReminderEmail(reminder, { openWindow: true });
             await flushReminderActionsSync();
           } else {
             await saveReminderAction(reminder, action);
@@ -11974,6 +12680,7 @@ async function hydrateFromApi(options = {}) {
     const apiRoomsPending = settleBackendRequest(backendRequest("/rooms"));
     const apiServicesPending = settleBackendRequest(backendRequest("/services"));
     const apiAppointmentsPending = settleBackendRequest(backendRequest("/appointments"));
+    const apiLegalRepresentativesPending = settleBackendRequest(backendRequest("/legal-representatives"));
 
     const [apiMeResult, apiPractitionersResult] = await Promise.all([apiMePending, apiPractitionersPending]);
     if (apiMeResult.error) throw apiMeResult.error;
@@ -12002,17 +12709,19 @@ async function hydrateFromApi(options = {}) {
       }
     }
 
-    const [apiPatientsResult, apiRoomsResult, apiServicesResult, apiAppointmentsResult] = await Promise.all([
+    const [apiPatientsResult, apiRoomsResult, apiServicesResult, apiAppointmentsResult, apiLegalRepresentativesResult] = await Promise.all([
       apiPatientsPending,
       apiRoomsPending,
       apiServicesPending,
-      apiAppointmentsPending
+      apiAppointmentsPending,
+      apiLegalRepresentativesPending
     ]);
     const remainingError = [
       apiPatientsResult,
       apiRoomsResult,
       apiServicesResult,
-      apiAppointmentsResult
+      apiAppointmentsResult,
+      apiLegalRepresentativesResult
     ].find((result) => result.error)?.error;
     if (remainingError) throw remainingError;
 
@@ -12037,6 +12746,9 @@ async function hydrateFromApi(options = {}) {
     rooms = apiRooms.map((room) => apiRoomToUi(room));
     services = normalizeServices(apiServices.map((service) => apiServiceToUi(service)));
     appointments = normalizeAppointments(apiAppointments.map((appointment) => apiAppointmentToUi(appointment, byId(appointments, appointment.id))));
+    legalRepresentatives = (apiLegalRepresentativesResult.value || []).map(apiLegalRepresentativeToUi);
+    loadedLegalRepresentativePatientIds.clear();
+    patients.forEach((patient) => loadedLegalRepresentativePatientIds.add(String(patient.id)));
     practitionerDataApplied = setAgendaPractitionerLoadState(
       practitioners.length ? "success" : "empty",
       hydrationClinicKey,
@@ -13958,6 +14670,7 @@ function openAppointmentDialog(defaults = {}) {
   }
   updateAppointmentGroupAttendeesVisibility(form);
   updateAppointmentPackOptions(form);
+  populateAppointmentRepresentativeOptions(form, "");
   resetRecurrenceReview();
   $("#form-error").classList.remove("visible");
   $("#form-error").textContent = "";
@@ -14075,6 +14788,8 @@ function setupDialog() {
       paymentMethod: "",
       groupAttendees: Math.max(1, Number(form.elements.groupAttendees?.value || 1)),
       plannedPatientPackId: form.elements.patientPack?.value || "",
+      reminderRecipient: form.elements.reminderRecipient?.value || "patient",
+      invoiceRecipient: form.elements.invoiceRecipient?.value || "patient",
       internalNotes: "",
       createdBy: currentSessionName()
     };
@@ -14226,6 +14941,8 @@ function openAppointmentDetail(appointmentId) {
       : "Este paciente no tiene bonos disponibles para este servicio.";
   }
   form.elements.internalNotes.value = appointment.internalNotes || "";
+  populateAppointmentRepresentativeOptions(form, appointment.patientId, appointment);
+  refreshAppointmentRepresentativeOptions(form, appointment.patientId, appointment);
   updateAppointmentDetailDuration(form);
   const invoiceButton = $("#appointment-invoice-button");
   if (invoiceButton) {
@@ -14338,6 +15055,7 @@ async function generateInvoiceForAppointment(appointment) {
     let invoiceAppointment = { ...appointment };
 
     const patient = byId(patients, invoiceAppointment.patientId);
+    const invoiceRepresentative = invoiceRepresentativeFor(invoiceAppointment.patientId, invoiceAppointment.invoiceRecipient || "");
     const practitioner = byId(practitioners, invoiceAppointment.practitionerId);
     const service = byId(services, invoiceAppointment.serviceId);
     const amount = servicePrice(invoiceAppointment);
@@ -14348,7 +15066,8 @@ async function generateInvoiceForAppointment(appointment) {
 <style>body{font-family:Arial,sans-serif;margin:32px;color:#202621}header{display:flex;justify-content:space-between;gap:24px;border-bottom:1px solid #ddd;padding-bottom:18px}img{max-width:90px;max-height:90px}h1{margin:0 0 8px}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left}.total{text-align:right;font-size:22px;font-weight:700;margin-top:24px}</style></head>
 <body>
 <header><div>${clinicLogo ? `<img src="${clinicLogo}" alt="Logo">` : ""}<h1>${clinic.name || "Klinia"}</h1><p>${clinic.email || ""}<br>${clinic.phone || ""}</p></div><div><strong>Factura ${invoiceNumber}</strong><p>Fecha: ${new Date().toLocaleDateString("es-ES")}</p></div></header>
-<section><h2>Paciente</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+<section><h2>Paciente atendido</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+${invoiceRepresentativeHtml(patient, invoiceRepresentative)}
 <table><thead><tr><th>Fecha cita</th><th>Servicio</th><th>Profesional</th><th>Importe</th></tr></thead><tbody><tr><td>${invoiceAppointment.date || selectedDate} ${invoiceAppointment.start}</td><td>${service?.name || "Servicio"}</td><td>${practitioner?.name || "Profesional"}</td><td>${amount} EUR</td></tr></tbody></table>
 <p class="total">Total: ${amount} EUR</p>
 </body></html>`;
@@ -14521,7 +15240,9 @@ function setupAppointmentDetail() {
         ? "Está creando una cita fuera de horario"
         : "",
       cancelledBy,
-      cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : ""
+      cancelledAt: finalStatusIsCancelled ? (existingAppointment?.cancelledAt || new Date().toISOString()) : "",
+      reminderRecipient: form.elements.reminderRecipient?.value || existingAppointment.reminderRecipient || "patient",
+      invoiceRecipient: form.elements.invoiceRecipient?.value || existingAppointment.invoiceRecipient || "patient"
     };
 
     if (form.dataset.saving === "true") {
@@ -16121,7 +16842,9 @@ function setupPatientTabs() {
 }
 
 function setPatientProfileTab(tabId = "info") {
-  const nextTab = tabId || "info";
+  const requestedTab = tabId || "info";
+  const requestedButton = document.querySelector(`[data-patient-tab="${CSS.escape(requestedTab)}"]`);
+  const nextTab = requestedButton?.classList.contains("hidden") ? "info" : requestedTab;
   $$(".patient-tab").forEach((item) => item.classList.toggle("selected", item.dataset.patientTab === nextTab));
   $$(".patient-tab-panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.patientPanel === nextTab));
 }
@@ -16156,6 +16879,9 @@ function buildPatientConsentFile(consent, patient = null) {
   const patientData = consent?.fiscalData || {};
   const patientName = patient?.name || patientData.name || "Paciente";
   const signatureDate = consent?.signatureDateLabel || formatConsentDate(consent?.signatureDate) || "";
+  const signerName = consent?.signerName || patientName;
+  const signerRelationship = consent?.signerRelationship || "paciente";
+  const signerHeading = consent?.signerType === "representative" ? "Firma del representante legal" : "Firma del paciente";
   const revokedInfo = consent?.revoked
     ? `Revocado el ${consent.revokedAt ? new Date(consent.revokedAt).toLocaleString("es-ES") : ""}${consent.revokedBy ? ` por ${escapeHtml(consent.revokedBy)}` : ""}.`
     : "Sin revocacion registrada.";
@@ -16180,11 +16906,12 @@ function buildPatientConsentFile(consent, patient = null) {
     <span class="label">Email</span><span>${escapeHtml(patient?.email || patientData.email || "No indicado")}</span>
     <span class="label">Telefono</span><span>${escapeHtml(patient?.phone || patientData.phone || "No indicado")}</span>
     <span class="label">Direccion</span><span>${escapeHtml(patientLocationLine(patient) || patientData.address || "No indicada")}</span>
+    <span class="label">Firmante</span><span>${escapeHtml(signerName)}${consent?.signerType === "representative" ? ` · ${escapeHtml(signerRelationship)} y representante legal` : ""}</span>
   </section>
   <section class="document">${escapeHtml(consent?.body || "")}</section>
   <section class="signature">
-    <h2>Firma del paciente</h2>
-    ${consent?.signatureData ? `<img src="${consent.signatureData}" alt="Firma del paciente">` : `<p class="muted">Sin firma registrada.</p>`}
+    <h2>${escapeHtml(signerHeading)}</h2>
+    ${consent?.signatureData ? `<img src="${consent.signatureData}" alt="${escapeHtml(signerHeading)}">` : `<p class="muted">Sin firma registrada.</p>`}
   </section>
   <section class="revocation">
     <h2>Revocacion de consentimiento</h2>
@@ -16439,6 +17166,77 @@ function renderPatientConsentTemplateList(selectedTemplateId = "", locked = fals
   });
 }
 
+
+function populatePatientConsentSignerOptions(patient, existing = null) {
+  const form = $("#patient-consent-form");
+  const select = form?.elements.signer;
+  const help = $("#patient-consent-signer-help");
+  if (!select || !patient) return;
+  const representatives = legalRepresentativesForPatient(patient.id, { activeOnly: true })
+    .filter((item) => item.canSignConsents);
+  select.innerHTML = "";
+  select.append(new Option(patient.name || "Paciente", "patient"));
+  representatives.forEach((representative) => {
+    select.append(new Option(
+      `${legalRepresentativeName(representative)} · ${legalRelationshipLabel(representative)}`,
+      `representative:${representative.id}`
+    ));
+  });
+  const primary = representatives.find((item) => item.isPrimaryContact) || representatives[0];
+  const defaultValue = existing?.representativeId
+    ? `representative:${existing.representativeId}`
+    : (patientIsMinor(patient) && primary ? `representative:${primary.id}` : "patient");
+  select.value = [...select.options].some((option) => option.value === defaultValue) ? defaultValue : "patient";
+  const signatureTitle = $("#patient-consent-signature-title");
+  if (signatureTitle) {
+    signatureTitle.textContent = select.value.startsWith("representative:") ? "Firma del representante legal" : "Firma del paciente";
+  }
+  if (help) {
+    help.textContent = patientIsMinor(patient) && !representatives.length
+      ? "No hay un representante activo con permiso para firmar. Puedes guardar la firma del paciente o completar primero su representante."
+      : "La firma directa del paciente sigue disponible.";
+  }
+}
+
+function consentSignerData(form, patient) {
+  const value = form?.elements.signer?.value || "patient";
+  if (!value.startsWith("representative:")) {
+    return {
+      signerType: "patient",
+      representativeId: "",
+      signerName: patient?.name || "Paciente",
+      signerRelationship: "paciente",
+      signerDocumentId: ""
+    };
+  }
+  const representativeId = value.split(":").slice(1).join(":");
+  const representative = legalRepresentatives.find((item) =>
+    String(item.id) === String(representativeId)
+    && String(item.patientId) === String(patient?.id)
+    && item.isActive
+    && item.canSignConsents
+  );
+  if (!representative) {
+    return {
+      signerType: "patient",
+      representativeId: "",
+      signerName: patient?.name || "Paciente",
+      signerRelationship: "paciente"
+    };
+  }
+  const representativeDocument = legalRepresentativeDocuments.find((item) =>
+    String(item.representativeId) === String(representative.id)
+    && ["identity", "guardianship", "judicial"].includes(item.documentType)
+  );
+  return {
+    signerType: "representative",
+    representativeId: representative.id,
+    signerName: legalRepresentativeName(representative),
+    signerRelationship: legalRelationshipLabel(representative),
+    signerDocumentId: representativeDocument?.id || ""
+  };
+}
+
 function renderPatientConsentDialogData(patient) {
   $("#patient-consent-patient-name").textContent = patient?.name || "Paciente";
   $("#patient-consent-patient-data").innerHTML = `
@@ -16477,6 +17275,7 @@ function openPatientConsentDialog(consentId = "") {
   const selectedTemplate = byId(consentTemplates, selectedTemplateId) || (existing ? { ...existing, id: existing.templateId, name: existing.templateName, body: existing.templateBody || existing.body || "" } : null);
   form.elements.body.value = existing?.body || (selectedTemplate ? consentBodyForPatient(selectedTemplate, patient, form.elements.city.value.trim(), form.elements.signatureDate.value) : "");
   renderPatientConsentDialogData(patient);
+  populatePatientConsentSignerOptions(patient, existing);
   renderPatientConsentTemplateList(selectedTemplateId, lockedConsent || Boolean(existing), existing);
   $("#patient-consent-dialog-title").textContent = existing?.revoked ? "Consentimiento revocado" : (existing?.signed ? "Revisar consentimiento firmado" : (existing ? "Editar consentimiento" : "Preparar consentimiento"));
   $("#save-patient-consent").textContent = existing?.signed ? "Documento firmado" : "Guardar consentimiento firmado";
@@ -16488,6 +17287,7 @@ function openPatientConsentDialog(consentId = "") {
   form.elements.city.readOnly = lockedConsent;
   form.elements.signatureDate.readOnly = lockedConsent;
   form.elements.body.readOnly = lockedConsent;
+  if (form.elements.signer) form.elements.signer.disabled = lockedConsent;
   $("#clear-patient-consent-signature").disabled = lockedConsent;
   $("#save-patient-consent").disabled = lockedConsent || (!consentTemplates.length && !existing);
   setupPatientConsentSignatureCanvas();
@@ -16534,6 +17334,7 @@ function setupPatientConsentsAndPacks() {
       return;
     }
     const now = new Date().toISOString();
+    const signer = consentSignerData(form, patient);
     const nextBase = {
       ...(existing || {}),
       id: existing?.id || `patient-consent-${Date.now()}`,
@@ -16549,6 +17350,11 @@ function setupPatientConsentsAndPacks() {
       signed: true,
       signedAt: existing?.signedAt || now,
       updatedAt: now,
+      signerType: signer.signerType,
+      representativeId: signer.representativeId,
+      signerName: signer.signerName,
+      signerRelationship: signer.signerRelationship,
+      signerDocumentId: signer.signerDocumentId || "",
       signatureData: drawing.canvas.toDataURL("image/png"),
       fiscalData: {
         name: patient.name,
@@ -16576,6 +17382,12 @@ function setupPatientConsentsAndPacks() {
   });
   $("#patient-consent-form input[name='city']")?.addEventListener("input", hydratePatientConsentBody);
   $("#patient-consent-form input[name='signatureDate']")?.addEventListener("change", hydratePatientConsentBody);
+  $("#patient-consent-form select[name='signer']")?.addEventListener("change", (event) => {
+    const signatureTitle = $("#patient-consent-signature-title");
+    if (signatureTitle) {
+      signatureTitle.textContent = event.target.value.startsWith("representative:") ? "Firma del representante legal" : "Firma del paciente";
+    }
+  });
 
   $("#add-patient-consent")?.addEventListener("click", () => {
     openPatientConsentDialog();
@@ -16813,6 +17625,7 @@ async function generateInvoiceForPatientPack(packId) {
     return;
   }
   const patient = byId(patients, pack.patientId);
+  const invoiceRepresentative = financialLegalRepresentative(pack.patientId);
   const invoiceNumber = pack.invoiceNumber || `KL-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
   const html = `<!doctype html>
 <html lang="es">
@@ -16820,7 +17633,8 @@ async function generateInvoiceForPatientPack(packId) {
 <style>body{font-family:Arial,sans-serif;margin:32px;color:#202621}header{display:flex;justify-content:space-between;gap:24px;border-bottom:1px solid #ddd;padding-bottom:18px}img{max-width:90px;max-height:90px}h1{margin:0 0 8px}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left}.total{text-align:right;font-size:22px;font-weight:700;margin-top:24px}</style></head>
 <body>
 <header><div>${clinicLogo ? `<img src="${clinicLogo}" alt="Logo">` : ""}<h1>${clinic.name || "Klinia"}</h1><p>${clinic.email || ""}<br>${clinic.phone || ""}</p></div><div><strong>Factura ${invoiceNumber}</strong><p>Fecha: ${new Date().toLocaleDateString("es-ES")}</p></div></header>
-<section><h2>Paciente</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+<section><h2>Paciente atendido</h2><p>${patient?.name || "Paciente"}<br>${patient?.dni || ""}<br>${patientLocationLine(patient)}</p></section>
+${invoiceRepresentativeHtml(patient, invoiceRepresentative)}
 <table><thead><tr><th>Concepto</th><th>Servicio</th><th>Sesiones</th><th>Importe</th></tr></thead><tbody><tr><td>${pack.name}</td><td>${packServiceLabel(pack)}</td><td>${pack.sessions}</td><td>${pack.price} EUR</td></tr></tbody></table>
 <p class="total">Total: ${pack.price} EUR</p>
 </body></html>`;
@@ -17423,6 +18237,7 @@ handleBillingReturnFromStripe();
 setupClinicalTemplates();
 setupAccessManagement();
 setupCommercialSettings();
+setupLegalRepresentatives();
 setupPatientDetail();
 setupPatientTabs();
 setupPatientConsentsAndPacks();

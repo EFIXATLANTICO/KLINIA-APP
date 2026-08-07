@@ -490,6 +490,76 @@ class PatientOut(PatientBase):
     model_config = {"from_attributes": True}
 
 
+
+class LegalRepresentativeBase(BaseModel):
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(min_length=1, max_length=180)
+    document_type: str | None = Field(default=None, max_length=30)
+    document_number: str | None = Field(default=None, max_length=80)
+    birth_date: str | None = Field(default=None, max_length=10)
+    phone: str | None = Field(default=None, max_length=40)
+    email: EmailStr | None = None
+    address: str | None = None
+    relationship_type: str = Field(default="legal_guardian", max_length=40)
+    relationship_other: str | None = Field(default=None, max_length=120)
+    can_sign_consents: bool = False
+    receives_reminders: bool = False
+    receives_invoices: bool = False
+    is_financial_responsible: bool = False
+    is_primary_contact: bool = False
+    is_active: bool = True
+    notes: str | None = None
+
+
+class LegalRepresentativeCreate(LegalRepresentativeBase):
+    pass
+
+
+class LegalRepresentativeUpdate(BaseModel):
+    first_name: str | None = Field(default=None, min_length=1, max_length=120)
+    last_name: str | None = Field(default=None, min_length=1, max_length=180)
+    document_type: str | None = Field(default=None, max_length=30)
+    document_number: str | None = Field(default=None, max_length=80)
+    birth_date: str | None = Field(default=None, max_length=10)
+    phone: str | None = Field(default=None, max_length=40)
+    email: EmailStr | None = None
+    address: str | None = None
+    relationship_type: str | None = Field(default=None, max_length=40)
+    relationship_other: str | None = Field(default=None, max_length=120)
+    can_sign_consents: bool | None = None
+    receives_reminders: bool | None = None
+    receives_invoices: bool | None = None
+    is_financial_responsible: bool | None = None
+    is_primary_contact: bool | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+
+
+class LegalRepresentativeOut(LegalRepresentativeBase):
+    id: str
+    patient_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class LegalRepresentativeDocumentCreate(BaseModel):
+    document_type: str = Field(default="other", max_length=40)
+    file_name: str = Field(min_length=1, max_length=255)
+    mime_type: str = Field(min_length=1, max_length=120)
+    data_url: str = Field(min_length=1, max_length=3_000_000)
+
+
+class LegalRepresentativeDocumentOut(LegalRepresentativeDocumentCreate):
+    id: str
+    patient_id: str
+    representative_id: str
+    created_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class ClinicalTemplateBase(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     category: str | None = Field(default=None, max_length=120)
