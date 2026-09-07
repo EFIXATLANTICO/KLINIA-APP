@@ -18,6 +18,7 @@ from jose import JWTError, jwt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .calendar_integration import remove_appointment_from_google, router as calendar_integration_router, sync_appointment_to_google
 from .config import get_settings
 from .db import Base, engine, ensure_runtime_schema, get_db
 from .deps import current_subscribed_user, current_user, require_roles, require_subscribed_roles, require_superadmin
@@ -135,6 +136,7 @@ BREVO_EMAIL_API_URL = "https://api.brevo.com/v3/smtp/email"
 _google_jwks_cache: dict[str, object] = {"expires_at": 0.0, "keys": []}
 
 app = FastAPI(title=settings.app_name)
+app.include_router(calendar_integration_router)
 app.state.backend_setup_status = "pending"
 app.state.backend_setup_error = None
 app.state.backend_setup_started_at = None
@@ -4434,6 +4436,7 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
     db.flush()
     reconcile_appointment_patient_pack(db, user, appointment)
     sync_appointment_payment_movement(db, user, appointment, service)
+    sync_appointment_to_google(db, appointment)
     audit_action(db, user, "create-appointment", "appointment", appointment.id)
     db.commit()
     db.refresh(appointment)
@@ -4496,6 +4499,7 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
         setattr(appointment, field, value)
     reconcile_appointment_patient_pack(db, user, appointment)
     sync_appointment_payment_movement(db, user, appointment, service)
+    sync_appointment_to_google(db, appointment)
     action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
     audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
     db.commit()
@@ -4549,6 +4553,7 @@ def delete_appointment(appointment_id: str, user: User = Depends(require_subscri
         if appointment.practitioner_id != user.practitioner.id:
             raise HTTPException(status_code=403, detail="Practitioners can only delete their own appointments")
     reconcile_appointment_patient_pack(db, user, appointment, force_revert=True)
+    remove_appointment_from_google(db, appointment)
     audit_action(db, user, "delete-appointment", "appointment", appointment.id)
     db.delete(appointment)
     db.commit()
