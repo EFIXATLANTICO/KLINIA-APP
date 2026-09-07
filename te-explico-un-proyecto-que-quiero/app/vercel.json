@@ -90,7 +90,7 @@
       "destination": "/portfolio/$1"
     },
     {
-      "source": "/((?!.*\\.[^/]+$).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
