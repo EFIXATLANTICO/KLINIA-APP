@@ -1,10 +1,12 @@
-const KLINIA_CACHE = "klinia-20260806-legal-representatives";
+const KLINIA_CACHE = "klinia-20260907-google-calendar-booking";
 const KLINIA_PWA_ASSET_CACHE = "klinia-pwa-assets-20260728-icons-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260806-legal-representatives",
   "./app.js?v=20260806-legal-representatives",
+  "./calendar-integrations.css?v=20260907-google-calendar-booking",
+  "./calendar-integrations.js?v=20260907-google-calendar-booking",
   "./offline.html",
   "./assets/klinia-logo.svg"
 ];
@@ -49,6 +51,11 @@ self.addEventListener("fetch", (event) => {
 
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
+
+  if (event.request.mode === "navigate" && requestUrl.pathname.startsWith("/reservar")) {
+    event.respondWith(fetch(event.request, { cache: "no-store" }));
+    return;
+  }
 
   if (event.request.mode === "navigate") {
     event.respondWith(
