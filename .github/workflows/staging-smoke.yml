@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   staging-read-only:
-    if: github.event.head_commit.message == 'Verify corrected preview assets'
+    if: github.event.head_commit.message == 'Identify preview HTML response'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -21,8 +21,10 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import hashlib
           import json
           import os
+          import re
           import time
           import urllib.error
           import urllib.parse
@@ -167,6 +169,21 @@ jobs:
           )
 
           if not preview_assets_verified:
+              def fingerprint(body):
+                  title = re.search(r"<title[^>]*>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
+                  return {
+                      "content_type": "text/html" if "<html" in body.lower() else "non-html",
+                      "length": len(body),
+                      "sha256_12": hashlib.sha256(body.encode("utf-8")).hexdigest()[:12],
+                      "title": re.sub(r"\\s+", " ", title.group(1)).strip()[:120] if title else None,
+                  }
+              print(json.dumps({
+                  "preview_diagnostic": {
+                      "booking_page": fingerprint(booking_page_html),
+                      "app_js": fingerprint(app_js),
+                      "booking_js": fingerprint(booking_js),
+                  }
+              }, ensure_ascii=False))
               raise RuntimeError(
                   "Preview assets are not executable static files: "
                   f"app={app_js_headers.get('Content-Type')} "
