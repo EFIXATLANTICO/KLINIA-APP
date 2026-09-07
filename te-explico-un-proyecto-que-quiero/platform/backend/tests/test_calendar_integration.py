@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from datetime import UTC, datetime, timedelta
 
 from cryptography.fernet import Fernet
@@ -13,7 +14,9 @@ from app.db import Base
 from app.models import (
     Appointment,
     AppointmentStatus,
+    AppointmentGoogleSync,
     Clinic,
+    GoogleCalendarConnection,
     OnlineBooking,
     OnlineBookingPractitioner,
     OnlineBookingService,
@@ -226,6 +229,94 @@ class CalendarBookingTests(unittest.TestCase):
             )
         self.assertEqual(conflict.exception.status_code, 409)
         self.assertEqual(len(list(self.db.scalars(select(Appointment)))), 1)
+
+    def test_google_busy_time_blocks_slot_without_event_details(self):
+        connection = GoogleCalendarConnection(
+            clinic_id=self.clinic.id,
+            user_id=self.user.id,
+            calendar_id="primary",
+            access_token_encrypted="unused",
+            refresh_token_encrypted="unused",
+            granted_scopes=calendar.GOOGLE_FREEBUSY_SCOPE,
+            enabled=True,
+            block_busy_times=True,
+        )
+        self.db.add(connection)
+        self.db.commit()
+        response = {
+            "calendars": {
+                "primary": {
+                    "busy": [
+                        {
+                            "start": f"{self.booking_date}T11:00:00+02:00",
+                            "end": f"{self.booking_date}T12:00:00+02:00",
+                        }
+                    ]
+                }
+            }
+        }
+        with patch.object(calendar, "_access_token", return_value="token"), patch.object(
+            calendar, "_google_request", return_value=response
+        ):
+            slots = calendar._availability_candidates(
+                self.db,
+                clinic=self.clinic,
+                setting=self.setting,
+                service=self.service,
+                booking_date=self.booking_date,
+                practitioner_id=self.practitioner.id,
+            )
+        starts = {item["start"] for item in slots}
+        self.assertNotIn("11:00", starts)
+        self.assertIn("12:00", starts)
+        self.assertNotIn("summary", str(slots).lower())
+        self.assertNotIn("description", str(slots).lower())
+
+    def test_google_event_is_created_updated_and_cancelled_without_duplicates(self):
+        patient = Patient(clinic_id=self.clinic.id, name="Paciente Privado")
+        connection = GoogleCalendarConnection(
+            clinic_id=self.clinic.id,
+            user_id=self.user.id,
+            calendar_id="primary",
+            access_token_encrypted="unused",
+            refresh_token_encrypted="unused",
+            granted_scopes=calendar.GOOGLE_EVENTS_SCOPE,
+            enabled=True,
+            push_klinia_appointments=True,
+            auto_sync=True,
+        )
+        self.db.add_all([patient, connection])
+        self.db.flush()
+        appointment = Appointment(
+            clinic_id=self.clinic.id,
+            patient_id=patient.id,
+            practitioner_id=self.practitioner.id,
+            room_id=self.room.id,
+            service_id=self.service.id,
+            date=self.booking_date,
+            start="12:00",
+            end="13:00",
+            status=AppointmentStatus.confirmed,
+            internal_notes="Nunca enviar a Google",
+        )
+        self.db.add(appointment)
+        self.db.flush()
+        with patch.object(calendar, "_access_token", return_value="token"), patch.object(
+            calendar, "_google_request", return_value={"id": "google-event-1"}
+        ) as google_request:
+            first = calendar.sync_appointment_to_google(self.db, appointment)
+            appointment.start = "12:15"
+            appointment.end = "13:15"
+            second = calendar.sync_appointment_to_google(self.db, appointment)
+            appointment.status = AppointmentStatus.cancelled
+            third = calendar.sync_appointment_to_google(self.db, appointment)
+        self.db.flush()
+        rows = list(self.db.scalars(select(AppointmentGoogleSync)))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(second.id, third.id)
+        self.assertIsNone(third.google_event_id)
+        self.assertEqual([call.args[0] for call in google_request.call_args_list], ["POST", "PATCH", "DELETE"])
 
     def test_patient_is_not_linked_by_email_only(self):
         existing = Patient(
