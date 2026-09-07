@@ -1,4 +1,4 @@
-name: Isolated staging smoke and seed
+name: Isolated staging read-only verification
 
 on:
   push:
@@ -9,20 +9,19 @@ permissions:
   contents: read
 
 jobs:
-  staging-smoke:
-    if: github.event.head_commit.message == 'Verify isolated staging and seed test data'
+  staging-read-only:
+    if: github.event.head_commit.message == 'Verify isolated staging data read only'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       STAGING_BASE_URL: https://klinia-api-staging.onrender.com
     steps:
-      - name: Verify staging health and create fictitious test data
+      - name: Verify staging health and public booking data without writes
         shell: bash
         run: |
           python - <<'PY'
           import json
           import os
-          import secrets
           import time
           import urllib.error
           import urllib.parse
@@ -33,226 +32,120 @@ jobs:
           if base_url != "https://klinia-api-staging.onrender.com":
               raise SystemExit("Safety check failed: unexpected staging API URL")
 
-          def api(path, *, method="GET", payload=None, token=None, expected=(200,)):
+          def get_json(path):
               url = base_url + path
               if not url.startswith(base_url + "/"):
                   raise RuntimeError("Safety check failed: request escaped staging origin")
-              body = None if payload is None else json.dumps(payload).encode("utf-8")
-              headers = {"Accept": "application/json"}
-              if body is not None:
-                  headers["Content-Type"] = "application/json"
-              if token:
-                  headers["Authorization"] = f"Bearer {token}"
-              request = urllib.request.Request(url, data=body, headers=headers, method=method)
+              request = urllib.request.Request(
+                  url,
+                  headers={"Accept": "application/json"},
+                  method="GET",
+              )
               try:
                   with urllib.request.urlopen(request, timeout=60) as response:
                       raw = response.read().decode("utf-8")
-                      if response.status not in expected:
-                          raise RuntimeError(f"{method} {path} returned HTTP {response.status}")
-                      return json.loads(raw) if raw else None
+                      if response.status != 200:
+                          raise RuntimeError(f"GET {path} returned HTTP {response.status}")
+                      return json.loads(raw)
               except urllib.error.HTTPError as error:
                   detail = error.read().decode("utf-8", errors="replace")[:800]
-                  raise RuntimeError(f"{method} {path} returned HTTP {error.code}: {detail}") from error
+                  raise RuntimeError(f"GET {path} returned HTTP {error.code}: {detail}") from error
 
           health = None
           for attempt in range(12):
               try:
-                  health = api("/health")
+                  health = get_json("/health")
                   break
               except Exception:
                   if attempt == 11:
                       raise
                   time.sleep(10)
 
-          if health.get("ok") is not True or health.get("env") != "staging":
-              raise RuntimeError(f"Unexpected health payload: {health}")
-          if health.get("app") != "Klinia Staging":
-              raise RuntimeError(f"Unexpected application identity: {health.get('app')}")
+          if health.get("ok") is not True:
+              raise RuntimeError(f"Staging health is not OK: {health}")
+          if health.get("app") != "Klinia Staging" or health.get("env") != "staging":
+              raise RuntimeError(f"Unexpected staging identity: {health}")
 
-          run_id = os.environ.get("GITHUB_RUN_ID", str(int(time.time())))
-          owner_email = f"klinia-google-test-owner-{run_id}@example.com"
-          clinic_email = f"klinia-google-test-{run_id}@example.com"
-          password = "Kt9!" + secrets.token_urlsafe(28)
-          print(f"::add-mask::{password}")
-
-          registration = api(
-              "/auth/register-clinic",
-              method="POST",
-              expected=(201,),
-              payload={
-                  "clinic_name": "CLINICA GOOGLE TEST",
-                  "email": owner_email,
-                  "clinic_email": clinic_email,
-                  "password": password,
-                  "phone": "+34900000000",
-                  "owner_name": "DIRECCION GOOGLE TEST",
-                  "plan": "trial",
-                  "working_days": ["mon", "tue", "wed", "thu", "fri"],
-                  "opening_start": "09:00",
-                  "opening_end": "14:00"
-              },
-          )
-          token = registration.get("access_token")
-          clinic_id = registration.get("clinic_id")
-          if not token or not clinic_id:
-              raise RuntimeError("Registration did not return staging token and clinic_id")
-          print(f"::add-mask::{token}")
-
-          me = api("/me", token=token)
-          if me.get("clinic", {}).get("id") != clinic_id:
-              raise RuntimeError("Authenticated clinic does not match newly created staging clinic")
-          if me.get("clinic", {}).get("name") != "CLINICA GOOGLE TEST":
-              raise RuntimeError("Unexpected staging clinic name")
-
-          practitioner = api(
-              "/practitioners",
-              method="POST",
-              expected=(201,),
-              token=token,
-              payload={
-                  "name": "ANGEL TEST",
-                  "specialty": "Fisioterapia",
-                  "color": "#168776",
-                  "commission_rate": 0,
-                  "monthly_target_cents": 0,
-                  "availability_start": "09:00",
-                  "availability_end": "14:00",
-                  "active": True
-              },
-          )
-          room = api(
-              "/rooms",
-              method="POST",
-              expected=(201,),
-              token=token,
-              payload={"name": "SALA TEST", "type": "Consulta", "active": True},
-          )
-          physiotherapy = api(
-              "/services",
-              method="POST",
-              expected=(201,),
-              token=token,
-              payload={
-                  "name": "Fisioterapia",
-                  "description": "Servicio ficticio para staging",
-                  "duration_minutes": 60,
-                  "price_cents": 5000,
-                  "type": "individual",
-                  "capacity": 1,
-                  "active": True
-              },
-          )
-          review = api(
-              "/services",
-              method="POST",
-              expected=(201,),
-              token=token,
-              payload={
-                  "name": "Revisión",
-                  "description": "Servicio ficticio para staging",
-                  "duration_minutes": 30,
-                  "price_cents": 3000,
-                  "type": "individual",
-                  "capacity": 1,
-                  "active": True
-              },
-          )
-          patient = api(
-              "/patients",
-              method="POST",
-              expected=(201,),
-              token=token,
-              payload={
-                  "name": "Paciente Google Test",
-                  "phone": "+34600000000",
-                  "email": f"paciente-google-test-{run_id}@example.com",
-                  "status": "Activo"
-              },
-          )
-
-          integration = api("/integrations/google-calendar", token=token)
-          booking = api(
-              "/integrations/online-booking",
-              method="PUT",
-              token=token,
-              payload={
-                  "enabled": True,
-                  "slug": "clinica-google-test",
-                  "min_notice_minutes": 0,
-                  "max_days_ahead": 90,
-                  "min_cancellation_minutes": 1440,
-                  "buffer_minutes": 0,
-                  "automatic_confirmation": True,
-                  "allow_professional_selection": True,
-                  "show_price": False,
-                  "show_duration": True,
-                  "service_ids": [physiotherapy["id"], review["id"]],
-                  "practitioner_ids": [practitioner["id"]]
-              },
-          )
-          public_booking = api("/public/bookings/" + urllib.parse.quote(booking["booking"]["slug"]))
-
-          practitioners = api("/practitioners", token=token)
-          rooms = api("/rooms", token=token)
-          services = api("/services", token=token)
-          patients = api("/patients", token=token)
-          if len(practitioners) != 1 or len(rooms) != 1 or len(services) != 2 or len(patients) != 1:
-              raise RuntimeError("Unexpected number of staging fixtures after creation")
+          public_booking = get_json("/public/bookings/clinica-google-test")
           if public_booking.get("clinic", {}).get("name") != "CLINICA GOOGLE TEST":
-              raise RuntimeError("Public booking page is not isolated to the staging clinic")
+              raise RuntimeError("Public booking data is not isolated to CLINICA GOOGLE TEST")
+
+          services = public_booking.get("services", [])
+          practitioners = public_booking.get("practitioners", [])
+          physiotherapy = next((item for item in services if item.get("name") == "Fisioterapia"), None)
+          review = next((item for item in services if item.get("name") == "Revisión"), None)
+          practitioner = next((item for item in practitioners if item.get("name") == "ANGEL TEST"), None)
+          if not physiotherapy or physiotherapy.get("duration_minutes") != 60:
+              raise RuntimeError("Fisioterapia 60 min fixture was not found")
+          if not review or review.get("duration_minutes") != 30:
+              raise RuntimeError("Revisión 30 min fixture was not found")
+          if not practitioner:
+              raise RuntimeError("ANGEL TEST fixture was not found")
 
           candidate = date.today() + timedelta(days=1)
           while candidate.weekday() >= 5:
               candidate += timedelta(days=1)
           availability_path = (
-              "/public/bookings/" + urllib.parse.quote(booking["booking"]["slug"])
-              + "/availability?date=" + candidate.isoformat()
+              "/public/bookings/clinica-google-test/availability?booking_date="
+              + candidate.isoformat()
               + "&service_id=" + urllib.parse.quote(physiotherapy["id"])
               + "&practitioner_id=" + urllib.parse.quote(practitioner["id"])
           )
-          availability = api(availability_path)
+          availability = get_json(availability_path)
           if availability.get("date") != candidate.isoformat():
               raise RuntimeError("Availability endpoint returned an unexpected date")
+          if not availability.get("slots"):
+              raise RuntimeError("Staging availability returned no slots for the configured working day")
+
+          forbidden_keys = {
+              "patient", "patient_name", "event_title", "event_description",
+              "attendees", "location", "diagnosis", "clinical_notes",
+          }
+          serialized_public = json.dumps(
+              {"booking": public_booking, "availability": availability},
+              ensure_ascii=False,
+          ).lower()
+          leaked = sorted(key for key in forbidden_keys if f'"{key}"' in serialized_public)
+          if leaked:
+              raise RuntimeError(f"Public payload exposes forbidden fields: {leaked}")
 
           result = {
               "health": {
+                  "http_status": 200,
                   "ok": health.get("ok"),
                   "app": health.get("app"),
                   "env": health.get("env"),
                   "backend_setup_status": health.get("backend_setup_status"),
               },
-              "clinic": {"id": clinic_id, "name": me["clinic"]["name"]},
+              "clinic": {"name": public_booking["clinic"]["name"]},
               "practitioner": {"id": practitioner["id"], "name": practitioner["name"]},
-              "room": {"id": room["id"], "name": room["name"]},
               "services": [
                   {"id": physiotherapy["id"], "name": physiotherapy["name"], "duration_minutes": physiotherapy["duration_minutes"]},
                   {"id": review["id"], "name": review["name"], "duration_minutes": review["duration_minutes"]},
               ],
-              "patient": {"id": patient["id"], "name": patient["name"]},
               "booking": {
-                  "enabled": booking["booking"]["enabled"],
-                  "slug": booking["booking"]["slug"],
-                  "public_url": booking["booking"]["public_url"],
-                  "calendar_connected": bool(integration.get("calendar", {}).get("connected")),
+                  "slug": "clinica-google-test",
+                  "enabled": True,
               },
               "availability": {
                   "date": availability.get("date"),
                   "slot_count": len(availability.get("slots", [])),
               },
+              "privacy": {"forbidden_fields_exposed": []},
               "safety": {
+                  "method": "GET only",
                   "api_origin": base_url,
                   "production_requests": 0,
-                  "data_kind": "fictitious staging only",
               },
           }
-          with open("staging-smoke-result.json", "w", encoding="utf-8") as output:
+          with open("staging-read-only-result.json", "w", encoding="utf-8") as output:
               json.dump(result, output, ensure_ascii=False, indent=2)
           print(json.dumps(result, ensure_ascii=False))
           PY
       - name: Publish sanitized staging report
         uses: actions/upload-artifact@v4
         with:
-          name: staging-smoke-result
-          path: staging-smoke-result.json
+          name: staging-read-only-result
+          path: staging-read-only-result.json
           if-no-files-found: error
           retention-days: 7
