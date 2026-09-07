@@ -1,4 +1,4 @@
-name: Isolated staging read-only verification
+name: Isolated staging and preview read-only verification
 
 on:
   push:
@@ -10,11 +10,12 @@ permissions:
 
 jobs:
   staging-read-only:
-    if: github.event.head_commit.message == 'Verify isolated staging data read only'
+    if: github.event.head_commit.message == 'Verify preview uses staging only'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       STAGING_BASE_URL: https://klinia-api-staging.onrender.com
+      STAGING_PREVIEW_URL: https://klinia-app-git-codex-google-calendar-b-aa1a31-klinia-s-projects.vercel.app
     steps:
       - name: Verify staging health and public booking data without writes
         shell: bash
@@ -29,8 +30,11 @@ jobs:
           from datetime import date, timedelta
 
           base_url = os.environ["STAGING_BASE_URL"].rstrip("/")
+          preview_url = os.environ["STAGING_PREVIEW_URL"].rstrip("/")
           if base_url != "https://klinia-api-staging.onrender.com":
               raise SystemExit("Safety check failed: unexpected staging API URL")
+          if preview_url != "https://klinia-app-git-codex-google-calendar-b-aa1a31-klinia-s-projects.vercel.app":
+              raise SystemExit("Safety check failed: unexpected Vercel Preview URL")
 
           def get_json(path):
               url = base_url + path
@@ -109,6 +113,49 @@ jobs:
           if leaked:
               raise RuntimeError(f"Public payload exposes forbidden fields: {leaked}")
 
+          def get_preview_text(path):
+              url = preview_url + path
+              if not url.startswith(preview_url + "/"):
+                  raise RuntimeError("Safety check failed: request escaped Preview origin")
+              request = urllib.request.Request(url, headers={"Accept": "*/*"}, method="GET")
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return response.status, response.read().decode("utf-8"), dict(response.headers.items())
+
+          booking_page_status, booking_page_html, booking_page_headers = get_preview_text(
+              "/reservar/clinica-google-test"
+          )
+          app_js_status, app_js, _ = get_preview_text("/app.js")
+          booking_js_status, booking_js, _ = get_preview_text("/reservar/booking.js")
+          if (booking_page_status, app_js_status, booking_js_status) != (200, 200, 200):
+              raise RuntimeError("Preview resources did not return HTTP 200")
+          if "https://klinia-api-staging.onrender.com" not in app_js:
+              raise RuntimeError("Preview app.js does not contain the staging API")
+          if "https://klinia-api-staging.onrender.com" not in booking_js:
+              raise RuntimeError("Preview booking.js does not contain the staging API")
+          app_preview_guard = app_js.find('window.location.hostname.endsWith(".vercel.app")')
+          app_override = app_js.find('window.KLINIA_API_BASE_URL', app_js.find("function backendApiBaseUrl"))
+          if app_preview_guard < 0 or app_override < 0 or app_preview_guard > app_override:
+              raise RuntimeError("Preview app resolver does not prioritize the staging host guard")
+          booking_preview_guard = booking_js.find('window.location.hostname.endsWith(".vercel.app")')
+          booking_override = booking_js.find("window.KLINIA_API_BASE_URL")
+          if booking_preview_guard < 0 or booking_override < 0 or booking_preview_guard > booking_override:
+              raise RuntimeError("Preview booking resolver does not prioritize the staging host guard")
+
+          preflight = urllib.request.Request(
+              base_url + "/public/bookings/clinica-google-test",
+              headers={
+                  "Origin": preview_url,
+                  "Access-Control-Request-Method": "GET",
+              },
+              method="OPTIONS",
+          )
+          with urllib.request.urlopen(preflight, timeout=60) as response:
+              allowed_origin = response.headers.get("Access-Control-Allow-Origin")
+              if response.status != 200 or allowed_origin != preview_url:
+                  raise RuntimeError(
+                      f"Staging CORS rejected Preview origin: status={response.status} origin={allowed_origin}"
+                  )
+
           result = {
               "health": {
                   "http_status": 200,
@@ -132,8 +179,16 @@ jobs:
                   "slot_count": len(availability.get("slots", [])),
               },
               "privacy": {"forbidden_fields_exposed": []},
+              "preview": {
+                  "url": preview_url,
+                  "booking_page_http_status": booking_page_status,
+                  "app_js_http_status": app_js_status,
+                  "booking_js_http_status": booking_js_status,
+                  "api_resolver": "staging host guard has priority",
+                  "cors_allowed_origin": allowed_origin,
+              },
               "safety": {
-                  "method": "GET only",
+                  "method": "GET and CORS OPTIONS only",
                   "api_origin": base_url,
                   "production_requests": 0,
               },
