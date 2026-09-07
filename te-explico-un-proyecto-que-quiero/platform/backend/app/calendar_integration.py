@@ -363,7 +363,7 @@ def _calendar_list(db: Session, connection: GoogleCalendarConnection) -> list[di
         "GET",
         f"{GOOGLE_CALENDAR_API}/users/me/calendarList",
         access_token=token,
-        params={"minAccessRole": "writer", "showHidden": "false", "maxResults": 250},
+        params={"minAccessRole": "owner", "showHidden": "false", "maxResults": 250},
     )
     calendars = []
     for item in data.get("items") or []:
