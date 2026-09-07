@@ -3,7 +3,6 @@ import html
 import hmac
 import json
 import logging
-import os
 import secrets
 import threading
 import time
@@ -222,7 +221,6 @@ def run_backend_setup() -> None:
         run_setup_step("runtime_schema", ensure_runtime_schema, errors)
         run_setup_step("security_config", validate_production_security_config, errors)
         run_setup_step("superadmin", ensure_initial_superadmin, errors)
-        run_setup_step("staging_test_admin", ensure_staging_test_admin, errors)
     except Exception as exc:
         logger.exception("Klinia backend setup crashed unexpectedly")
         errors.append(f"unexpected: {exc}")
@@ -242,8 +240,6 @@ def startup() -> None:
         threading.Thread(target=run_backend_setup, name="klinia-backend-setup", daemon=True).start()
         return
     run_backend_setup()
-    if settings.app_env == "staging" and settings.staging_test_admin_email and settings.staging_test_admin_password:
-        threading.Thread(target=verify_staging_test_admin_login, name="klinia-staging-login-check", daemon=True).start()
 
 
 @app.get("/health")
@@ -1501,88 +1497,6 @@ def ensure_initial_superadmin() -> None:
         audit_action(db, user, "create-superadmin", "user", user.id, {"source": "startup-env"}, clinic_id=None, origin="system")
         db.commit()
         setup_log("superadmin created for %s", email)
-
-
-def ensure_staging_test_admin() -> None:
-    if settings.app_env != "staging":
-        return
-    clinic_name = str(settings.staging_test_clinic_name or "").strip()
-    email = str(settings.staging_test_admin_email or "").lower().strip()
-    password = str(settings.staging_test_admin_password or "")
-    if not clinic_name or not email or not password:
-        setup_log("staging test admin bootstrap skipped because its variables are incomplete")
-        return
-    if len(password) < 8 or len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
-        raise ValueError("STAGING_TEST_ADMIN_PASSWORD has an invalid length")
-    with Session(engine) as db:
-        clinic = db.scalar(select(Clinic).where(func.lower(Clinic.name) == clinic_name.lower()))
-        if not clinic:
-            raise ValueError("Configured staging test clinic was not found")
-        user = db.scalar(
-            select(User).where(
-                User.clinic_id == clinic.id,
-                func.lower(User.email) == email,
-            )
-        )
-        created = user is None
-        if user is None:
-            user = User(
-                clinic_id=clinic.id,
-                name="Administrador Google Test",
-                email=email,
-                password_hash=hash_password(password),
-                role=UserRole.owner,
-                active=True,
-                force_password_change=False,
-            )
-            db.add(user)
-            db.flush()
-        else:
-            user.name = "Administrador Google Test"
-            user.password_hash = hash_password(password)
-            user.role = UserRole.owner
-            user.active = True
-            user.force_password_change = False
-        audit_action(
-            db,
-            user,
-            "create-staging-test-admin" if created else "refresh-staging-test-admin",
-            "user",
-            user.id,
-            {"source": "staging-bootstrap"},
-            clinic_id=clinic.id,
-            origin="system",
-        )
-        db.commit()
-        setup_log("staging test admin ready clinic_id=%s email=%s", clinic.id, email)
-
-
-def verify_staging_test_admin_login() -> None:
-    email = str(settings.staging_test_admin_email or "").lower().strip()
-    password = str(settings.staging_test_admin_password or "")
-    clinic_name = str(settings.staging_test_clinic_name or "").strip()
-    if not email or not password or not clinic_name:
-        return
-    endpoint = f"http://127.0.0.1:{os.environ.get('PORT', '10000')}/auth/login"
-    for attempt in range(12):
-        try:
-            response = httpx.post(endpoint, json={"email": email, "password": password}, timeout=5)
-            if response.status_code == 200:
-                payload = response.json()
-                with Session(engine) as db:
-                    clinic = db.scalar(select(Clinic).where(func.lower(Clinic.name) == clinic_name.lower()))
-                    if clinic and payload.get("clinic_id") == clinic.id:
-                        setup_log("staging test login endpoint verified clinic_id=%s email=%s", clinic.id, email)
-                        return
-                logger.error("Staging test login returned the wrong clinic")
-                return
-            if response.status_code not in {502, 503}:
-                logger.error("Staging test login verification failed status=%s", response.status_code)
-                return
-        except httpx.TransportError:
-            pass
-        time.sleep(1)
-    logger.error("Staging test login endpoint verification timed out")
 
 
 def professional_price_ids() -> list[str]:
