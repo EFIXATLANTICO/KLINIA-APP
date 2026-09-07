@@ -24,8 +24,7 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--ink);
-  background:
-    linear-gradient(180deg, #f7fbf9 0, #eef5f2 100%);
+  background: #eef5f2;
 }
 
 button,
