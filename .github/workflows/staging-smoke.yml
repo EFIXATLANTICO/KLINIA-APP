@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   staging-read-only:
-    if: github.event.head_commit.message == 'Wait for isolated preview deployment'
+    if: github.event.head_commit.message == 'Inspect protected staging preview'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -130,44 +130,41 @@ jobs:
               with urllib.request.urlopen(request, timeout=60) as response:
                   return response.status, response.read().decode("utf-8"), dict(response.headers.items())
 
-          preview_ready = False
-          preview_error = "Preview did not publish the isolated resolver"
-          for attempt in range(18):
-              try:
-                  booking_page_status, booking_page_html, booking_page_headers = get_preview_text(
-                      "/reservar/clinica-google-test"
-                  )
-                  app_js_status, app_js, _ = get_preview_text("/app.js")
-                  booking_js_status, booking_js, _ = get_preview_text("/reservar/booking.js")
-                  app_preview_guard = app_js.find('window.location.hostname.endsWith(".vercel.app")')
-                  app_override = app_js.find(
-                      "window.KLINIA_API_BASE_URL",
-                      app_js.find("function backendApiBaseUrl"),
-                  )
-                  booking_preview_guard = booking_js.find(
-                      'window.location.hostname.endsWith(".vercel.app")'
-                  )
-                  booking_override = booking_js.find("window.KLINIA_API_BASE_URL")
-                  preview_ready = (
-                      (booking_page_status, app_js_status, booking_js_status) == (200, 200, 200)
-                      and "https://klinia-api-staging.onrender.com" in app_js
-                      and "https://klinia-api-staging.onrender.com" in booking_js
-                      and app_preview_guard >= 0
-                      and app_override >= 0
-                      and app_preview_guard < app_override
-                      and booking_preview_guard >= 0
-                      and booking_override >= 0
-                      and booking_preview_guard < booking_override
-                  )
-                  if preview_ready:
-                      break
-                  preview_error = "Preview assets are still from an earlier deployment"
-              except Exception as error:
-                  preview_error = str(error)
-              if attempt < 17:
-                  time.sleep(10)
-          if not preview_ready:
-              raise RuntimeError(preview_error)
+          booking_page_status, booking_page_html, booking_page_headers = get_preview_text(
+              "/reservar/clinica-google-test"
+          )
+          app_js_status, app_js, app_js_headers = get_preview_text("/app.js")
+          booking_js_status, booking_js, booking_js_headers = get_preview_text("/reservar/booking.js")
+          app_preview_guard = app_js.find('window.location.hostname.endsWith(".vercel.app")')
+          app_override = app_js.find(
+              "window.KLINIA_API_BASE_URL",
+              app_js.find("function backendApiBaseUrl"),
+          )
+          booking_preview_guard = booking_js.find(
+              'window.location.hostname.endsWith(".vercel.app")'
+          )
+          booking_override = booking_js.find("window.KLINIA_API_BASE_URL")
+          preview_assets_verified = (
+              (booking_page_status, app_js_status, booking_js_status) == (200, 200, 200)
+              and "https://klinia-api-staging.onrender.com" in app_js
+              and "https://klinia-api-staging.onrender.com" in booking_js
+              and app_preview_guard >= 0
+              and app_override >= 0
+              and app_preview_guard < app_override
+              and booking_preview_guard >= 0
+              and booking_override >= 0
+              and booking_preview_guard < booking_override
+          )
+          combined_preview = (booking_page_html + app_js + booking_js).lower()
+          preview_access_interstitial = any(
+              marker in combined_preview
+              for marker in (
+                  "authentication required",
+                  "vercel authentication",
+                  "deployment protection",
+                  "sign in to vercel",
+              )
+          )
 
           preflight = urllib.request.Request(
               base_url + "/public/bookings/clinica-google-test",
@@ -212,7 +209,11 @@ jobs:
                   "booking_page_http_status": booking_page_status,
                   "app_js_http_status": app_js_status,
                   "booking_js_http_status": booking_js_status,
-                  "api_resolver": "staging host guard has priority",
+                  "app_js_content_type": app_js_headers.get("Content-Type"),
+                  "booking_js_content_type": booking_js_headers.get("Content-Type"),
+                  "assets_verified": preview_assets_verified,
+                  "access_interstitial_detected": preview_access_interstitial,
+                  "api_resolver_in_git": "staging host guard has priority",
                   "cors_allowed_origin": allowed_origin,
               },
               "safety": {
