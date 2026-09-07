@@ -1,7 +1,10 @@
 (() => {
   "use strict";
 
-  const API_BASE = "https://api.kliniasolutions.com";
+  const API_BASE = String(window.KLINIA_API_BASE_URL || "").trim().replace(/\/$/, "")
+    || (window.location.hostname.endsWith(".vercel.app")
+      ? "https://klinia-api-staging.onrender.com"
+      : "https://api.kliniasolutions.com");
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const slug = decodeURIComponent(pathParts[pathParts.length - 1] || "");
   const state = {
