@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     brevo_from_email: str | None = None
     brevo_from_name: str = "Klinia"
     access_token_expire_hours: int = 72
+    staging_test_clinic_name: str | None = None
+    staging_test_admin_email: str | None = None
+    staging_test_admin_password: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
