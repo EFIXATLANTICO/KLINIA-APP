@@ -1,0 +1,37 @@
+name: Calendar integration checks
+
+on:
+  pull_request:
+    paths:
+      - "te-explico-un-proyecto-que-quiero/platform/backend/**"
+      - "te-explico-un-proyecto-que-quiero/app/calendar-integrations.*"
+      - "te-explico-un-proyecto-que-quiero/app/reservar/**"
+      - "te-explico-un-proyecto-que-quiero/app/index.html"
+      - "te-explico-un-proyecto-que-quiero/app/sw.js"
+      - "te-explico-un-proyecto-que-quiero/app/vercel.json"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        run: pip install -r requirements.txt
+      - name: Compile and import backend
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        run: |
+          python -m compileall -q app
+          python -c "from app.main import app; assert app"
+      - name: Run Calendar integration tests
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Check frontend JavaScript syntax
+        working-directory: te-explico-un-proyecto-que-quiero/app
+        run: |
+          node --check calendar-integrations.js
+          node --check reservar/booking.js
