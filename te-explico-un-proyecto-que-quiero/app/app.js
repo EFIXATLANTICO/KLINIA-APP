@@ -1408,6 +1408,9 @@ function backendApiBaseUrl() {
     }
     return "http://localhost:8080";
   }
+  if (window.location.hostname.endsWith(".vercel.app")) {
+    return "https://klinia-api-staging.onrender.com";
+  }
   return "https://api.kliniasolutions.com";
 }
 
