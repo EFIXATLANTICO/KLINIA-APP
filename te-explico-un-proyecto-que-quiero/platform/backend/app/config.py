@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
     google_redirect_uri: str | None = None
+    google_calendar_client_id: str | None = None
+    google_calendar_client_secret: str | None = None
+    google_calendar_redirect_uri: str | None = None
+    google_calendar_token_key: str | None = None
     brevo_api_key: str | None = None
     brevo_from_email: str | None = None
     brevo_from_name: str = "Klinia"
@@ -46,6 +50,15 @@ class Settings(BaseSettings):
     @property
     def google_enabled(self) -> bool:
         return bool(self.google_client_id)
+
+    @property
+    def google_calendar_enabled(self) -> bool:
+        return bool(
+            self.google_calendar_client_id
+            and self.google_calendar_client_secret
+            and self.google_calendar_redirect_uri
+            and self.google_calendar_token_key
+        )
 
     @property
     def brevo_enabled(self) -> bool:
