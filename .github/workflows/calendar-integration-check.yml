@@ -25,7 +25,8 @@ jobs:
       - name: Compile and import backend
         working-directory: te-explico-un-proyecto-que-quiero/platform/backend
         run: |
-          python -m compileall -q app
+          python -m compileall -q app migrations
+          alembic heads
           python -c "from app.main import app; assert app"
       - name: Run Calendar integration tests
         working-directory: te-explico-un-proyecto-que-quiero/platform/backend
