@@ -654,6 +654,39 @@ class CalendarBookingTests(unittest.TestCase):
         self.assertIn("calendar-a%40example.com", request_url)
         self.assertNotIn("calendar-b%40example.com", request_url)
 
+    def test_disconnect_only_disables_the_authenticated_clinic_connection(self):
+        other = self.create_secondary_clinic()
+        connection_a = GoogleCalendarConnection(
+            clinic_id=self.clinic.id,
+            user_id=self.user.id,
+            calendar_id="calendar-a@example.com",
+            enabled=True,
+        )
+        connection_b = GoogleCalendarConnection(
+            clinic_id=other["clinic"].id,
+            user_id=other["user"].id,
+            calendar_id="calendar-b@example.com",
+            access_token_encrypted="encrypted-b",
+            refresh_token_encrypted="refresh-b",
+            enabled=True,
+        )
+        self.db.add_all([connection_a, connection_b])
+        self.db.commit()
+
+        response = calendar.disconnect_google_calendar(self.request, self.user, self.db)
+        self.db.refresh(connection_a)
+        self.db.refresh(connection_b)
+
+        self.assertFalse(response["calendar"]["connected"])
+        self.assertFalse(connection_a.enabled)
+        self.assertIsNone(connection_a.access_token_encrypted)
+        self.assertIsNone(connection_a.refresh_token_encrypted)
+        self.assertTrue(connection_b.enabled)
+        self.assertEqual(connection_b.calendar_id, "calendar-b@example.com")
+        self.assertEqual(connection_b.access_token_encrypted, "encrypted-b")
+        self.assertEqual(connection_b.refresh_token_encrypted, "refresh-b")
+        self.assertTrue(self.db.get(OnlineBookingSetting, other["setting"].id).enabled)
+
     def test_slug_generation_never_reuses_another_clinic_slug(self):
         other = self.create_secondary_clinic()
 
