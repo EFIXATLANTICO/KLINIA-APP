@@ -75,11 +75,11 @@
   "rewrites": [
     {
       "source": "/reservar",
-      "destination": "/reservar/index.html"
+      "destination": "/reservar/index"
     },
     {
       "source": "/reservar/:slug",
-      "destination": "/reservar/index.html"
+      "destination": "/reservar/index"
     },
     {
       "source": "/portfolio",
