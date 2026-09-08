@@ -75,6 +75,7 @@ jobs:
           print(f"::add-mask::{password_b}")
 
           clinics = {}
+          run_nonce = secrets.token_hex(5)
           for key, password in (("a", password_a), ("b", password_b)):
               upper = key.upper()
               _, registration = expect(
@@ -83,8 +84,8 @@ jobs:
                   {201},
                   {
                       "clinic_name": f"CLINICA GOOGLE TEST {upper}",
-                      "email": f"owner-google-test-{key}-20260908@example.com",
-                      "clinic_email": f"clinic-google-test-{key}-20260908@example.com",
+                      "email": f"owner-google-test-{key}-{run_nonce}@example.com",
+                      "clinic_email": f"clinic-google-test-{key}-{run_nonce}@example.com",
                       "password": password,
                       "phone": "60000000" + ("1" if key == "a" else "2"),
                       "owner_name": f"DIRECCION TEST {upper}",
@@ -100,7 +101,7 @@ jobs:
                   raise AssertionError("Registration did not return isolated credentials")
               print(f"::add-mask::{token}")
               _, me = expect("GET", "/me", {200}, token=token)
-              if me.get("clinic_id") != clinic_id:
+              if me.get("user", {}).get("clinic_id") != clinic_id or me.get("clinic", {}).get("id") != clinic_id:
                   raise AssertionError("Authenticated clinic mismatch")
 
               _, defaults = expect("GET", "/integrations/google-calendar", {200}, token=token)
