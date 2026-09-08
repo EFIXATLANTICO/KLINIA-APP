@@ -5,11 +5,22 @@
     loading: null,
     data: null,
     lastLoadedAt: 0,
-    calendarsLoaded: false
+    calendarsLoaded: false,
+    clinicKey: "",
+    requestVersion: 0
   };
 
   const byId = (id) => document.getElementById(id);
   const panel = () => byId("calendar-integration-panel");
+
+  function clearRenderedClinicData() {
+    const details = byId("google-calendar-details");
+    const calendarForm = byId("google-calendar-settings-form");
+    const publicUrl = byId("online-booking-public-url");
+    if (details) details.hidden = true;
+    if (calendarForm) calendarForm.hidden = true;
+    if (publicUrl) publicUrl.value = "";
+  }
 
   function isBackendReady() {
     try {
@@ -197,11 +208,28 @@
     if (!panel() || !isBackendReady()) return null;
     const section = byId("configuracion");
     if (!force && (!section || !section.classList.contains("active"))) return null;
+
+    const currentClinicKey = clinicSignature();
+    if (!currentClinicKey) return null;
+    if (state.clinicKey !== currentClinicKey) {
+      const hadPreviousClinic = Boolean(state.clinicKey);
+      state.clinicKey = currentClinicKey;
+      state.data = null;
+      state.lastLoadedAt = 0;
+      state.calendarsLoaded = false;
+      state.requestVersion += 1;
+      state.loading = null;
+      if (hadPreviousClinic) clearRenderedClinicData();
+    }
+
     if (!force && state.data && Date.now() - state.lastLoadedAt < 10_000) return state.data;
     if (state.loading) return state.loading;
+
+    const requestVersion = ++state.requestVersion;
     setMessage("Cargando integración...");
-    state.loading = backendRequest("/integrations/google-calendar")
+    const loading = backendRequest("/integrations/google-calendar")
       .then((data) => {
+        if (requestVersion !== state.requestVersion || clinicSignature() !== currentClinicKey) return null;
         state.lastLoadedAt = Date.now();
         state.calendarsLoaded = false;
         render(data);
@@ -210,13 +238,15 @@
         return data;
       })
       .catch((error) => {
+        if (requestVersion !== state.requestVersion || clinicSignature() !== currentClinicKey) return null;
         setMessage(friendlyError(error), "error");
         throw error;
       })
       .finally(() => {
-        state.loading = null;
+        if (state.loading === loading) state.loading = null;
       });
-    return state.loading;
+    state.loading = loading;
+    return loading;
   }
 
   async function beginGoogleAuthorization(includeWrite) {
