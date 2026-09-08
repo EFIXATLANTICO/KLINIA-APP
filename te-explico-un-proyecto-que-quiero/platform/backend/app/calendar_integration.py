@@ -387,6 +387,8 @@ def _google_busy_ranges(
     connection: GoogleCalendarConnection,
     booking_date: date,
 ) -> list[tuple[int, int]]:
+    if connection.clinic_id != clinic.id:
+        raise GoogleCalendarError("La conexión de Google Calendar no pertenece a esta clínica.")
     timezone = _clinic_timezone(clinic)
     day_start = datetime.combine(booking_date, datetime.min.time(), tzinfo=timezone)
     day_end = day_start + timedelta(days=1)
@@ -683,6 +685,8 @@ def _availability_candidates(
     practitioner_id: str | None = None,
     patient_id: str | None = None,
 ) -> list[dict]:
+    if setting.clinic_id != clinic.id or service.clinic_id != clinic.id:
+        return []
     selected_practitioners = set(_selected_practitioner_ids(db, setting))
     query = select(Practitioner).where(
         Practitioner.clinic_id == clinic.id,
@@ -1529,10 +1533,41 @@ def _booking_lock(db: Session, clinic_id: str, booking_date: str) -> None:
 
 
 def _booking_result(db: Session, booking: OnlineBooking) -> dict:
-    appointment = db.get(Appointment, booking.appointment_id)
-    service = db.get(Service, appointment.service_id)
-    practitioner = db.get(Practitioner, appointment.practitioner_id)
+    appointment = db.scalar(
+        select(Appointment).where(
+            Appointment.id == booking.appointment_id,
+            Appointment.clinic_id == booking.clinic_id,
+        )
+    )
+    patient_exists = db.scalar(
+        select(Patient.id).where(
+            Patient.id == booking.patient_id,
+            Patient.clinic_id == booking.clinic_id,
+        )
+    )
     clinic = db.get(Clinic, booking.clinic_id)
+    if (
+        not appointment
+        or not patient_exists
+        or appointment.patient_id != booking.patient_id
+        or not clinic
+    ):
+        raise HTTPException(status_code=404, detail="La reserva no está disponible.")
+
+    service = db.scalar(
+        select(Service).where(
+            Service.id == appointment.service_id,
+            Service.clinic_id == booking.clinic_id,
+        )
+    )
+    practitioner = db.scalar(
+        select(Practitioner).where(
+            Practitioner.id == appointment.practitioner_id,
+            Practitioner.clinic_id == booking.clinic_id,
+        )
+    )
+    if not service or not practitioner:
+        raise HTTPException(status_code=404, detail="La reserva no está disponible.")
     return {
         "booking_id": booking.booking_code,
         "status": booking.status,
