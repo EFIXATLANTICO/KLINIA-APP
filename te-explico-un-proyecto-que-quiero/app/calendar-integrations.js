@@ -42,6 +42,7 @@
   function friendlyError(error) {
     const message = String(error?.message || "").toLowerCase();
     if (message.includes("autoriza el permiso")) return "Autoriza la sincronización con Google para activar esta opción.";
+    if (message.includes("todavía no están disponibles")) return error.message;
     if (message.includes("servicio") || message.includes("profesional")) return error.message;
     if (error?.status === 401 || error?.status === 403) return "Tu sesión no permite cambiar esta integración.";
     if (error?.status === 404) return "La conexión con Google Calendar ya no está activa.";
@@ -177,10 +178,39 @@
     );
   }
 
+  function renderRollout(data) {
+    const authorized = data.rollout_authorized !== false;
+    const calendar = data.calendar || {};
+    const bookingForm = byId("online-booking-settings-form");
+    const unavailable = byId("google-calendar-unavailable");
+    const connect = byId("connect-google-calendar");
+    const sync = byId("sync-google-calendar");
+    const disconnect = byId("disconnect-google-calendar");
+
+    if (authorized) {
+      if (bookingForm) bookingForm.hidden = false;
+      return;
+    }
+    if (byId("google-calendar-status")) {
+      byId("google-calendar-status").textContent = "No disponible";
+      byId("google-calendar-status").className = "status-pill";
+    }
+    if (connect) connect.hidden = true;
+    if (sync) sync.hidden = true;
+    if (disconnect) disconnect.hidden = !calendar.connected;
+    if (byId("google-calendar-settings-form")) byId("google-calendar-settings-form").hidden = true;
+    if (bookingForm) bookingForm.hidden = true;
+    if (unavailable) {
+      unavailable.hidden = false;
+      unavailable.textContent = "Google Calendar y las reservas online todavía no están disponibles para esta clínica.";
+    }
+  }
+
   function render(data) {
     state.data = data;
     renderCalendar(data);
     renderBooking(data);
+    renderRollout(data);
   }
 
   async function loadCalendars() {
@@ -234,7 +264,7 @@
         state.calendarsLoaded = false;
         render(data);
         setMessage("");
-        if (data.calendar?.connected) loadCalendars();
+        if (data.rollout_authorized !== false && data.calendar?.connected) loadCalendars();
         return data;
       })
       .catch((error) => {
@@ -398,6 +428,8 @@
       refresh({ force: true });
     } else if (result === "cancelled") {
       setMessage("La conexión con Google fue cancelada.", "warning");
+    } else if (result === "unavailable") {
+      setMessage("Google Calendar y las reservas online todavía no están disponibles para esta clínica.", "warning");
     } else {
       setMessage("No se pudo completar la conexión con Google Calendar. Inténtalo de nuevo.", "error");
     }

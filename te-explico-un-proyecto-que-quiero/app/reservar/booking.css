@@ -512,3 +512,27 @@ button:focus-visible {
     text-align: left;
   }
 }
+
+
+.booking-footer nav {
+  display: flex;
+  gap: 16px;
+}
+
+.booking-footer a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.booking-footer a:hover,
+.booking-footer a:focus-visible {
+  text-decoration: underline;
+}
+
+@media (max-width: 560px) {
+  .booking-footer {
+    align-items: center;
+    flex-direction: column;
+  }
+}

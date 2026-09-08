@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -17,6 +18,7 @@ from app.models import (
     AppointmentGoogleSync,
     Clinic,
     GoogleCalendarConnection,
+    GoogleCalendarOAuthState,
     OnlineBooking,
     OnlineBookingPractitioner,
     OnlineBookingService,
@@ -32,6 +34,7 @@ from app.models import (
 
 class CalendarBookingTests(unittest.TestCase):
     def setUp(self):
+        self.previous_rollout_clinic_ids = calendar.settings.google_calendar_rollout_clinic_ids
         self.engine = create_engine(
             "sqlite+pysqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -52,6 +55,7 @@ class CalendarBookingTests(unittest.TestCase):
         )
         self.db.add(self.clinic)
         self.db.flush()
+        calendar.settings.google_calendar_rollout_clinic_ids = self.clinic.id
         self.user = User(
             clinic_id=self.clinic.id,
             name="Direccion",
@@ -115,6 +119,7 @@ class CalendarBookingTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        calendar.settings.google_calendar_rollout_clinic_ids = self.previous_rollout_clinic_ids
         self.db.close()
         self.engine.dispose()
 
@@ -196,6 +201,9 @@ class CalendarBookingTests(unittest.TestCase):
             ]
         )
         self.db.commit()
+        authorized_ids = calendar.settings.google_calendar_rollout_clinic_id_set
+        authorized_ids.add(clinic.id)
+        calendar.settings.google_calendar_rollout_clinic_ids = ",".join(sorted(authorized_ids))
         return {
             "clinic": clinic,
             "user": user,
@@ -686,6 +694,86 @@ class CalendarBookingTests(unittest.TestCase):
         self.assertEqual(connection_b.access_token_encrypted, "encrypted-b")
         self.assertEqual(connection_b.refresh_token_encrypted, "refresh-b")
         self.assertTrue(self.db.get(OnlineBookingSetting, other["setting"].id).enabled)
+
+    def test_empty_rollout_allowlist_blocks_oauth(self):
+        calendar.settings.google_calendar_rollout_clinic_ids = ""
+
+        with patch.object(calendar, "_calendar_configured", return_value=True), self.assertRaises(HTTPException) as error:
+            calendar.start_google_calendar_oauth(False, self.user, self.db)
+
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertEqual(error.exception.detail, calendar.CALENDAR_ROLLOUT_MESSAGE)
+        self.assertEqual(self.db.scalar(select(GoogleCalendarOAuthState)), None)
+
+    def test_authorized_clinic_can_start_oauth(self):
+        calendar.settings.google_calendar_rollout_clinic_ids = self.clinic.id
+
+        with patch.object(calendar, "_calendar_configured", return_value=True):
+            result = calendar.start_google_calendar_oauth(False, self.user, self.db)
+
+        state_row = self.db.scalar(select(GoogleCalendarOAuthState))
+        self.assertIn("https://accounts.google.com/", result["authorization_url"])
+        self.assertIsNotNone(state_row)
+        self.assertEqual(state_row.clinic_id, self.clinic.id)
+        self.assertEqual(state_row.user_id, self.user.id)
+
+    def test_unauthorized_clinic_cannot_run_manual_sync(self):
+        calendar.settings.google_calendar_rollout_clinic_ids = ""
+
+        with patch.object(calendar, "_connection_for_clinic") as connection_lookup:
+            with self.assertRaises(HTTPException) as error:
+                calendar.synchronize_google_calendar_now(self.user, self.db)
+
+        self.assertEqual(error.exception.status_code, 403)
+        connection_lookup.assert_not_called()
+
+    def test_unauthorized_public_slug_is_not_available(self):
+        calendar.settings.google_calendar_rollout_clinic_ids = ""
+
+        with self.assertRaises(HTTPException) as error:
+            calendar.get_public_booking_page("clinica-test", self.db)
+
+        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(error.exception.detail, calendar.PUBLIC_BOOKING_ROLLOUT_MESSAGE)
+
+    def test_authorized_rollout_preserves_public_booking_flow(self):
+        page = calendar.get_public_booking_page("clinica-test", self.db)
+
+        self.assertEqual(page["clinic"]["name"], self.clinic.name)
+        self.assertEqual({item["id"] for item in page["services"]}, {self.service.id})
+        self.assertEqual({item["id"] for item in page["practitioners"]}, {self.practitioner.id})
+
+    def test_client_supplied_clinic_id_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            calendar.OnlineBookingSettingsUpdate.model_validate(
+                {
+                    "enabled": False,
+                    "clinic_id": "clinic-id-manipulated",
+                }
+            )
+        with self.assertRaises(ValidationError):
+            calendar.PublicBookingCreate.model_validate(
+                {
+                    **self.payload().model_dump(),
+                    "clinic_id": "clinic-id-manipulated",
+                }
+            )
+
+    def test_rollout_allowlist_preserves_multiclinic_isolation(self):
+        other = self.create_secondary_clinic()
+        calendar.settings.google_calendar_rollout_clinic_ids = self.clinic.id
+
+        page = calendar.get_public_booking_page("clinica-test", self.db)
+        self.assertEqual(page["clinic"]["name"], self.clinic.name)
+
+        with self.assertRaises(HTTPException) as public_error:
+            calendar.get_public_booking_page("clinica-test-b", self.db)
+        self.assertEqual(public_error.exception.status_code, 404)
+
+        with patch.object(calendar, "_calendar_configured", return_value=True):
+            with self.assertRaises(HTTPException) as oauth_error:
+                calendar.start_google_calendar_oauth(False, other["user"], self.db)
+        self.assertEqual(oauth_error.exception.status_code, 403)
 
     def test_slug_generation_never_reuses_another_clinic_slug(self):
         other = self.create_secondary_clinic()

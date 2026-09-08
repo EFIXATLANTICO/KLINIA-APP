@@ -6,6 +6,9 @@ on:
       - "te-explico-un-proyecto-que-quiero/platform/backend/**"
       - "te-explico-un-proyecto-que-quiero/app/calendar-integrations.*"
       - "te-explico-un-proyecto-que-quiero/app/reservar/**"
+      - "te-explico-un-proyecto-que-quiero/app/privacidad/**"
+      - "te-explico-un-proyecto-que-quiero/app/terminos/**"
+      - "te-explico-un-proyecto-que-quiero/app/legal.css"
       - "te-explico-un-proyecto-que-quiero/app/index.html"
       - "te-explico-un-proyecto-que-quiero/app/sw.js"
       - "te-explico-un-proyecto-que-quiero/app/vercel.json"
@@ -36,3 +39,18 @@ jobs:
         run: |
           node --check calendar-integrations.js
           node --check reservar/booking.js
+      - name: Check public legal pages and routes
+        working-directory: te-explico-un-proyecto-que-quiero/app
+        run: |
+          test -f privacidad/index.html
+          test -f terminos/index.html
+          grep -q "Google API Services User Data Policy" privacidad/index.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+          rewrites = {item["source"]: item["destination"] for item in config["rewrites"]}
+          assert rewrites["/privacidad"] == "/privacidad/index"
+          assert rewrites["/terminos"] == "/terminos/index"
+          PY

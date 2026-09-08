@@ -16,7 +16,7 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -61,6 +61,8 @@ GOOGLE_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events.owned"
 BASE_GOOGLE_SCOPES = ("openid", "email", GOOGLE_FREEBUSY_SCOPE, GOOGLE_CALENDAR_LIST_SCOPE)
 DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 SLOT_STEP_MINUTES = 15
+CALENDAR_ROLLOUT_MESSAGE = "Google Calendar y las reservas online todavía no están disponibles para esta clínica."
+PUBLIC_BOOKING_ROLLOUT_MESSAGE = "Las reservas online no están disponibles para esta clínica."
 
 
 class GoogleCalendarError(RuntimeError):
@@ -72,6 +74,8 @@ class GoogleCalendarEventMissing(GoogleCalendarError):
 
 
 class CalendarConnectionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     calendar_id: str | None = Field(default=None, min_length=1, max_length=1024)
     block_busy_times: bool | None = None
     push_klinia_appointments: bool | None = None
@@ -80,6 +84,8 @@ class CalendarConnectionUpdate(BaseModel):
 
 
 class OnlineBookingSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     slug: str | None = Field(default=None, max_length=180)
     min_notice_minutes: int = Field(default=120, ge=0, le=43_200)
@@ -95,6 +101,8 @@ class OnlineBookingSettingsUpdate(BaseModel):
 
 
 class PublicBookingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     service_id: str = Field(min_length=1, max_length=36)
     practitioner_id: str = Field(min_length=1, max_length=36)
     booking_date: str = Field(min_length=10, max_length=10)
@@ -244,6 +252,19 @@ def _calendar_configured() -> bool:
     return settings.google_calendar_enabled
 
 
+def _calendar_rollout_enabled(clinic_id: str | None) -> bool:
+    return bool(clinic_id and clinic_id in settings.google_calendar_rollout_clinic_id_set)
+
+
+def _require_calendar_rollout(clinic_id: str | None, *, public: bool = False) -> None:
+    if _calendar_rollout_enabled(clinic_id):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND if public else status.HTTP_403_FORBIDDEN,
+        detail=PUBLIC_BOOKING_ROLLOUT_MESSAGE if public else CALENDAR_ROLLOUT_MESSAGE,
+    )
+
+
 def _connection_for_clinic(db: Session, clinic_id: str) -> GoogleCalendarConnection | None:
     return db.scalar(
         select(GoogleCalendarConnection).where(GoogleCalendarConnection.clinic_id == clinic_id)
@@ -389,6 +410,8 @@ def _google_busy_ranges(
 ) -> list[tuple[int, int]]:
     if connection.clinic_id != clinic.id:
         raise GoogleCalendarError("La conexión de Google Calendar no pertenece a esta clínica.")
+    if not _calendar_rollout_enabled(clinic.id):
+        raise GoogleCalendarError("Google Calendar no está habilitado para esta clínica.")
     timezone = _clinic_timezone(clinic)
     day_start = datetime.combine(booking_date, datetime.min.time(), tzinfo=timezone)
     day_end = day_start + timedelta(days=1)
@@ -697,7 +720,7 @@ def _availability_candidates(
         query = query.where(Practitioner.id == practitioner_id)
     practitioners = list(db.scalars(query.order_by(Practitioner.name)))
     practitioners = [item for item in practitioners if _practitioner_accepts_service(item, service.id)]
-    connection = _connection_for_clinic(db, clinic.id)
+    connection = _connection_for_clinic(db, clinic.id) if _calendar_rollout_enabled(clinic.id) else None
     context = _day_context(db, clinic, booking_date, connection=connection)
     context["practitioner_blocks"] = {
         item.id: _availability_blocks(db, clinic.id, item.id, booking_date)
@@ -829,6 +852,7 @@ def _integration_payload(db: Session, clinic: Clinic) -> dict:
         )
     ]
     return {
+        "rollout_authorized": _calendar_rollout_enabled(clinic.id),
         "calendar": _connection_payload(connection),
         "booking": _booking_payload(db, clinic, setting),
         "available_services": available_services,
@@ -919,6 +943,11 @@ def sync_appointment_to_google(
             AppointmentGoogleSync.clinic_id == appointment.clinic_id,
         )
     )
+    if not _calendar_rollout_enabled(appointment.clinic_id):
+        if existing:
+            existing.sync_status = "disconnected"
+            existing.sync_error = None
+        return existing
     if not connection or not connection.enabled:
         if existing:
             existing.sync_status = "disconnected"
@@ -986,6 +1015,10 @@ def remove_appointment_from_google(db: Session, appointment: Appointment) -> Non
     )
     if not row:
         return
+    if not _calendar_rollout_enabled(appointment.clinic_id):
+        row.sync_status = "disconnected"
+        row.sync_error = None
+        return
     if not connection or not connection.enabled:
         row.sync_status = "disconnected"
         return
@@ -1020,6 +1053,7 @@ def start_google_calendar_oauth(
     user: User = Depends(require_subscribed_roles(UserRole.owner)),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_calendar_rollout(user.clinic_id)
     if not _calendar_configured():
         raise HTTPException(status_code=503, detail="La conexión con Google Calendar no está disponible ahora.")
     raw_state = secrets.token_urlsafe(40)
@@ -1081,6 +1115,9 @@ def google_calendar_oauth_callback(
     if not user or not user.active or not clinic or user.clinic_id != clinic.id:
         db.commit()
         return _oauth_frontend_redirect("invalid")
+    if not _calendar_rollout_enabled(clinic.id):
+        db.commit()
+        return _oauth_frontend_redirect("unavailable")
     try:
         token_data = _google_request(
             "POST",
@@ -1138,6 +1175,7 @@ def list_google_calendars(
     user: User = Depends(require_subscribed_roles(UserRole.owner)),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_calendar_rollout(user.clinic_id)
     connection = _connection_or_404(db, user.clinic_id)
     try:
         calendars = _calendar_list(db, connection)
@@ -1156,6 +1194,7 @@ def update_google_calendar_integration(
     user: User = Depends(require_subscribed_roles(UserRole.owner)),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_calendar_rollout(user.clinic_id)
     connection = _connection_or_404(db, user.clinic_id)
     data = payload.model_dump(exclude_unset=True)
     if data.get("push_klinia_appointments") and GOOGLE_EVENTS_SCOPE not in _scope_set(connection):
@@ -1222,6 +1261,7 @@ def synchronize_google_calendar_now(
     user: User = Depends(require_subscribed_roles(UserRole.owner)),
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_calendar_rollout(user.clinic_id)
     connection = _connection_or_404(db, user.clinic_id)
     clinic = db.get(Clinic, user.clinic_id)
     try:
@@ -1277,6 +1317,8 @@ def update_online_booking_settings(
     clinic = db.get(Clinic, user.clinic_id)
     if not clinic:
         raise HTTPException(status_code=404, detail="Clínica no encontrada.")
+    if payload.enabled:
+        _require_calendar_rollout(user.clinic_id)
     service_ids = list(dict.fromkeys(payload.service_ids))
     practitioner_ids = list(dict.fromkeys(payload.practitioner_ids))
     valid_services = set(
@@ -1386,6 +1428,7 @@ def _public_setting_or_404(db: Session, slug: str) -> tuple[Clinic, OnlineBookin
     clinic = db.get(Clinic, setting.clinic_id)
     if not clinic or not _clinic_accepts_public_bookings(clinic):
         raise HTTPException(status_code=404, detail="Este enlace de reservas no está activo.")
+    _require_calendar_rollout(clinic.id, public=True)
     return clinic, setting
 
 
