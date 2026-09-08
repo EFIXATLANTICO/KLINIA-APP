@@ -42,6 +42,8 @@
   "rewrites": [
     { "source": "/portfolio", "destination": "/portfolio/index.html" },
     { "source": "/portfolio/(.*)", "destination": "/portfolio/$1" },
+    { "source": "/privacidad", "destination": "/privacidad/index" },
+    { "source": "/terminos", "destination": "/terminos/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
