@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from cryptography.fernet import Fernet
 from fastapi import HTTPException
