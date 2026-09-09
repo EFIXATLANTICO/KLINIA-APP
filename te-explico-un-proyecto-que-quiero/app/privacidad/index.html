@@ -25,7 +25,7 @@
       <p class="legal-eyebrow">Información legal</p>
       <h1>Política de privacidad</h1>
       <p class="legal-lead">Esta política explica cómo Klinia trata los datos necesarios para prestar su servicio SaaS de gestión de clínicas y, en particular, cómo utiliza los datos procedentes de Google Calendar.</p>
-      <p class="legal-updated">Última actualización: 8 de septiembre de 2026.</p>
+      <p class="legal-updated">Última actualización: 9 de septiembre de 2026.</p>
 
       <section class="legal-section">
         <h2>1. Responsable y contacto</h2>
@@ -78,6 +78,12 @@
         <h2>6. Conservación y proveedores</h2>
         <p>Conservamos los datos durante el tiempo necesario para prestar el servicio, cumplir obligaciones legales y resolver responsabilidades. Los tokens se conservan mientras la conexión esté activa y se eliminan del backend al desconectarla conforme al flujo descrito.</p>
         <p>Podemos utilizar proveedores de infraestructura, alojamiento, comunicaciones y servicios de terceros que tratan datos únicamente para prestar sus funciones. Google trata la información conforme a sus propias condiciones y políticas cuando la clínica utiliza Google Calendar.</p>
+        <h3>Con quién compartimos, transferimos o divulgamos datos de Google</h3>
+        <p>Klinia no vende datos de usuarios de Google, no los comparte con anunciantes ni intermediarios de datos y no los utiliza para publicidad, elaboración de perfiles ni entrenamiento de modelos de inteligencia artificial. No los cedemos a terceros ajenos al servicio para sus propios fines.</p>
+        <p>Render proporciona el alojamiento del backend de Klinia y de su base de datos PostgreSQL. Esta infraestructura procesa los datos necesarios para identificar la cuenta autorizada, seleccionar el calendario, consultar disponibilidad y sincronizar eventos. La base de datos conserva la información de la conexión, los identificadores de sincronización y los tokens OAuth cifrados; el backend utiliza las credenciales para comunicarse con Google. PostgreSQL es la tecnología de base de datos, no un destinatario independiente. El tratamiento por estos proveedores técnicos se limita a prestar la infraestructura necesaria para las funciones solicitadas por la clínica, no a utilizar los datos de Google para fines propios ajenos al servicio.</p>
+        <p>Vercel aloja y distribuye el frontend de Klinia. En el flujo de Google Calendar, el navegador consulta directamente el backend: Vercel no interviene como intermediario de las llamadas del backend a Google ni como almacén de los tokens OAuth. La interfaz muestra al usuario autorizado de la clínica la cuenta conectada, los calendarios que puede seleccionar y el estado de sincronización. La página pública de reservas solo recibe los huecos disponibles, sin detalles de eventos de Google ni de otros pacientes.</p>
+        <p>Google recibe las solicitudes de autorización, disponibilidad y sincronización necesarias para la conexión que la clínica decide activar. Cuando se habilita la escritura, recibe los datos mínimos del evento gestionado por Klinia descritos en esta política. Estas comunicaciones se realizan para prestar las funciones autorizadas por la clínica.</p>
+        <p>Podremos divulgar los datos de Google estrictamente necesarios a las autoridades o destinatarios legalmente competentes cuando exista una obligación legal aplicable. No autorizamos otras transferencias para fines ajenos a los aquí descritos. El uso y las transferencias de datos de Google quedan sujetos a los requisitos de Limited Use indicados en la sección siguiente.</p>
       </section>
 
       <section class="legal-section">
