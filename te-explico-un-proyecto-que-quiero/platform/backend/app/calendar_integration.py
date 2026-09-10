@@ -17,13 +17,14 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .db import get_db
 from .deps import require_subscribed_roles
+from .google_calendar_safety import UnexpectedGoogleEventId, may_reuse_refresh_token, require_expected_event_id
 from .models import (
     Appointment,
     AppointmentGoogleSync,
@@ -338,19 +339,18 @@ def _google_request(
             params=params,
             timeout=15.0,
         )
-    except httpx.HTTPError as exc:
-        raise GoogleCalendarError("No se pudo conectar con Google Calendar.") from exc
+    except httpx.HTTPError:
+        raise GoogleCalendarError("No se pudo conectar con Google Calendar.") from None
     if response.status_code == 404:
         raise GoogleCalendarEventMissing("El evento ya no existe en Google Calendar.")
     if response.status_code >= 400:
-        body = response.text[:1200]
-        raise GoogleCalendarError(f"Google Calendar respondió {response.status_code}: {body}")
+        raise GoogleCalendarError(f"Google Calendar respondió HTTP {response.status_code}.")
     if not response.content:
         return {}
     try:
         return response.json()
-    except ValueError as exc:
-        raise GoogleCalendarError("Google Calendar devolvió una respuesta no válida.") from exc
+    except ValueError:
+        raise GoogleCalendarError("Google Calendar devolvió una respuesta no válida.") from None
 
 
 def _access_token(db: Session, connection: GoogleCalendarConnection, *, force_refresh: bool = False) -> str:
@@ -430,17 +430,17 @@ def _google_busy_ranges(
     )
     calendars = data.get("calendars") or {}
     result = calendars.get(connection.calendar_id or "primary")
-    if result is None and calendars:
-        result = next(iter(calendars.values()))
     if not isinstance(result, dict) or result.get("errors"):
         raise GoogleCalendarError("No se pudo consultar la disponibilidad del calendario seleccionado.")
+    if not isinstance(result.get("busy"), list):
+        raise GoogleCalendarError("Google Calendar devolvio disponibilidad incompleta.")
     ranges: list[tuple[int, int]] = []
-    for item in result.get("busy") or []:
+    for item in result["busy"]:
         try:
             start_dt = datetime.fromisoformat(str(item["start"]).replace("Z", "+00:00")).astimezone(timezone)
             end_dt = datetime.fromisoformat(str(item["end"]).replace("Z", "+00:00")).astimezone(timezone)
         except (KeyError, ValueError, TypeError):
-            continue
+            raise GoogleCalendarError("Google Calendar devolvio un intervalo no valido.") from None
         start_minute = max(0, math.floor((start_dt - day_start).total_seconds() / 60))
         end_minute = min(24 * 60, math.ceil((end_dt - day_start).total_seconds() / 60))
         if end_minute > start_minute:
@@ -616,14 +616,14 @@ def _day_context(
     if connection and connection.enabled and connection.block_busy_times:
         try:
             google_busy = _google_busy_ranges(db, clinic, connection, date.fromisoformat(booking_date))
-        except Exception as exc:
+        except Exception:
             connection.last_error = "No se pudo consultar la disponibilidad de Google Calendar."
             db.flush()
-            logger.exception("Google Calendar free/busy failed for clinic=%s", clinic.id)
+            logger.warning("Google Calendar free/busy failed for clinic=%s", clinic.id)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="No pudimos comprobar la disponibilidad completa. Inténtalo de nuevo.",
-            ) from exc
+            ) from None
     return {
         "services_by_id": services_by_id,
         "appointments": appointments,
@@ -707,6 +707,7 @@ def _availability_candidates(
     booking_date: str,
     practitioner_id: str | None = None,
     patient_id: str | None = None,
+    include_google: bool = True,
 ) -> list[dict]:
     if setting.clinic_id != clinic.id or service.clinic_id != clinic.id:
         return []
@@ -720,7 +721,7 @@ def _availability_candidates(
         query = query.where(Practitioner.id == practitioner_id)
     practitioners = list(db.scalars(query.order_by(Practitioner.name)))
     practitioners = [item for item in practitioners if _practitioner_accepts_service(item, service.id)]
-    connection = _connection_for_clinic(db, clinic.id) if _calendar_rollout_enabled(clinic.id) else None
+    connection = _connection_for_clinic(db, clinic.id) if include_google and _calendar_rollout_enabled(clinic.id) else None
     context = _day_context(db, clinic, booking_date, connection=connection)
     context["practitioner_blocks"] = {
         item.id: _availability_blocks(db, clinic.id, item.id, booking_date)
@@ -908,26 +909,31 @@ def _delete_google_event(
     db: Session,
     connection: GoogleCalendarConnection,
     row: AppointmentGoogleSync,
-) -> None:
+    *,
+    confirm_missing: bool = True,
+) -> bool:
     if not row.google_event_id:
         row.sync_status = "synced"
         row.sync_error = None
         row.last_synced_at = _now_utc()
-        return
+        return True
     token = _access_token(db, connection)
     try:
         _google_request(
             "DELETE",
-            f"{GOOGLE_CALENDAR_API}/calendars/{quote(connection.calendar_id, safe='')}/events/{quote(row.google_event_id, safe='')}",
+            f"{GOOGLE_CALENDAR_API}/calendars/{quote(row.calendar_id, safe='')}/events/{quote(row.google_event_id, safe='')}",
             access_token=token,
         )
     except GoogleCalendarEventMissing:
-        pass
+        if not confirm_missing:
+            row.sync_status = "delete_pending_confirmation"
+            row.sync_error = "La ausencia remota debe confirmarse antes de cerrar la sincronizacion."
+            return False
     row.google_event_id = None
-    row.calendar_id = connection.calendar_id
     row.sync_status = "synced"
     row.sync_error = None
     row.last_synced_at = _now_utc()
+    return True
 
 
 def sync_appointment_to_google(
@@ -936,18 +942,18 @@ def sync_appointment_to_google(
     *,
     force: bool = False,
 ) -> AppointmentGoogleSync | None:
+    if not _calendar_rollout_enabled(appointment.clinic_id):
+        return None
+    _lock_google_appointment_sync(db, appointment.clinic_id, appointment.id)
+    # Only the integration row is locked during remote I/O. Clinical data was
+    # committed by the caller and must remain available while Google is slow.
     connection = _connection_for_clinic(db, appointment.clinic_id)
     existing = db.scalar(
         select(AppointmentGoogleSync).where(
             AppointmentGoogleSync.appointment_id == appointment.id,
             AppointmentGoogleSync.clinic_id == appointment.clinic_id,
-        )
+        ).with_for_update().execution_options(populate_existing=True)
     )
-    if not _calendar_rollout_enabled(appointment.clinic_id):
-        if existing:
-            existing.sync_status = "disconnected"
-            existing.sync_error = None
-        return existing
     if not connection or not connection.enabled:
         if existing:
             existing.sync_status = "disconnected"
@@ -956,7 +962,10 @@ def sync_appointment_to_google(
     if not connection.push_klinia_appointments:
         return existing
     row = existing or _sync_row(db, appointment)
-    row.calendar_id = connection.calendar_id
+    if not row.calendar_id:
+        row.calendar_id = connection.calendar_id
+    if row.sync_status == "reconciliation_required":
+        return row
     if not connection.auto_sync and not force:
         row.sync_status = "pending"
         row.sync_error = None
@@ -964,48 +973,116 @@ def sync_appointment_to_google(
     clinic = db.get(Clinic, appointment.clinic_id)
     if not clinic:
         return row
+    creating = not row.google_event_id and appointment.status != AppointmentStatus.cancelled
+    if creating:
+        if existing and row.sync_status == "error":
+            # Legacy failed POSTs used server-generated IDs and cannot be safely recreated.
+            row.sync_status = "unknown_remote_state"
+            row.sync_error = "La sincronizacion anterior requiere reconciliacion manual."
+            return row
+        row.google_event_id = hashlib.sha256(f"klinia:{appointment.clinic_id}:{appointment.id}".encode()).hexdigest()
+        row.sync_status = "unknown_remote_state"
+        row_id = row.id
+        # Persist identity and original calendar before Google can create anything.
+        db.commit()
+        row = db.scalar(select(AppointmentGoogleSync).where(AppointmentGoogleSync.id == row_id).with_for_update().execution_options(populate_existing=True))
+        creating = row.sync_status == "unknown_remote_state"
+    reconciling = row.sync_status == "unknown_remote_state" and not creating
+    deletion_requires_confirmation = (
+        appointment.status == AppointmentStatus.cancelled
+        and row.sync_status in {"unknown_remote_state", "delete_pending_confirmation"}
+    )
     try:
         if appointment.status == AppointmentStatus.cancelled:
-            _delete_google_event(db, connection, row)
+            _delete_google_event(
+                db,
+                connection,
+                row,
+                confirm_missing=force or row.sync_status not in {"unknown_remote_state", "delete_pending_confirmation"},
+            )
             return row
         token = _access_token(db, connection)
         event_body = _event_body(clinic, appointment)
-        if force and row.sync_status == "error":
-            row.google_event_id = None
-        if row.google_event_id:
+        if reconciling:
+            if not row.google_event_id:
+                raise GoogleCalendarError("La sincronizacion requiere reconciliacion manual.")
+            try:
+                remote = _google_request(
+                    "GET",
+                    f"{GOOGLE_CALENDAR_API}/calendars/{quote(row.calendar_id, safe='')}/events/{quote(row.google_event_id, safe='')}",
+                    access_token=token, params={"fields": "id,status"},
+                )
+                require_expected_event_id(row.google_event_id, remote.get("id"))
+                if remote.get("status") == "cancelled":
+                    raise GoogleCalendarError("El evento requiere reconciliacion manual.")
+            except GoogleCalendarEventMissing:
+                # An explicit manual retry may resend the same identity, never a new ID.
+                if not force:
+                    raise
+                creating = True
+        if row.google_event_id and not creating:
             event = _google_request(
                 "PATCH",
-                f"{GOOGLE_CALENDAR_API}/calendars/{quote(connection.calendar_id, safe='')}/events/{quote(row.google_event_id, safe='')}",
+                f"{GOOGLE_CALENDAR_API}/calendars/{quote(row.calendar_id, safe='')}/events/{quote(row.google_event_id, safe='')}",
                 access_token=token,
                 json_body=event_body,
             )
         else:
+            event_body["id"] = row.google_event_id
             event = _google_request(
                 "POST",
-                f"{GOOGLE_CALENDAR_API}/calendars/{quote(connection.calendar_id, safe='')}/events",
+                f"{GOOGLE_CALENDAR_API}/calendars/{quote(row.calendar_id, safe='')}/events",
                 access_token=token,
                 json_body=event_body,
             )
-        row.google_event_id = str(event.get("id") or row.google_event_id or "")
+        # Never adopt a response ID. POST and PATCH must confirm the exact ID
+        # persisted before the request, including uncertain-state retries.
+        row.google_event_id = require_expected_event_id(row.google_event_id, event.get("id"))
         row.sync_status = "synced"
         row.sync_error = None
         row.last_synced_at = _now_utc()
         connection.last_synced_at = row.last_synced_at
         connection.last_error = None
-    except Exception as exc:
-        logger.exception(
+    except UnexpectedGoogleEventId:
+        logger.warning(
+            "Google event identity mismatch clinic=%s appointment=%s",
+            appointment.clinic_id,
+            appointment.id,
+        )
+        row.sync_status = "reconciliation_required"
+        row.sync_error = "La identidad del evento requiere reconciliacion manual."
+        connection.last_error = "Una cita requiere reconciliacion manual con Google Calendar."
+    except Exception:
+        logger.warning(
             "Klinia appointment Google sync failed clinic=%s appointment=%s",
             appointment.clinic_id,
             appointment.id,
         )
-        row.sync_status = "error"
-        row.sync_error = str(exc)[:1200]
+        if deletion_requires_confirmation:
+            row.sync_status = "delete_pending_confirmation"
+        else:
+            row.sync_status = "unknown_remote_state" if creating or reconciling else "error"
+        row.sync_error = "No se pudo sincronizar la cita con Google Calendar."
         connection.last_error = "No se pudo sincronizar una cita con Google Calendar."
     db.flush()
     return row
 
 
+def sync_after_clinical_commit(db: Session, appointment: Appointment) -> None:
+    """Best effort only: callers must commit the clinical operation first."""
+    try:
+        if not _calendar_rollout_enabled(appointment.clinic_id):
+            return
+        sync_appointment_to_google(db, appointment)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Google sync failed after the clinical operation was committed")
+
+
 def remove_appointment_from_google(db: Session, appointment: Appointment) -> None:
+    if not _calendar_rollout_enabled(appointment.clinic_id):
+        return
     connection = _connection_for_clinic(db, appointment.clinic_id)
     row = db.scalar(
         select(AppointmentGoogleSync).where(
@@ -1015,25 +1092,96 @@ def remove_appointment_from_google(db: Session, appointment: Appointment) -> Non
     )
     if not row:
         return
-    if not _calendar_rollout_enabled(appointment.clinic_id):
-        row.sync_status = "disconnected"
-        row.sync_error = None
-        return
     if not connection or not connection.enabled:
         row.sync_status = "disconnected"
         return
     try:
         _delete_google_event(db, connection, row)
-    except Exception as exc:
-        logger.exception(
+    except Exception:
+        logger.warning(
             "Klinia appointment Google deletion failed clinic=%s appointment=%s",
             appointment.clinic_id,
             appointment.id,
         )
         row.sync_status = "error"
-        row.sync_error = str(exc)[:1200]
+        row.sync_error = "No se pudo retirar la cita de Google Calendar."
         connection.last_error = "No se pudo retirar una cita de Google Calendar."
     db.flush()
+
+
+def prepare_google_deletion(db: Session, appointment: Appointment) -> str | None:
+    """Record deletion intent in the clinical transaction, without calling Google."""
+    if not _calendar_rollout_enabled(appointment.clinic_id):
+        return None
+    row = db.scalar(select(AppointmentGoogleSync).where(
+        AppointmentGoogleSync.clinic_id == appointment.clinic_id,
+        AppointmentGoogleSync.appointment_id == appointment.id,
+    ))
+    if row is None or not row.google_event_id:
+        return None
+    if row.sync_status == "reconciliation_required":
+        return row.id
+    row.sync_status = "delete_pending_confirmation" if row.sync_status in {"unknown_remote_state", "delete_pending_confirmation"} else "delete_pending"
+    row.sync_error = None
+    return row.id
+
+
+def retry_orphaned_google_deletions(
+    db: Session,
+    clinic_id: str,
+    *,
+    sync_id: str | None = None,
+    confirm_uncertain_missing: bool = False,
+) -> tuple[int, int]:
+    if not _calendar_rollout_enabled(clinic_id):
+        return 0, 0
+    connection = _connection_for_clinic(db, clinic_id)
+    if connection is None or not connection.enabled:
+        return 0, 0
+    query = select(AppointmentGoogleSync).where(
+        AppointmentGoogleSync.clinic_id == clinic_id,
+        AppointmentGoogleSync.appointment_id.is_(None),
+        AppointmentGoogleSync.google_event_id.is_not(None),
+        AppointmentGoogleSync.sync_status != "reconciliation_required",
+    )
+    if sync_id is not None:
+        query = query.where(AppointmentGoogleSync.id == sync_id)
+    rows = list(db.scalars(query.order_by(AppointmentGoogleSync.id).limit(1000).with_for_update(skip_locked=True).execution_options(populate_existing=True)))
+    succeeded = failed = 0
+    for row in rows:
+        requires_confirmation = row.sync_status == "delete_pending_confirmation"
+        try:
+            if not row.calendar_id:
+                raise GoogleCalendarError("El calendario original no esta disponible.")
+            confirmed = _delete_google_event(
+                db,
+                connection,
+                row,
+                confirm_missing=confirm_uncertain_missing or not requires_confirmation,
+            )
+            if confirmed:
+                succeeded += 1
+            else:
+                failed += 1
+        except Exception:
+            row.sync_status = "delete_pending_confirmation" if requires_confirmation else "error"
+            row.sync_error = "No se pudo retirar la cita de Google Calendar."
+            connection.last_error = row.sync_error
+            logger.warning("Google orphan deletion failed clinic=%s sync=%s", clinic_id, row.id)
+            failed += 1
+    db.flush()
+    return succeeded, failed
+
+
+def delete_google_after_clinical_commit(db: Session, clinic_id: str, sync_id: str | None) -> None:
+    if sync_id is None or not _calendar_rollout_enabled(clinic_id):
+        return
+    try:
+        retry_orphaned_google_deletions(db, clinic_id, sync_id=sync_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("Google deletion failed after the clinical deletion was committed")
 
 
 @router.get("/integrations/google-calendar")
@@ -1087,6 +1235,23 @@ def _oauth_frontend_redirect(result: str) -> RedirectResponse:
     return RedirectResponse(f"{base}/?calendar_integration={quote(result, safe='')}#configuracion", status_code=302)
 
 
+def _consume_oauth_state(db: Session, raw_state: str) -> GoogleCalendarOAuthState | None:
+    now = _now_utc()
+    row = db.scalar(
+        update(GoogleCalendarOAuthState)
+        .where(
+            GoogleCalendarOAuthState.nonce_hash == hashlib.sha256(raw_state.encode("utf-8")).hexdigest(),
+            GoogleCalendarOAuthState.used_at.is_(None),
+            GoogleCalendarOAuthState.expires_at > now,
+        )
+        .values(used_at=now)
+        .returning(GoogleCalendarOAuthState)
+    )
+    # Consumption must survive a failed token exchange or a duplicate callback.
+    db.commit()
+    return row
+
+
 @router.get("/integrations/google-calendar/oauth/callback", include_in_schema=False)
 def google_calendar_oauth_callback(
     state: str | None = None,
@@ -1095,24 +1260,15 @@ def google_calendar_oauth_callback(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     if error or not state or not code:
-        logger.warning("Google Calendar OAuth callback rejected error=%s", error or "missing_parameters")
+        logger.warning("Google Calendar OAuth callback rejected")
         return _oauth_frontend_redirect("cancelled")
-    state_row = db.scalar(
-        select(GoogleCalendarOAuthState).where(
-            GoogleCalendarOAuthState.nonce_hash == hashlib.sha256(state.encode("utf-8")).hexdigest()
-        )
-    )
-    if (
-        not state_row
-        or state_row.used_at is not None
-        or (_as_aware_utc(state_row.expires_at) or _now_utc()) < _now_utc()
-    ):
+    state_row = _consume_oauth_state(db, state)
+    if not state_row:
         logger.warning("Google Calendar OAuth callback has invalid or expired state")
         return _oauth_frontend_redirect("invalid")
-    state_row.used_at = _now_utc()
     user = db.get(User, state_row.user_id)
     clinic = db.get(Clinic, state_row.clinic_id)
-    if not user or not user.active or not clinic or user.clinic_id != clinic.id:
+    if not user or not user.active or not clinic or user.clinic_id != clinic.id or user.role != UserRole.owner or not _clinic_accepts_public_bookings(clinic):
         db.commit()
         return _oauth_frontend_redirect("invalid")
     if not _calendar_rollout_enabled(clinic.id):
@@ -1134,16 +1290,51 @@ def google_calendar_oauth_callback(
         if not access_token:
             raise GoogleCalendarError("Google no devolvió una credencial de acceso.")
         profile = _google_request("GET", GOOGLE_USERINFO_URL, access_token=access_token)
+        profile_email = str(profile.get("email") or "").strip()
+        if not profile_email or profile.get("email_verified") is not True:
+            raise GoogleCalendarError("Google no pudo confirmar la identidad de la cuenta.")
         connection = _connection_for_clinic(db, clinic.id)
-        previous_refresh = _decrypt(connection.refresh_token_encrypted) if connection else None
-        refresh_token = str(token_data.get("refresh_token") or previous_refresh or "")
+        same_google_identity = bool(connection and may_reuse_refresh_token(
+            connection_clinic_id=connection.clinic_id,
+            connection_user_id=connection.user_id,
+            connection_account_email=connection.account_email,
+            callback_clinic_id=clinic.id,
+            callback_user_id=user.id,
+            profile_email=profile_email,
+            profile_email_verified=profile.get("email_verified"),
+        ))
+        returned_refresh = str(token_data.get("refresh_token") or "")
+        if connection and not same_google_identity and not returned_refresh:
+            # The new verified account cannot inherit the previous account's
+            # credential. Leave the clinic safely disconnected until a fresh
+            # offline credential is granted.
+            connection.enabled = False
+            connection.account_email = None
+            connection.calendar_id = "primary"
+            connection.access_token_encrypted = None
+            connection.refresh_token_encrypted = None
+            connection.token_expires_at = None
+            connection.granted_scopes = ""
+            connection.last_error = "Google debe autorizar nuevamente el acceso sin conexión."
+            for sync_row in db.scalars(
+                select(AppointmentGoogleSync).where(AppointmentGoogleSync.clinic_id == clinic.id)
+            ):
+                sync_row.sync_status = "disconnected"
+                sync_row.sync_error = None
+            db.commit()
+            return _oauth_frontend_redirect("error")
+        previous_refresh = _decrypt(connection.refresh_token_encrypted) if same_google_identity else None
+        refresh_token = str(returned_refresh or previous_refresh or "")
         if not refresh_token:
             raise GoogleCalendarError("Google no devolvió permiso de acceso sin conexión.")
         if not connection:
             connection = GoogleCalendarConnection(clinic_id=clinic.id)
             db.add(connection)
+        elif not same_google_identity:
+            # A calendar selected by another Google identity must not carry over.
+            connection.calendar_id = "primary"
         connection.user_id = user.id
-        connection.account_email = str(profile.get("email") or user.email)
+        connection.account_email = profile_email
         connection.calendar_id = connection.calendar_id or "primary"
         connection.access_token_encrypted = _encrypt(access_token)
         connection.refresh_token_encrypted = _encrypt(refresh_token)
@@ -1165,7 +1356,7 @@ def google_calendar_oauth_callback(
         db.commit()
     except Exception:
         db.rollback()
-        logger.exception("Google Calendar OAuth callback failed clinic=%s", state_row.clinic_id)
+        logger.warning("Google Calendar OAuth callback failed clinic=%s", state_row.clinic_id)
         return _oauth_frontend_redirect("error")
     return _oauth_frontend_redirect("connected")
 
@@ -1182,10 +1373,10 @@ def list_google_calendars(
         connection.last_error = None
         db.commit()
         return {"items": calendars}
-    except Exception as exc:
+    except Exception:
         db.rollback()
-        logger.exception("Google Calendar list failed clinic=%s", user.clinic_id)
-        raise HTTPException(status_code=502, detail="No se pudieron cargar los calendarios de Google.") from exc
+        logger.warning("Google Calendar list failed clinic=%s", user.clinic_id)
+        raise HTTPException(status_code=502, detail="No se pudieron cargar los calendarios de Google.") from None
 
 
 @router.patch("/integrations/google-calendar")
@@ -1226,12 +1417,11 @@ def disconnect_google_calendar(
     db: Session = Depends(get_db),
 ) -> dict:
     connection = _connection_or_404(db, user.clinic_id)
-    token = _decrypt(connection.refresh_token_encrypted) or _decrypt(connection.access_token_encrypted)
-    if token:
-        try:
-            httpx.post(GOOGLE_REVOKE_URL, params={"token": token}, timeout=10.0)
-        except httpx.HTTPError:
-            logger.exception("Google token revoke failed clinic=%s", user.clinic_id)
+    token = None
+    try:
+        token = _decrypt(connection.refresh_token_encrypted) or _decrypt(connection.access_token_encrypted)
+    except Exception:
+        logger.warning("Google credentials could not be decrypted during disconnect clinic=%s", user.clinic_id)
     connection.enabled = False
     connection.access_token_encrypted = None
     connection.refresh_token_encrypted = None
@@ -1252,6 +1442,11 @@ def disconnect_google_calendar(
         request=request,
     )
     db.commit()
+    if token:
+        try:
+            httpx.post(GOOGLE_REVOKE_URL, data={"token": token}, timeout=10.0)
+        except httpx.HTTPError:
+            logger.warning("Google token revoke failed after local disconnect clinic=%s", user.clinic_id)
     clinic = db.get(Clinic, user.clinic_id)
     return _integration_payload(db, clinic)
 
@@ -1265,9 +1460,16 @@ def synchronize_google_calendar_now(
     connection = _connection_or_404(db, user.clinic_id)
     clinic = db.get(Clinic, user.clinic_id)
     try:
+        # Deletions remain retryable even when FreeBusy is unavailable.
+        deleted, deletion_failed = retry_orphaned_google_deletions(
+            db,
+            user.clinic_id,
+            confirm_uncertain_missing=True,
+        )
+        db.commit()
         _google_busy_ranges(db, clinic, connection, _now_utc().astimezone(_clinic_timezone(clinic)).date())
-        synchronized = 0
-        failed = 0
+        synchronized = deleted
+        failed = deletion_failed
         if connection.push_klinia_appointments:
             appointments = list(
                 db.scalars(
@@ -1284,7 +1486,7 @@ def synchronize_google_calendar_now(
                 row = sync_appointment_to_google(db, appointment, force=True)
                 if row and row.sync_status == "synced":
                     synchronized += 1
-                elif row and row.sync_status == "error":
+                elif row and row.sync_status in {"error", "unknown_remote_state", "delete_pending_confirmation", "reconciliation_required"}:
                     failed += 1
         connection.last_synced_at = _now_utc()
         connection.last_error = None if not failed else "Algunas citas no pudieron sincronizarse."
@@ -1301,10 +1503,10 @@ def synchronize_google_calendar_now(
     except HTTPException:
         db.rollback()
         raise
-    except Exception as exc:
+    except Exception:
         db.rollback()
-        logger.exception("Google Calendar manual sync failed clinic=%s", user.clinic_id)
-        raise HTTPException(status_code=502, detail="No se pudo completar la sincronización con Google Calendar.") from exc
+        logger.warning("Google Calendar manual sync failed clinic=%s", user.clinic_id)
+        raise HTTPException(status_code=502, detail="No se pudo completar la sincronización con Google Calendar.") from None
     return {"ok": True, "synchronized": synchronized, "failed": failed, "last_synced_at": connection.last_synced_at}
 
 
@@ -1566,11 +1768,22 @@ def _matching_patient(
     return matches[0] if len(matches) == 1 else None
 
 
-def _booking_lock(db: Session, clinic_id: str, booking_date: str) -> None:
+def lock_appointment_schedule(db: Session, clinic_id: str, booking_date: str) -> None:
+    """Serialize schedule validation/writes for one clinic day on PostgreSQL."""
     bind = db.get_bind()
     if bind.dialect.name != "postgresql":
         return
     digest = hashlib.sha256(f"{clinic_id}:{booking_date}".encode("utf-8")).digest()
+    lock_key = int.from_bytes(digest[:8], byteorder="big", signed=True)
+    db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
+
+
+def _lock_google_appointment_sync(db: Session, clinic_id: str, appointment_id: str) -> None:
+    """Serialize only integration work; never lock the clinical appointment row."""
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    digest = hashlib.sha256(f"google-sync:{clinic_id}:{appointment_id}".encode("utf-8")).digest()
     lock_key = int.from_bytes(digest[:8], byteorder="big", signed=True)
     db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
 
@@ -1642,15 +1855,6 @@ def create_public_booking(
     )
     if existing:
         return _booking_result(db, existing)
-    _booking_lock(db, clinic.id, payload.booking_date)
-    existing = db.scalar(
-        select(OnlineBooking).where(
-            OnlineBooking.clinic_id == clinic.id,
-            OnlineBooking.idempotency_key == payload.idempotency_key,
-        )
-    )
-    if existing:
-        return _booking_result(db, existing)
     selected_service_ids = set(_selected_service_ids(db, setting))
     selected_practitioner_ids = set(_selected_practitioner_ids(db, setting))
     if payload.service_id not in selected_service_ids or payload.practitioner_id not in selected_practitioner_ids:
@@ -1687,6 +1891,48 @@ def create_public_booking(
         (
             item
             for item in candidates
+            if item["start"] == payload.start and item["practitioner_id"] == practitioner.id
+        ),
+        None,
+    )
+    if not selected_slot:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este horario acaba de dejar de estar disponible. Elige otro hueco.",
+        )
+    # Google availability has already been checked. Serialize only the local
+    # schedule recheck and write, so a slow Google request cannot block manual
+    # appointment creation for this clinic/day.
+    lock_appointment_schedule(db, clinic.id, payload.booking_date)
+    existing = db.scalar(
+        select(OnlineBooking).where(
+            OnlineBooking.clinic_id == clinic.id,
+            OnlineBooking.idempotency_key == payload.idempotency_key,
+        )
+    )
+    if existing:
+        result = _booking_result(db, existing)
+        db.commit()
+        return result
+    # A concurrent booking may have created the same clinic-local patient while
+    # this request was checking Google. Resolve identity again under the lock.
+    patient = _matching_patient(db, clinic.id, full_name, str(payload.email), payload.phone)
+    patient_id = patient.id if patient else None
+    local_candidates = _availability_candidates(
+        db,
+        clinic=clinic,
+        setting=setting,
+        service=service,
+        booking_date=payload.booking_date,
+        practitioner_id=practitioner.id,
+        patient_id=patient_id,
+        include_google=False,
+    )
+    selected_slot = next(
+        (
+            item
+            for item in local_candidates
             if item["start"] == payload.start and item["practitioner_id"] == practitioner.id
         ),
         None,
@@ -1744,7 +1990,6 @@ def create_public_booking(
     )
     db.add(booking)
     db.flush()
-    sync_appointment_to_google(db, appointment)
     _audit(
         db,
         clinic_id=clinic.id,
@@ -1771,10 +2016,11 @@ def create_public_booking(
         )
         if existing:
             return _booking_result(db, existing)
-        logger.exception("Online booking integrity error clinic=%s", clinic.id)
+        logger.warning("Online booking integrity error clinic=%s", clinic.id)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Este horario acaba de dejar de estar disponible. Elige otro hueco.",
         ) from exc
+    sync_after_clinical_commit(db, appointment)
     db.refresh(booking)
     return _booking_result(db, booking)

@@ -457,7 +457,7 @@ class AppointmentGoogleSync(TimestampMixin, Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
     clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
-    appointment_id: Mapped[str] = mapped_column(ForeignKey("appointments.id", ondelete="CASCADE"), index=True, nullable=False)
+    appointment_id: Mapped[str | None] = mapped_column(ForeignKey("appointments.id", ondelete="SET NULL"), index=True, nullable=True)
     google_event_id: Mapped[str | None] = mapped_column(String(1024))
     calendar_id: Mapped[str | None] = mapped_column(String(1024))
     sync_status: Mapped[str] = mapped_column(String(30), default="pending", index=True, nullable=False)

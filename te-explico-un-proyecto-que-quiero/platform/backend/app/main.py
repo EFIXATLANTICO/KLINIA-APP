@@ -18,7 +18,7 @@ from jose import JWTError, jwt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .calendar_integration import remove_appointment_from_google, router as calendar_integration_router, sync_appointment_to_google
+from .calendar_integration import delete_google_after_clinical_commit, lock_appointment_schedule, prepare_google_deletion, router as calendar_integration_router, sync_after_clinical_commit
 from .config import get_settings
 from .db import Base, engine, ensure_runtime_schema, get_db
 from .deps import current_subscribed_user, current_user, require_roles, require_subscribed_roles, require_superadmin
@@ -4418,6 +4418,7 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     end = appointment_end_from_payload(payload.start, payload.end, service)
+    lock_appointment_schedule(db, user.clinic_id, payload.date)
     validate_appointment_schedule(
         db,
         user.clinic_id,
@@ -4436,9 +4437,9 @@ def create_appointment(payload: AppointmentCreate, user: User = Depends(require_
     db.flush()
     reconcile_appointment_patient_pack(db, user, appointment)
     sync_appointment_payment_movement(db, user, appointment, service)
-    sync_appointment_to_google(db, appointment)
     audit_action(db, user, "create-appointment", "appointment", appointment.id)
     db.commit()
+    sync_after_clinical_commit(db, appointment)
     db.refresh(appointment)
     return appointment
 
@@ -4482,6 +4483,7 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
             requested_end = minutes_to_time(time_to_minutes(next_start) + current_duration)
     data["end"] = appointment_end_from_payload(next_start, requested_end, service)
     if not status_is_cancelled(next_status):
+        lock_appointment_schedule(db, user.clinic_id, next_date)
         validate_appointment_schedule(
             db,
             user.clinic_id,
@@ -4499,10 +4501,10 @@ def update_appointment(appointment_id: str, payload: AppointmentUpdate, user: Us
         setattr(appointment, field, value)
     reconcile_appointment_patient_pack(db, user, appointment)
     sync_appointment_payment_movement(db, user, appointment, service)
-    sync_appointment_to_google(db, appointment)
     action = "cancel-appointment" if data.get("status") == AppointmentStatus.cancelled and previous_status != AppointmentStatus.cancelled else "update-appointment"
     audit_action(db, user, action, "appointment", appointment.id, {"fields": sorted(data.keys())})
     db.commit()
+    sync_after_clinical_commit(db, appointment)
     db.refresh(appointment)
     return appointment
 
@@ -4553,7 +4555,9 @@ def delete_appointment(appointment_id: str, user: User = Depends(require_subscri
         if appointment.practitioner_id != user.practitioner.id:
             raise HTTPException(status_code=403, detail="Practitioners can only delete their own appointments")
     reconcile_appointment_patient_pack(db, user, appointment, force_revert=True)
-    remove_appointment_from_google(db, appointment)
+    google_sync_id = prepare_google_deletion(db, appointment)
+    google_clinic_id = user.clinic_id
     audit_action(db, user, "delete-appointment", "appointment", appointment.id)
     db.delete(appointment)
     db.commit()
+    delete_google_after_clinical_commit(db, google_clinic_id, google_sync_id)
