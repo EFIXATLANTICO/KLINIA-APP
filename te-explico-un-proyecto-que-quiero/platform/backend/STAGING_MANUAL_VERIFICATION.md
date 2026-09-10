@@ -1,10 +1,23 @@
-# Manual staging verification (pending, not evidence of success)
+# Manual staging verification (completed 2026-09-10)
 
-Do not run against production. No deployment is authorized by this checklist.
+Do not run against production. This completed staging checklist does not itself
+authorize a production deployment.
 First verify staging runs the exact reviewed commit. Otherwise results do not
 validate the local hardening changes. Record commit, date and timezone.
 
-## Preconditions
+## Recorded result
+
+- OAuth, CalendarList, FreeBusy and incremental consent: PASS.
+- Google CREATE, UPDATE of the same event, DELETE and DISCONNECT: PASS.
+- Public/manual double-booking protection and clinic isolation: PASS.
+- General staging screens, Agenda, manual appointment flow, mobile/PWA and logs:
+  PASS.
+- Requests or writes to production during the staging verification: zero.
+
+All tests used the fictitious staging clinic/account and the staging OAuth
+client. No Production OAuth client or real clinical data was used.
+
+## Re-run preconditions
 
 - Use only the confirmed PR preview, klinia-api-staging, a fictitious clinic,
   fictitious patient and a dedicated Google staging account/calendar.
@@ -65,4 +78,6 @@ Capture console/network errors without sensitive headers and one result per step
 - Non-allowlisted clinic: Google operations/public booking blocked, normal
   appointment workflows unchanged; removed clinic can still disconnect.
 
-Real Google E2E status: PENDING MANUAL EXECUTION.
+Real Google staging E2E status: PASS on 2026-09-10. Re-run this checklist after
+any functional code, OAuth staging configuration, migration, or deployment
+change that could affect Calendar behavior.

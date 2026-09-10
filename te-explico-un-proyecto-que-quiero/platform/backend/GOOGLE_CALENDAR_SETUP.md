@@ -1,96 +1,151 @@
-# Google Calendar and online booking rollout
+# Google Calendar production rollout
 
-This change is additive. Klinia remains the source of truth for appointments. Google Calendar contributes only free/busy availability and, when explicitly enabled by the clinic, a minimal synchronized event.
+This runbook covers the controlled production rollout of Google Calendar and
+online booking. Klinia remains the source of truth. Google integration failures
+must never roll back a committed Klinia appointment, patient, billing, or agenda
+operation.
 
-## 1. Google Cloud
+## 1. Google Production configuration
 
-1. Enable **Google Calendar API** in the Google Cloud project used for Klinia.
-2. Configure the OAuth consent screen and publish or authorize the test users as appropriate.
-3. Create an OAuth 2.0 client of type **Web application**.
-4. Add this authorized redirect URI exactly:
+Use only the Google Cloud project `Klinia Calendar Production` and the OAuth web
+client `Klinia Production Web`.
 
-   `https://api.kliniasolutions.com/integrations/google-calendar/oauth/callback`
+Authorized redirect URI:
 
-5. Keep the existing Google Login client untouched unless both integrations intentionally share the same Google Cloud project. Calendar OAuth uses its own backend client secret.
+`https://api.kliniasolutions.com/integrations/google-calendar/oauth/callback`
 
-The integration requests these scopes:
+Required scopes only:
 
 - `openid`
 - `email`
 - `https://www.googleapis.com/auth/calendar.freebusy`
 - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
-- `https://www.googleapis.com/auth/calendar.events.owned` only when the clinic enables Klinia-to-Google event synchronization
+- `https://www.googleapis.com/auth/calendar.events.owned`, requested
+  incrementally when the clinic enables Klinia-to-Google synchronization
 
-It does not request Gmail, Contacts, Drive, broad Calendar read access, or access to event content. The calendar selector is restricted to calendars owned by the connected account so the write scope remains minimal.
+Do not use the staging OAuth client, Render staging URLs, Vercel Preview URLs,
+or additional Google APIs/scopes.
 
-## 2. Render environment
+## 2. Production environment
 
-Configure these secret values on the backend service:
+Configure these values only on the production backend service:
 
 - `GOOGLE_CALENDAR_CLIENT_ID`
 - `GOOGLE_CALENDAR_CLIENT_SECRET`
 - `GOOGLE_CALENDAR_REDIRECT_URI=https://api.kliniasolutions.com/integrations/google-calendar/oauth/callback`
 - `GOOGLE_CALENDAR_TOKEN_KEY`
+- `GOOGLE_CALENDAR_ROLLOUT_CLINIC_IDS`
 
-Generate `GOOGLE_CALENDAR_TOKEN_KEY` once with:
+Generate a new Fernet key exclusively for production and store it as a secret.
+Keep it stable after connections exist. Never copy the staging key or expose any
+of these values in logs, screenshots, tickets, or chat.
+
+The first production deployment must use an unset or empty
+`GOOGLE_CALENDAR_ROLLOUT_CLINIC_IDS`. Both forms authorize zero clinics. Do not
+add a clinic ID until the no-Google production smoke test passes.
+
+## 3. Database migration
+
+The required linear migration chain is:
+
+`20260506_1805 -> 20260907_1200 -> 20260909_1200`
+
+Before deployment, run read-only checks from the production backend shell:
 
 ```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+alembic current
+alembic heads
 ```
 
-Store the key as a Render secret and keep it stable. Rotating or deleting it without a token migration invalidates existing Calendar connections.
+The expected starting revision is `20260506_1805`; the expected repository head
+is `20260909_1200`. Stop if either value differs.
 
-Existing shared settings must remain:
-
-- `FRONTEND_URL=https://www.kliniasolutions.com`
-- `DATABASE_URL`
-- existing JWT, Stripe, Brevo, and Google Login variables
-
-## 3. Database
-
-Apply migration:
+The production upgrade command is:
 
 ```bash
-alembic upgrade head
+alembic upgrade 20260909_1200
 ```
 
-The migration only creates these tables:
+Run it as the Render pre-deploy command for the exact reviewed merge commit, so
+the build contains both migration files and the upgrade completes before the new
+backend receives traffic. After deployment, `alembic current` must report
+`20260909_1200`.
 
-- `google_calendar_connections`
-- `google_calendar_oauth_states`
-- `online_booking_settings`
-- `online_booking_services`
-- `online_booking_practitioners`
-- `online_bookings`
-- `appointment_google_sync`
+`20260907_1200` creates seven additive Calendar/booking tables.
+`20260909_1200` makes `appointment_google_sync.appointment_id` nullable and
+changes its appointment foreign key to `ON DELETE SET NULL`, preserving failed
+Google deletion targets. It sets bounded PostgreSQL lock and statement timeouts.
 
-It does not alter or delete existing appointments, patients, billing, reminders, packs, users, or clinics.
+Never use `alembic downgrade` as a production rollback. Keep the additive tables
+in place unless a separately reviewed data-migration plan explicitly replaces
+them.
 
-If production is not currently Alembic-stamped, do not run a blind full upgrade. Inspect `alembic current` first and use the established Render migration procedure.
+## 4. Controlled deployment order
 
-## 4. Deployment order
+1. Confirm production service/database IDs, branches, deployed SHAs, health,
+   Auto-Deploy settings, and the canonical Vercel project.
+2. Prevent Render and Vercel from releasing the merge automatically before the
+   controlled sequence is ready.
+3. Create a fresh production PostgreSQL export or recovery point and verify it
+   is available. Record its timestamp.
+4. Record the current `main`, Render deployment, Vercel deployment, and Alembic
+   revision.
+5. Prepare the five Calendar variables with the rollout allowlist empty.
+6. Merge only the reviewed PR after all CI checks pass and record the merge SHA.
+7. Manually deploy that exact SHA to `klinia-api`; its pre-deploy command applies
+   the migration before traffic switches.
+8. Require `alembic current=20260909_1200`, `GET /health=200`,
+   `env=production`, backend setup `ready`, and clean logs.
+9. Release only the canonical Vercel production project and verify that it calls
+   `https://api.kliniasolutions.com`, never staging.
+10. Complete the no-Google smoke test while the allowlist remains empty.
 
-1. Take/confirm a current PostgreSQL backup.
-2. Deploy the backend to Render with the four Calendar variables.
-3. Apply/verify the new non-destructive tables.
-4. Verify `GET /health` returns 200.
-5. Verify the authenticated `GET /integrations/google-calendar`.
-6. Deploy the frontend to Vercel.
-7. Connect a dedicated test calendar from Configuración > Integraciones.
-8. Enable online booking for one test service and professional.
-9. Verify the public URL `/reservar/{slug}` before enabling it for real clinics.
+## 5. No-Google smoke test
 
-## 5. Acceptance checks
+Verify homepage, classic login, existing Google Login, Agenda day/week/two-month
+views, professional filters/colors, local appointment create/edit/move/cancel,
+patients, workers, rooms, permissions, settings, reminders, packs, billing,
+performance, navigation, and PWA/service-worker refresh.
 
-- A private Google event blocks its interval but its title, description, attendees, location, and contents never reach the public API.
-- A public reservation is revalidated on the backend under a PostgreSQL advisory transaction lock.
-- Two confirmations for the same slot create one appointment; the second receives HTTP 409.
-- Repeating one request with the same idempotency key returns the original booking.
-- The created row is a normal Klinia `Appointment`, with source metadata `online_booking`.
-- When synchronization is enabled, Google receives only:
-  - title: `Klinia - Cita`
-  - description: `Gestionada desde Klinia.`
-  - date/time and private internal correlation identifiers
-- Editing or cancelling in Klinia updates/removes the Google event.
-- Deleting the Google event never deletes the Klinia appointment; manual synchronization can recreate it.
-- Disconnecting Google clears encrypted credentials and leaves all Klinia data intact.
+Expected result: normal Klinia behavior, no Google network calls, no Calendar
+sync rows for ordinary appointments, OAuth blocked for real clinics, and public
+booking unavailable for non-allowlisted clinic slugs.
+
+## 6. Review clinic and production OAuth check
+
+Create only the fictitious `CLINICA GOOGLE REVIEW` after the smoke test. Use slug
+`clinica-google-review`, owner `google-review@kliniasolutions.com`, practitioner
+`ANGEL REVIEW`, service `Fisioterapia Review - 60 min`, room `SALA REVIEW`,
+and patient `Paciente Google Review`.
+
+Read its clinic ID from the authenticated `/me` response and cross-check it in
+the Superadmin clinic record. Set the rollout variable to that one exact ID,
+restart/deploy the configuration safely, and confirm every other clinic remains
+blocked.
+
+Run OAuth Production, CalendarList selection, private-event FreeBusy blocking,
+incremental `calendar.events.owned` consent, CREATE, UPDATE of the same stored
+Google event ID, DELETE, and DISCONNECT. Capture no tokens, secrets, OAuth codes,
+cookies, headers, or real clinical data.
+
+After the review/video, empty the allowlist again unless the approved pilot is
+starting immediately.
+
+## 7. Monitoring and rollback
+
+For the first 30 minutes inspect `/health`, HTTP 5xx, authentication failures,
+database/Alembic errors, lock timeouts, failed bookings, OAuth callback errors,
+Google failures, `reconciliation_required`, duplicate events, and latency.
+
+- Level 1: empty the allowlist for a Google-only incident.
+- Level 2: restore the previous Render/Vercel deployments for a core regression.
+- Level 3: use the verified recovery copy only for confirmed database corruption.
+
+Do not delete appointments, patients, connections, or additive tables during
+rollback. Google disabled must leave normal Klinia operation available.
+
+## 8. Progressive rollout
+
+Add clinic IDs one at a time only after the review clinic passes. Verify OAuth,
+availability, synchronization, booking, logs, billing, and performance after
+each cohort. Never begin with a mass allowlist.
