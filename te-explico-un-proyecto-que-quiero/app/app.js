@@ -1397,6 +1397,9 @@ async function apiRequest(path, options = {}) {
 }
 
 function backendApiBaseUrl() {
+  if (window.location.hostname.endsWith(".vercel.app")) {
+    return "https://klinia-api-staging.onrender.com";
+  }
   const explicitConfigured = String(window.KLINIA_API_BASE_URL || "").trim();
   if (explicitConfigured) {
     return explicitConfigured.replace(/\/$/, "");

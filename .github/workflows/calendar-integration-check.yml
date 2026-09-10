@@ -1,0 +1,71 @@
+name: Calendar integration checks
+
+on:
+  pull_request:
+    paths:
+      - "te-explico-un-proyecto-que-quiero/platform/backend/**"
+      - "te-explico-un-proyecto-que-quiero/app/calendar-integrations.*"
+      - "te-explico-un-proyecto-que-quiero/app/reservar/**"
+      - "te-explico-un-proyecto-que-quiero/app/privacidad/**"
+      - "te-explico-un-proyecto-que-quiero/app/terminos/**"
+      - "te-explico-un-proyecto-que-quiero/app/legal.css"
+      - "te-explico-un-proyecto-que-quiero/app/index.html"
+      - "te-explico-un-proyecto-que-quiero/app/sw.js"
+      - "te-explico-un-proyecto-que-quiero/app/tests/**"
+      - "te-explico-un-proyecto-que-quiero/app/vercel.json"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        run: pip install -r requirements.txt
+      - name: Compile and import backend
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        run: |
+          python -m compileall -q app migrations
+          alembic heads
+          python -c "from app.main import app; assert app"
+      - name: Run Calendar integration tests
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Check frontend JavaScript syntax
+        working-directory: te-explico-un-proyecto-que-quiero/app
+        run: |
+          node --check app.js
+          node --check calendar-integrations.js
+          node --check reservar/booking.js
+          node --check sw.js
+          node tests/calendar-service-worker.test.cjs
+      - name: Rehearse PostgreSQL migration, concurrency and restore locally
+        working-directory: te-explico-un-proyecto-que-quiero/platform/backend
+        env:
+          DATABASE_URL: sqlite:////tmp/klinia-pr7-staging-ci.db
+          APP_ENV: staging
+        run: |
+          PG_BIN="$(pg_config --bindir)"
+          "$PG_BIN/initdb" -D /tmp/klinia-pr7-staging-postgres --auth-local=trust --auth-host=reject --no-locale --encoding=UTF8
+          trap '"$PG_BIN/pg_ctl" -D /tmp/klinia-pr7-staging-postgres stop -m fast' EXIT
+          "$PG_BIN/pg_ctl" -D /tmp/klinia-pr7-staging-postgres -l /tmp/klinia-pr7-staging-postgres/server.log -o "-c listen_addresses='' -k /tmp/klinia-pr7-staging-postgres -p 55437" start
+          PYTHONPATH="$PWD" python tests/postgres_calendar_rehearsal.py
+      - name: Check public legal pages and routes
+        working-directory: te-explico-un-proyecto-que-quiero/app
+        run: |
+          test -f privacidad/index.html
+          test -f terminos/index.html
+          grep -q "Google API Services User Data Policy" privacidad/index.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+          rewrites = {item["source"]: item["destination"] for item in config["rewrites"]}
+          assert rewrites["/privacidad"] == "/privacidad/index"
+          assert rewrites["/terminos"] == "/terminos/index"
+          PY

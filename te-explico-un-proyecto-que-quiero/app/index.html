@@ -25,6 +25,7 @@
     </style>
     <link rel="preconnect" href="https://accounts.google.com" />
     <link rel="stylesheet" href="./styles.css?v=20260806-legal-representatives" />
+    <link rel="stylesheet" href="./calendar-integrations.css?v=20260907-google-calendar-booking" />
   </head>
   <body class="login-mode">
     <section class="activation-screen" id="activation-screen" hidden aria-label="Crear contraseña de acceso">
@@ -1517,6 +1518,136 @@
                 <input id="template-search" type="search" placeholder="Primera visita, evolucion, alta..." />
               </label>
               <div class="compact-list" id="settings-clinical-templates"></div>
+            </article>
+
+            <article class="settings-panel settings-panel-wide calendar-integration-panel" id="calendar-integration-panel">
+              <div class="section-header integration-heading">
+                <div>
+                  <h2>Integraciones</h2>
+                  <p>Conecta la disponibilidad externa y configura el enlace público de reservas.</p>
+                </div>
+                <span class="status-pill" id="google-calendar-status">No conectado</span>
+              </div>
+
+              <section class="integration-section" aria-labelledby="google-calendar-title">
+                <div class="integration-section-heading">
+                  <div>
+                    <h3 id="google-calendar-title">Google Calendar</h3>
+                    <p>Klinia mantiene el control de la Agenda. Google solo aporta disponibilidad y sincronización opcional.</p>
+                  </div>
+                  <div class="compact-actions">
+                    <button class="primary-button" id="connect-google-calendar" type="button">Conectar Google Calendar</button>
+                    <button class="secondary-button" id="sync-google-calendar" type="button" hidden>Sincronizar ahora</button>
+                    <button class="secondary-button" id="disconnect-google-calendar" type="button" hidden>Desconectar</button>
+                  </div>
+                </div>
+                <p class="form-help" id="google-calendar-unavailable" hidden></p>
+                <div class="integration-facts" id="google-calendar-details" hidden>
+                  <div><span>Cuenta conectada</span><strong id="google-calendar-account">-</strong></div>
+                  <div><span>Última sincronización</span><strong id="google-calendar-last-sync">-</strong></div>
+                </div>
+                <form class="integration-form" id="google-calendar-settings-form" hidden>
+                  <label>
+                    Calendario seleccionado
+                    <select name="calendarId" aria-label="Calendario de Google seleccionado"></select>
+                  </label>
+                  <div class="integration-toggle-grid">
+                    <label class="check-row">
+                      <input name="blockBusyTimes" type="checkbox" checked />
+                      Bloquear huecos ocupados en Google
+                    </label>
+                    <label class="check-row">
+                      <input name="pushAppointments" type="checkbox" />
+                      Crear citas de Klinia en Google
+                    </label>
+                    <label class="check-row">
+                      <input name="importBusyOnly" type="checkbox" checked />
+                      Usar eventos ocupados solo como “No disponible”
+                    </label>
+                    <label class="check-row">
+                      <input name="autoSync" type="checkbox" checked />
+                      Sincronización automática
+                    </label>
+                  </div>
+                  <p class="form-help">Los pacientes nunca ven nombres, descripciones, invitados ni ubicaciones de eventos de Google.</p>
+                  <button class="primary-button compact-inline-button" type="submit">Guardar integración</button>
+                </form>
+              </section>
+
+              <section class="integration-section" aria-labelledby="online-booking-title">
+                <div class="integration-section-heading">
+                  <div>
+                    <h3 id="online-booking-title">Reservas online</h3>
+                    <p>Publica únicamente huecos que el backend haya comprobado como disponibles.</p>
+                  </div>
+                </div>
+                <form class="integration-form" id="online-booking-settings-form">
+                  <label class="check-row integration-master-toggle">
+                    <input name="enabled" type="checkbox" />
+                    Activar reservas online
+                  </label>
+                  <div class="integration-link-row">
+                    <label>
+                      Enlace público
+                      <input id="online-booking-public-url" name="publicUrl" type="url" readonly />
+                    </label>
+                    <button class="secondary-button" id="copy-online-booking-link" type="button">Copiar enlace</button>
+                    <button class="secondary-button" id="open-online-booking-link" type="button">Abrir</button>
+                  </div>
+                  <label>
+                    Identificador del enlace
+                    <input name="slug" type="text" maxlength="180" pattern="[a-z0-9-]+" placeholder="mi-clinica" />
+                  </label>
+                  <div class="integration-options-grid">
+                    <fieldset>
+                      <legend>Servicios reservables</legend>
+                      <div class="integration-choice-list" id="online-booking-services"></div>
+                    </fieldset>
+                    <fieldset>
+                      <legend>Profesionales reservables</legend>
+                      <div class="integration-choice-list" id="online-booking-practitioners"></div>
+                    </fieldset>
+                  </div>
+                  <div class="integration-number-grid">
+                    <label>
+                      Antelación mínima (minutos)
+                      <input name="minNoticeMinutes" type="number" min="0" max="43200" step="15" value="120" />
+                    </label>
+                    <label>
+                      Antelación máxima (días)
+                      <input name="maxDaysAhead" type="number" min="1" max="730" value="90" />
+                    </label>
+                    <label>
+                      Cancelación mínima (minutos)
+                      <input name="minCancellationMinutes" type="number" min="0" max="43200" step="15" value="1440" />
+                    </label>
+                    <label>
+                      Margen entre citas (minutos)
+                      <input name="bufferMinutes" type="number" min="0" max="240" step="5" value="0" />
+                    </label>
+                  </div>
+                  <div class="integration-toggle-grid">
+                    <label class="check-row">
+                      <input name="automaticConfirmation" type="checkbox" checked />
+                      Confirmación automática
+                    </label>
+                    <label class="check-row">
+                      <input name="allowProfessionalSelection" type="checkbox" checked />
+                      Permitir elegir profesional
+                    </label>
+                    <label class="check-row">
+                      <input name="showPrice" type="checkbox" />
+                      Mostrar precio del servicio
+                    </label>
+                    <label class="check-row">
+                      <input name="showDuration" type="checkbox" checked />
+                      Mostrar duración
+                    </label>
+                  </div>
+                  <button class="primary-button compact-inline-button" type="submit">Guardar reservas online</button>
+                </form>
+              </section>
+              <p class="integration-message" id="calendar-integration-message" role="status" aria-live="polite"></p>
             </article>
 
             <article class="settings-panel settings-panel-wide data-safety-panel">
@@ -3025,9 +3156,9 @@
 
     <script src="https://accounts.google.com/gsi/client?hl=es" async defer></script>
     <script src="./app.js?v=20260806-legal-representatives"></script>
+    <script src="./calendar-integrations.js?v=20260907-google-calendar-booking"></script>
   </body>
 </html>
-
 
 
 

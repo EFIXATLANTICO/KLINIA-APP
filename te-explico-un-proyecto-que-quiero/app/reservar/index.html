@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f2f2a" />
+    <meta name="robots" content="noindex,follow" />
+    <title>Reservar cita | Klinia</title>
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/reservar/booking.css?v=20260907-google-calendar-booking" />
+  </head>
+  <body>
+    <header class="booking-header">
+      <a class="booking-brand" href="/" aria-label="Klinia">
+        <img src="/assets/klinia-logo.svg" alt="" />
+        <span>Klinia</span>
+      </a>
+      <span class="booking-clinic-name" id="header-clinic-name"></span>
+    </header>
+
+    <main class="booking-main">
+      <section class="booking-shell" aria-labelledby="booking-title">
+        <div class="booking-intro">
+          <p class="eyebrow">Reserva online</p>
+          <h1 id="booking-title">Elige tu cita</h1>
+          <p id="booking-clinic-copy">Cargando disponibilidad...</p>
+        </div>
+
+        <ol class="booking-progress" id="booking-progress" aria-label="Pasos de la reserva">
+          <li class="active" data-progress-step="1"><span>1</span>Servicio</li>
+          <li data-progress-step="2"><span>2</span>Profesional</li>
+          <li data-progress-step="3"><span>3</span>Fecha y hora</li>
+          <li data-progress-step="4"><span>4</span>Tus datos</li>
+        </ol>
+
+        <div class="booking-alert" id="booking-alert" role="alert" hidden></div>
+
+        <form id="booking-form" novalidate>
+          <section class="booking-step active" data-booking-step="1">
+            <div class="step-heading">
+              <h2>Selecciona un servicio</h2>
+              <p>Solo se muestran servicios disponibles para reserva online.</p>
+            </div>
+            <div class="booking-options" id="booking-services"></div>
+            <div class="step-actions end">
+              <button class="primary-button" type="button" data-next-step>Continuar</button>
+            </div>
+          </section>
+
+          <section class="booking-step" data-booking-step="2" hidden>
+            <div class="step-heading">
+              <h2>Selecciona un profesional</h2>
+              <p>Elige con quién deseas realizar la cita.</p>
+            </div>
+            <div class="booking-options" id="booking-practitioners"></div>
+            <div class="step-actions">
+              <button class="secondary-button" type="button" data-previous-step>Volver</button>
+              <button class="primary-button" type="button" data-next-step>Continuar</button>
+            </div>
+          </section>
+
+          <section class="booking-step" data-booking-step="3" hidden>
+            <div class="step-heading">
+              <h2>Selecciona fecha y hora</h2>
+              <p>Los huecos se comprueban con la Agenda de Klinia y la disponibilidad conectada.</p>
+            </div>
+            <label class="booking-date-field">
+              Fecha
+              <input id="booking-date" name="bookingDate" type="date" required />
+            </label>
+            <div class="slots-status" id="slots-status">Selecciona una fecha.</div>
+            <div class="booking-slots" id="booking-slots" aria-live="polite"></div>
+            <div class="step-actions">
+              <button class="secondary-button" type="button" data-previous-step>Volver</button>
+              <button class="primary-button" type="button" data-next-step>Continuar</button>
+            </div>
+          </section>
+
+          <section class="booking-step" data-booking-step="4" hidden>
+            <div class="step-heading">
+              <h2>Introduce tus datos</h2>
+              <p>La clínica utilizará estos datos únicamente para gestionar tu cita.</p>
+            </div>
+            <div class="booking-summary" id="booking-summary"></div>
+            <div class="patient-fields">
+              <label>
+                Nombre
+                <input name="firstName" type="text" autocomplete="given-name" maxlength="120" required />
+              </label>
+              <label>
+                Apellidos
+                <input name="lastName" type="text" autocomplete="family-name" maxlength="180" required />
+              </label>
+              <label>
+                Teléfono
+                <input name="phone" type="tel" autocomplete="tel" maxlength="40" required />
+              </label>
+              <label>
+                Email
+                <input name="email" type="email" autocomplete="email" maxlength="255" required />
+              </label>
+              <label class="wide-field">
+                Observaciones <span>(opcional)</span>
+                <textarea name="notes" rows="3" maxlength="2000"></textarea>
+              </label>
+              <label class="website-field" aria-hidden="true">
+                Sitio web
+                <input name="website" type="text" tabindex="-1" autocomplete="off" />
+              </label>
+            </div>
+            <p class="privacy-note">Al confirmar, solicitas una cita con la clínica indicada. Ningún dato de otros pacientes o eventos externos se muestra en este proceso.</p>
+            <div class="step-actions">
+              <button class="secondary-button" type="button" data-previous-step>Volver</button>
+              <button class="primary-button" id="confirm-booking" type="submit">Confirmar reserva</button>
+            </div>
+          </section>
+        </form>
+
+        <section class="booking-success" id="booking-success" hidden aria-live="polite">
+          <span class="success-mark" aria-hidden="true">✓</span>
+          <h2>Tu cita ha sido reservada correctamente.</h2>
+          <dl id="booking-result"></dl>
+        </section>
+      </section>
+    </main>
+
+    <footer class="booking-footer">
+      <span>Reserva gestionada de forma segura con Klinia.</span>
+      <nav aria-label="Información legal">
+        <a href="/privacidad">Privacidad</a>
+        <a href="/terminos">Términos</a>
+      </nav>
+    </footer>
+    <script src="/reservar/booking.js?v=20260907-google-calendar-booking"></script>
+  </body>
+</html>

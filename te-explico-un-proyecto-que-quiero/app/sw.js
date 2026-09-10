@@ -1,10 +1,12 @@
-const KLINIA_CACHE = "klinia-20260806-legal-representatives";
+const KLINIA_CACHE = "klinia-20260909-calendar-hardening";
 const KLINIA_PWA_ASSET_CACHE = "klinia-pwa-assets-20260728-icons-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=20260806-legal-representatives",
   "./app.js?v=20260806-legal-representatives",
+  "./calendar-integrations.css?v=20260907-google-calendar-booking",
+  "./calendar-integrations.js?v=20260907-google-calendar-booking",
   "./offline.html",
   "./assets/klinia-logo.svg"
 ];
@@ -50,12 +52,22 @@ self.addEventListener("fetch", (event) => {
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
 
+  const separatePublicPage = ["/reservar", "/privacidad", "/terminos", "/portfolio"].some(
+    (path) => requestUrl.pathname === path || requestUrl.pathname.startsWith(`${path}/`)
+  );
+  if (event.request.mode === "navigate" && separatePublicPage) {
+    event.respondWith(fetch(event.request, { cache: "no-store" }));
+    return;
+  }
+
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request, { cache: "no-store" })
         .then((response) => {
           const copy = response.clone();
-          caches.open(KLINIA_CACHE).then((cache) => cache.put("./index.html", copy)).catch(() => null);
+          if (response.ok) {
+            caches.open(KLINIA_CACHE).then((cache) => cache.put("./index.html", copy)).catch(() => null);
+          }
           return response;
         })
         .catch(() => caches.match("./index.html").then((cached) => cached || caches.match("./offline.html")))

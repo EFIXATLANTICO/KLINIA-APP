@@ -352,3 +352,115 @@ class SupportTicket(TimestampMixin, Base):
     priority: Mapped[str] = mapped_column(String(30), default="medium", nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="open", nullable=False)
     history_json: Mapped[str | None] = mapped_column(Text)
+
+
+
+class GoogleCalendarConnection(TimestampMixin, Base):
+    __tablename__ = "google_calendar_connections"
+    __table_args__ = (UniqueConstraint("clinic_id", name="uq_google_calendar_connection_clinic"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    account_email: Mapped[str | None] = mapped_column(String(255))
+    calendar_id: Mapped[str] = mapped_column(String(1024), default="primary", nullable=False)
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    granted_scopes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    block_busy_times: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    push_klinia_appointments: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    import_busy_as_unavailable: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    auto_sync: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class GoogleCalendarOAuthState(TimestampMixin, Base):
+    __tablename__ = "google_calendar_oauth_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    nonce_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    include_write: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OnlineBookingSetting(TimestampMixin, Base):
+    __tablename__ = "online_booking_settings"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", name="uq_online_booking_setting_clinic"),
+        UniqueConstraint("slug", name="uq_online_booking_setting_slug"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    slug: Mapped[str] = mapped_column(String(180), index=True, nullable=False)
+    min_notice_minutes: Mapped[int] = mapped_column(Integer, default=120, nullable=False)
+    max_days_ahead: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    min_cancellation_minutes: Mapped[int] = mapped_column(Integer, default=1440, nullable=False)
+    buffer_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    automatic_confirmation: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    allow_professional_selection: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    show_price: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    show_duration: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+
+
+class OnlineBookingService(TimestampMixin, Base):
+    __tablename__ = "online_booking_services"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "service_id", name="uq_online_booking_service_clinic_service"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    settings_id: Mapped[str] = mapped_column(ForeignKey("online_booking_settings.id", ondelete="CASCADE"), index=True, nullable=False)
+    service_id: Mapped[str] = mapped_column(ForeignKey("services.id", ondelete="CASCADE"), index=True, nullable=False)
+
+
+class OnlineBookingPractitioner(TimestampMixin, Base):
+    __tablename__ = "online_booking_practitioners"
+    __table_args__ = (
+        UniqueConstraint("clinic_id", "practitioner_id", name="uq_online_booking_practitioner_clinic_practitioner"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    settings_id: Mapped[str] = mapped_column(ForeignKey("online_booking_settings.id", ondelete="CASCADE"), index=True, nullable=False)
+    practitioner_id: Mapped[str] = mapped_column(ForeignKey("practitioners.id", ondelete="CASCADE"), index=True, nullable=False)
+
+
+class OnlineBooking(TimestampMixin, Base):
+    __tablename__ = "online_bookings"
+    __table_args__ = (
+        UniqueConstraint("appointment_id", name="uq_online_booking_appointment"),
+        UniqueConstraint("clinic_id", "idempotency_key", name="uq_online_booking_clinic_idempotency"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    appointment_id: Mapped[str] = mapped_column(ForeignKey("appointments.id", ondelete="CASCADE"), index=True, nullable=False)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id", ondelete="CASCADE"), index=True, nullable=False)
+    booking_code: Mapped[str] = mapped_column(String(40), unique=True, index=True, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), index=True)
+    source: Mapped[str] = mapped_column(String(40), default="online_booking", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="confirmed", nullable=False)
+
+
+class AppointmentGoogleSync(TimestampMixin, Base):
+    __tablename__ = "appointment_google_sync"
+    __table_args__ = (UniqueConstraint("appointment_id", name="uq_appointment_google_sync_appointment"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    clinic_id: Mapped[str] = mapped_column(ForeignKey("clinics.id", ondelete="CASCADE"), index=True, nullable=False)
+    appointment_id: Mapped[str | None] = mapped_column(ForeignKey("appointments.id", ondelete="SET NULL"), index=True, nullable=True)
+    google_event_id: Mapped[str | None] = mapped_column(String(1024))
+    calendar_id: Mapped[str | None] = mapped_column(String(1024))
+    sync_status: Mapped[str] = mapped_column(String(30), default="pending", index=True, nullable=False)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sync_error: Mapped[str | None] = mapped_column(Text)
+    booking_source: Mapped[str | None] = mapped_column(String(40))

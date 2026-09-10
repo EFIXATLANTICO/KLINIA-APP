@@ -1,14 +1,14 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from alembic.script import ScriptDirectory
+from sqlalchemy import engine_from_config, inspect, pool
 
-from app.config import get_settings
-from app.db import Base
+from app.db import Base, database_url
 from app import models  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -18,7 +18,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=get_settings().database_url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -35,11 +35,14 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
-    with connectable.connect() as connection:
+    with connectable.begin() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
-
-        with context.begin_transaction():
-            context.run_migrations()
+        existing_tables = set(inspect(connection).get_table_names())
+        if not (existing_tables - {"alembic_version"}):
+            Base.metadata.create_all(bind=connection)
+            context.get_context().stamp(ScriptDirectory.from_config(config), "heads")
+            return
+        context.run_migrations()
 
 
 if context.is_offline_mode():
